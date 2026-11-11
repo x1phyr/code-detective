@@ -1,0 +1,86 @@
+import type { BridgeMessage, RevealPayload, Selection, ViewState } from '../../shared/types';
+import { HostError } from './paths';
+
+const GLOBAL_MESSAGES = new Set(['view.ready', 'maps.refresh', 'prompt.copy', 'help.open']);
+const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.clear', 'highlight.setEnabled', 'ui.patch', 'map.openFile']);
+const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+}
+
+function fail(message: string): never { throw new HostError('INVALID_MESSAGE', message); }
+function exactKeys(value: Record<string, unknown>, allowed: string[]): void {
+  if (Object.keys(value).some(key => !allowed.includes(key))) fail('消息中包含未定义字段。');
+}
+function id(value: unknown): value is string { return typeof value === 'string' && ID.test(value); }
+function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000; }
+function selection(value: unknown): value is Selection {
+  return isObject(value) && Object.keys(value).every(key => ['kind', 'id'].includes(key))
+    && typeof value.kind === 'string' && ['node', 'edge', 'step'].includes(value.kind) && id(value.id);
+}
+
+export function validateUiPatch(value: Record<string, unknown>): Partial<ViewState> {
+  exactKeys(value, ['selection', 'sourceId', 'stepId', 'highlightEnabled', 'positions', 'viewport']);
+  if (value.selection !== undefined && !selection(value.selection)) fail('选中对象格式无效。');
+  if (value.sourceId !== undefined && !id(value.sourceId)) fail('来源 ID 格式无效。');
+  if (value.stepId !== undefined && !id(value.stepId)) fail('步骤 ID 格式无效。');
+  if (value.highlightEnabled !== undefined && typeof value.highlightEnabled !== 'boolean') fail('高亮状态必须是布尔值。');
+  if (value.positions !== undefined) {
+    if (!isObject(value.positions) || Object.keys(value.positions).length > 500) fail('节点位置格式或数量无效。');
+    for (const [key, point] of Object.entries(value.positions)) {
+      if (!id(key) || !isObject(point)) fail('节点位置格式无效。');
+      exactKeys(point, ['x', 'y']);
+      if (!finite(point.x) || !finite(point.y)) fail('节点位置必须是有限坐标。');
+    }
+  }
+  if (value.viewport !== undefined) {
+    if (!isObject(value.viewport)) fail('画布视口格式无效。');
+    exactKeys(value.viewport, ['x', 'y', 'zoom']);
+    if (!finite(value.viewport.x) || !finite(value.viewport.y) || !finite(value.viewport.zoom)
+      || value.viewport.zoom < 0.01 || value.viewport.zoom > 20) fail('画布视口坐标或缩放值无效。');
+  }
+  return value as Partial<ViewState>;
+}
+
+export function parseBridgeMessage(value: unknown): BridgeMessage<Record<string, unknown>> {
+  if (!isObject(value)) fail('消息必须是普通对象。');
+  exactKeys(value, ['protocolVersion', 'requestId', 'type', 'mapKey', 'mapRevision', 'payload']);
+  if (value.protocolVersion !== 1 || typeof value.requestId !== 'string' || !value.requestId || value.requestId.length > 128
+    || typeof value.type !== 'string' || !TYPES.has(value.type) || !isObject(value.payload)) fail('消息格式或协议版本无效。');
+  if (value.mapKey !== undefined && (typeof value.mapKey !== 'string' || !value.mapKey || value.mapKey.length > 16_384)) fail('地图标识无效。');
+  if (value.mapRevision !== undefined && (typeof value.mapRevision !== 'string' || !/^[0-9a-f]{64}$/.test(value.mapRevision))) fail('地图版本标识无效。');
+  if (JSON.stringify(value).length > 256 * 1024) fail('消息过大。');
+  const payload = value.payload;
+  if (GLOBAL_MESSAGES.has(value.type)) {
+    exactKeys(payload, []);
+    if (value.mapKey !== undefined || value.mapRevision !== undefined) fail('初始化或全局操作不应携带地图字段。');
+  } else if (value.type === 'source.reveal') {
+    exactKeys(payload, ['targetKind', 'targetId', 'sourceId', 'focusEditor']);
+    if (typeof payload.targetKind !== 'string' || !['node', 'edge', 'step'].includes(payload.targetKind) || !id(payload.targetId)
+      || (payload.sourceId !== undefined && !id(payload.sourceId))
+      || (payload.focusEditor !== undefined && typeof payload.focusEditor !== 'boolean')) fail('来源导航参数无效。');
+  } else if (value.type === 'tour.goto') {
+    exactKeys(payload, ['stepId']);
+    if (!id(payload.stepId)) fail('步骤 ID 格式无效。');
+  } else if (value.type === 'highlight.setEnabled') {
+    exactKeys(payload, ['enabled']);
+    if (typeof payload.enabled !== 'boolean') fail('高亮开关必须是布尔值。');
+  } else if (value.type === 'ui.patch') {
+    validateUiPatch(payload);
+  } else {
+    exactKeys(payload, []);
+  }
+  if (value.type === 'map.open' && !value.mapKey) fail('打开地图需要 mapKey。');
+  return value as unknown as BridgeMessage<Record<string, unknown>>;
+}
+
+export function asRevealPayload(message: BridgeMessage<Record<string, unknown>>): RevealPayload {
+  return message.payload as unknown as RevealPayload;
+}
+
+export function isCancellation(message: BridgeMessage<Record<string, unknown>>): boolean {
+  return message.type === 'tour.stop' || message.type === 'highlight.clear'
+    || (message.type === 'highlight.setEnabled' && message.payload.enabled === false);
+}
