@@ -1,0 +1,64 @@
+{
+  "name": "code-detective",
+  "displayName": "代码侦探 🕵️",
+  "description": "把 AI 生成的功能地图变成可点击的源码导读：调用关系、源码跳转与相关代码高亮。",
+  "version": "0.1.0",
+  "publisher": "code-detective-dev",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["Visualization", "Other"],
+  "keywords": ["code map", "walkthrough", "code reading", "代码导读"],
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false },
+    "virtualWorkspaces": { "supported": false }
+  },
+  "activationEvents": ["workspaceContains:.code-detective/maps/*.json"],
+  "main": "./dist/extension.cjs",
+  "scripts": {
+    "dev": "node --require ./scripts/preview-env.cjs ./node_modules/vite/bin/vite.js --config vite.config.ts",
+    "build": "node scripts/build.mjs",
+    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p examples/bag-demo/tsconfig.json",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "package": "vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links --skip-license --out artifacts/code-detective-0.1.0.vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "contributes": {
+    "commands": [
+      { "command": "codeDetective.openMap", "title": "打开地图", "category": "代码侦探" },
+      { "command": "codeDetective.refreshMaps", "title": "重新扫描地图", "category": "代码侦探" },
+      { "command": "codeDetective.startWalkthrough", "title": "开始导读", "category": "代码侦探" },
+      { "command": "codeDetective.nextStep", "title": "下一步", "category": "代码侦探" },
+      { "command": "codeDetective.previousStep", "title": "上一步", "category": "代码侦探" },
+      { "command": "codeDetective.stopWalkthrough", "title": "停止导读", "category": "代码侦探" },
+      { "command": "codeDetective.clearHighlights", "title": "清除高亮", "category": "代码侦探" },
+      { "command": "codeDetective.toggleHighlights", "title": "切换相关代码高亮", "category": "代码侦探" },
+      { "command": "codeDetective.copyAuthoringPrompt", "title": "复制 AI 地图生成提示词", "category": "代码侦探" },
+      { "command": "codeDetective.openHelp", "title": "查看地图格式与使用说明", "category": "代码侦探" }
+    ],
+    "jsonValidation": [{ "fileMatch": ["**/.code-detective/maps/*.json"], "url": "./schemas/code-map-v1.schema.json" }]
+  },
+  "dependencies": {
+    "vue": "3.5.45",
+    "@vue-flow/core": "^1.47.0",
+    "@vue-flow/background": "^1.3.2",
+    "elkjs": "^0.11.0",
+    "ajv": "^8.17.1",
+    "jsonc-parser": "^3.3.1",
+    "@vscode/codicons": "^0.0.36"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.95.0",
+    "typescript": "~5.9.3",
+    "vue-tsc": "^3.0.0",
+    "vite": "^7.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "@vscode/vsce": "^3.6.0",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}

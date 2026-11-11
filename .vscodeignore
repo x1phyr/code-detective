@@ -1,0 +1,16 @@
+.git/**
+.vscode/**
+.vscode-test/**
+node_modules/**
+src/**
+shared/**
+webview/**
+tests/**
+scripts/**
+artifacts/**
+design-qa.md
+vite.config.ts
+tsconfig.json
+package-lock.json
+*.zip
+**/*.map
