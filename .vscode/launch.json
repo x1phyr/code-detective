@@ -47,6 +47,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--extensionTestsPath=${workspaceFolder}/tests/integration/index.cjs",
+        "--disable-extensions",
         "${workspaceFolder}/examples/bag-demo"
       ],
       "outFiles": [

@@ -131,7 +131,7 @@ Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索
 
 ## 开发
 
-需要 Node.js **20.19+ 或 22.12+** 与 npm。
+需要 Node.js **22.12+** 与 npm（集成测试依赖的 `@vscode/test-electron` 3.x 要求 Node 22）。
 
 ```sh
 npm ci
@@ -143,7 +143,7 @@ npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 | --- | --- |
 | `npm run typecheck` | 检查扩展、Webview、测试与示例的 TypeScript |
 | `npm test` | 核心、Host 输入边界与 Controller 模拟测试 |
-| `npm run test:integration` | 在 Extension Host 中验证命令与工具注册 |
+| `npm run test:integration` | 构建后在 Extension Host 中验证命令与工具注册；`VSCODE_TEST_VERSION=1.95.0` 可指定 VS Code 版本 |
 | `npm run build` | 输出 `dist/extension.cjs` 与 `dist/webview/` |
 | `npm run watch:ext` | esbuild 监听扩展宿主，改完 `src/**` 增量重建 |
 | `npm run watch:webview` | vite 监听 Webview，改完 `webview/**` 增量重建 |
