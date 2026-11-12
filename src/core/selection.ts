@@ -52,7 +52,6 @@ export function sanitizeViewState(map: CodeMap, state?: Partial<ViewState>): Vie
   const input: Record<string, unknown> = record(state) ? state : {};
   const output: ViewState = {
     highlightEnabled: typeof input.highlightEnabled === 'boolean' ? input.highlightEnabled : true,
-    positions: {},
   };
 
   let selection = validSelection(map, input.selection);
@@ -70,18 +69,6 @@ export function sanitizeViewState(map: CodeMap, state?: Partial<ViewState>): Vie
     output.sourceId = input.sourceId;
   }
 
-  if (record(input.positions)) {
-    const positions = input.positions;
-    const entries: [string, { x: number; y: number }][] = [];
-    for (const node of map.nodes) {
-      if (!Object.hasOwn(positions, node.id)) continue;
-      const position = positions[node.id];
-      if (record(position) && finite(position.x) && finite(position.y)) {
-        entries.push([node.id, { x: position.x, y: position.y }]);
-      }
-    }
-    output.positions = Object.fromEntries(entries);
-  }
   if (record(input.viewport) && finite(input.viewport.x) && finite(input.viewport.y)
     && finite(input.viewport.zoom) && input.viewport.zoom > 0) {
     output.viewport = { x: input.viewport.x, y: input.viewport.y, zoom: input.viewport.zoom };

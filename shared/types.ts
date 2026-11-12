@@ -56,7 +56,7 @@ export interface ViewState {
   sourceId?: string;
   stepId?: string;
   highlightEnabled: boolean;
-  positions: Record<string, { x: number; y: number }>;
+  /** 视口变换；节点坐标由固定布局计算，不保存。 */
   viewport?: { x: number; y: number; zoom: number };
 }
 export interface MapSummary {
@@ -93,9 +93,69 @@ export interface BridgeMessage<T = unknown> {
   mapRevision?: string;
   payload: T;
 }
+
+export interface NoticePayload {
+  message: string;
+  severity?: 'info' | 'warning' | 'error';
+}
+
+export type ThemeKind = 'dark' | 'light' | 'high-contrast' | 'high-contrast-light';
+
+export type AiPhase = 'preparing' | 'running' | 'validating' | 'retry' | 'done' | 'error' | 'cancelled';
+
+/** Status of one selectable AI backend, shown in the webview picker. */
+export interface AiProviderStatus {
+  id: string;
+  label: string;
+  available: boolean;
+  detail: string;
+  current: boolean;
+}
+
+export interface AiStatusPayload {
+  providers: AiProviderStatus[];
+  provider: string;
+  model: string;
+  allowRemote: boolean;
+  remoteBaseUrl: boolean;
+}
+
+export interface AiGeneratePayload {
+  topic: string;
+  /** Optional explicit provider id; falls back to the configured one. */
+  provider?: string;
+  /** Workspace-relative files the user wants the model to read first. */
+  files?: string[];
+}
+
+export interface AiProgressPayload {
+  phase: AiPhase;
+  message?: string;
+  chars?: number;
+}
+
+export interface AiResultPayload {
+  ok: boolean;
+  phase: AiPhase;
+  mapKey?: string;
+  title?: string;
+  fileName?: string;
+  provider?: string;
+  message?: string;
+}
+
+export type HostMessage =
+  | { protocolVersion: 1; type: 'initialize'; payload: InitializePayload }
+  | { protocolVersion: 1; type: 'maps'; payload: { maps: MapSummary[] } }
+  | { protocolVersion: 1; type: 'snapshot'; payload: { snapshot?: MapSnapshot; error?: string } }
+  | { protocolVersion: 1; type: 'notice'; payload: NoticePayload }
+  | { protocolVersion: 1; type: 'theme'; payload: { kind: ThemeKind } }
+  | { protocolVersion: 1; type: 'ai.status'; payload: AiStatusPayload }
+  | { protocolVersion: 1; type: 'ai.progress'; payload: AiProgressPayload }
+  | { protocolVersion: 1; type: 'ai.result'; payload: AiResultPayload };
+
 export const DEFAULT_VIEW_STATE: ViewState = {
   highlightEnabled: true,
-  positions: {},
 };
 export const SOURCE_STATE_LABELS: Record<SourceState, string> = {
   pending: '检查位置中',
