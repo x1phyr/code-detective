@@ -320,3 +320,24 @@ test('端到端：agent 始终返回坏地图时报 AI_INVALID_MAP', async () =>
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('cli.extraArgs 追加到内置 agent 的参数之后（含 resume）', () => {
+  const claude = agentCli(config({ extraArgs: ['--model', 'opus'] }));
+  assert.deepEqual(claude.args().slice(-2), ['--model', 'opus']);
+  assert.deepEqual(claude.resumeArgs?.('sid')?.slice(-4), ['--model', 'opus', '--resume', 'sid']);
+  const codex = agentCli(config({ agent: 'codex', extraArgs: ['-m', 'gpt-5'] }));
+  assert.deepEqual(codex.args().slice(-2), ['-m', 'gpt-5']);
+  assert.deepEqual(codex.resumeArgs?.('tid')?.slice(-2), ['-m', 'gpt-5']);
+  assert.ok(codex.args().includes('--sandbox'), 'extraArgs 不应替换只读沙箱');
+});
+
+test('cli.allowedTools 生效，但只保留只读工具', () => {
+  const tools = (allowedTools: string): string => {
+    const args = agentCli(config({ allowedTools })).args();
+    return args[args.indexOf('--allowedTools') + 1]!;
+  };
+  assert.equal(tools('Read,Grep'), 'Read,Grep');
+  assert.equal(tools('Read, Bash, Edit,Write,Grep'), 'Read,Grep');
+  assert.equal(tools('Bash'), 'Read,Grep,Glob,LS', '全部被过滤时回落到默认只读集合');
+  assert.equal(tools(''), 'Read,Grep,Glob,LS');
+});

@@ -143,3 +143,16 @@ test('ai.status 与 ai.cancel 是全局消息，不能携带地图字段', () =>
   assert.equal(parseBridgeMessage(message({ type: 'ai.cancel' })).type, 'ai.cancel');
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.status', mapKey: 'k' }))), 'INVALID_MESSAGE');
 });
+
+test('ui.patch 用 selection: null 表示清空选中（JSON 会丢掉 undefined）', () => {
+  assert.deepEqual(validateUiPatch({ selection: null }), { selection: null });
+  const parsed = parseBridgeMessage(JSON.parse(JSON.stringify(message({ type: 'ui.patch', payload: { selection: null } }))));
+  assert.equal(parsed.payload.selection, null);
+  assert.equal(codeOf(() => validateUiPatch({ selection: 'node' })), 'INVALID_MESSAGE');
+});
+
+test('不再接受 webview 从未发送的 map.openFile / highlight.clear', () => {
+  for (const type of ['map.openFile', 'highlight.clear']) {
+    assert.equal(codeOf(() => parseBridgeMessage(message({ type }))), 'INVALID_MESSAGE');
+  }
+});

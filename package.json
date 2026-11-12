@@ -32,6 +32,7 @@
   },
   "activationEvents": [
     "workspaceContains:.code-detective/maps/*.json",
+    "onWebviewPanel:codeDetective.mapView",
     "onCommand:codeDetective.openMap",
     "onCommand:codeDetective.generateMap",
     "onCommand:codeDetective.chooseAiProvider",

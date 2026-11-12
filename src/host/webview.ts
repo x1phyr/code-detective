@@ -5,9 +5,14 @@ function attribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
+/** The only folder the webview may load from: the built bundle and its assets. */
+export function webviewRoot(extensionUri: vscode.Uri): vscode.Uri {
+  return vscode.Uri.joinPath(extensionUri, 'dist', 'webview');
+}
+
 export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = randomBytes(24).toString('base64');
-  const root = vscode.Uri.joinPath(extensionUri, 'dist', 'webview');
+  const root = webviewRoot(extensionUri);
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(root, 'index.js'));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(root, 'style.css'));
   const csp = [
@@ -16,7 +21,7 @@ export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): 
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `font-src ${webview.cspSource}`,
     `img-src ${webview.cspSource} data:`,
-    `worker-src ${webview.cspSource} blob:`,
+    `worker-src 'none'`,
     "connect-src 'none'",
   ].join('; ');
   return `<!DOCTYPE html>

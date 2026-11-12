@@ -3,7 +3,7 @@ import { HostError } from '../core/errors';
 import { isCanonicalRelativePath } from '../core/paths';
 
 const GLOBAL_MESSAGES = new Set(['view.ready', 'maps.refresh', 'prompt.copy', 'help.open', 'ai.status', 'ai.cancel']);
-const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.clear', 'highlight.setEnabled', 'ui.patch', 'map.openFile', 'ai.generate', 'ai.select']);
+const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.setEnabled', 'ui.patch', 'ai.generate', 'ai.select']);
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -22,9 +22,15 @@ function selection(value: unknown): value is Selection {
     && typeof value.kind === 'string' && ['node', 'edge', 'step'].includes(value.kind) && id(value.id);
 }
 
-export function validateUiPatch(value: Record<string, unknown>): Partial<ViewState> {
+/**
+ * `selection: null` is the explicit "clear" signal: JSON drops `undefined`
+ * keys, so the webview cannot express clearing any other way.
+ */
+export type UiPatch = Omit<Partial<ViewState>, 'selection'> & { selection?: Selection | null };
+
+export function validateUiPatch(value: Record<string, unknown>): UiPatch {
   exactKeys(value, ['selection', 'sourceId', 'stepId', 'highlightEnabled', 'viewport']);
-  if (value.selection !== undefined && !selection(value.selection)) fail('选中对象格式无效。');
+  if (value.selection !== undefined && value.selection !== null && !selection(value.selection)) fail('选中对象格式无效。');
   if (value.sourceId !== undefined && !id(value.sourceId)) fail('来源 ID 格式无效。');
   if (value.stepId !== undefined && !id(value.stepId)) fail('步骤 ID 格式无效。');
   if (value.highlightEnabled !== undefined && typeof value.highlightEnabled !== 'boolean') fail('高亮状态必须是布尔值。');
@@ -34,7 +40,7 @@ export function validateUiPatch(value: Record<string, unknown>): Partial<ViewSta
     if (!finite(value.viewport.x) || !finite(value.viewport.y) || !finite(value.viewport.zoom)
       || value.viewport.zoom < 0.01 || value.viewport.zoom > 20) fail('画布视口坐标或缩放值无效。');
   }
-  return value as Partial<ViewState>;
+  return value as UiPatch;
 }
 
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -102,6 +108,6 @@ export function asRevealPayload(message: BridgeMessage<Record<string, unknown>>)
 }
 
 export function isCancellation(message: BridgeMessage<Record<string, unknown>>): boolean {
-  return message.type === 'tour.stop' || message.type === 'highlight.clear'
+  return message.type === 'tour.stop'
     || (message.type === 'highlight.setEnabled' && message.payload.enabled === false);
 }

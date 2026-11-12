@@ -2,6 +2,18 @@ import type { AgentCli, AgentReply } from './types';
 
 /** Read-only tools a map author needs; the agent must never edit the workspace. */
 const READ_ONLY_TOOLS = 'Read,Grep,Glob,LS';
+/** Tools that cannot modify the workspace or run commands. */
+const SAFE_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'WebFetch', 'WebSearch', 'TodoWrite']);
+
+/**
+ * Applies `codeDetective.ai.cli.allowedTools`, keeping only tools that can't
+ * write files or run commands (`Edit`, `Write`, `Bash` … are dropped).
+ * Falls back to the default set when nothing usable remains.
+ */
+export function readOnlyTools(configured: string): string {
+  const kept = configured.split(',').map(tool => tool.trim()).filter(tool => SAFE_TOOLS.has(tool));
+  return kept.length > 0 ? [...new Set(kept)].join(',') : READ_ONLY_TOOLS;
+}
 
 interface ClaudeEnvelope {
   result?: unknown;
@@ -20,10 +32,19 @@ export class ClaudeCli implements AgentCli {
   readonly id = 'claude';
   readonly label = 'Claude Code';
 
-  constructor(private readonly command = 'claude') { }
+  constructor(
+    private readonly command = 'claude',
+    private readonly extraArgs: readonly string[] = [],
+    allowedTools = READ_ONLY_TOOLS,
+  ) {
+    this.tools = readOnlyTools(allowedTools);
+  }
+
+  /** Effective `--allowedTools` value after removing anything that can write. */
+  readonly tools: string;
 
   args(): string[] {
-    return [this.command, '-p', '--output-format', 'json', '--allowedTools', READ_ONLY_TOOLS];
+    return [this.command, '-p', '--output-format', 'json', '--allowedTools', this.tools, ...this.extraArgs];
   }
 
   resumeArgs(sessionId: string): string[] {

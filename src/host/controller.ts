@@ -13,7 +13,7 @@ import {
   type ViewState,
 } from '../../shared/types';
 import { sanitizeViewState, sourceIdsForSelection } from '../core/selection';
-import { parseBridgeMessage, validateUiPatch, asRevealPayload } from './bridge';
+import { parseBridgeMessage, validateUiPatch, asRevealPayload, type UiPatch } from './bridge';
 import { HostError, errorMessage } from '../core/errors';
 import { HighlightController, sourceRange } from './highlights';
 import { checkedSourceUri } from './paths';
@@ -22,7 +22,7 @@ import { SessionStore } from './session';
 import { SourceService, isUsableSource, type AcceptedMap } from './sources';
 import { AiService } from './ai';
 import { registerChatIntegration } from './chat';
-import { webviewHtml } from './webview';
+import { webviewHtml, webviewRoot } from './webview';
 
 const VIEW_TYPE = 'codeDetective.mapView';
 const HELP_URL = 'https://github.com/x1phyr/code-detective#地图格式';
@@ -51,6 +51,9 @@ export class DetectiveController implements vscode.Disposable {
   private current?: AcceptedMap;
   private ui?: ViewState;
   private started = false;
+  /** Resolves once the first map scan finishes, so a restored panel can find its map. */
+  private markScanned!: () => void;
+  private readonly scanned = new Promise<void>(resolve => { this.markScanned = resolve; });
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.log = vscode.window.createOutputChannel('代码侦探');
@@ -85,7 +88,11 @@ export class DetectiveController implements vscode.Disposable {
     );
     this.disposables.push(
       this.repository.onDidChange(() => { void this.onMapsChanged(); }),
-      this.sources.onDidChange(() => this.pushSnapshot()),
+      this.sources.onDidChange(() => {
+        // Positions just resolved (or moved after an edit): redraw editor decorations too.
+        this.highlights.schedule();
+        this.pushSnapshot();
+      }),
       vscode.window.onDidChangeActiveColorTheme(() => this.post({ protocolVersion: 1, type: 'theme', payload: { kind: themeKind() } })),
       vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
         deserializeWebviewPanel: async (panel, state: unknown) => {
@@ -106,7 +113,10 @@ export class DetectiveController implements vscode.Disposable {
       vscode.commands.registerCommand('codeDetective.chooseAiProvider', () => this.chooseAiProviderCommand()),
       vscode.commands.registerCommand('codeDetective.cancelAi', () => this.ai.cancel()),
       vscode.commands.registerCommand('codeDetective.openHelp', () => this.openHelp()),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => this.repository.installWatchers()),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        this.repository.installWatchers();
+        void this.repository.refresh().catch(error => this.log.appendLine(`地图扫描失败：${errorMessage(error)}`));
+      }),
     );
     this.disposables.push(...registerChatIntegration({
       root: () => this.activeRoot(),
@@ -116,11 +126,14 @@ export class DetectiveController implements vscode.Disposable {
       notify: (message, severity = 'info') => this.notify(message, severity),
     }));
     if ((vscode.workspace.workspaceFolders ?? []).length === 0) {
-      this.log.appendLine('没有打开的工作区；地图不会被发现。');
-      return;
+      this.log.appendLine('没有打开的工作区；添加文件夹后会自动扫描地图。');
     }
     this.repository.installWatchers();
-    await this.repository.refresh();
+    try {
+      await this.repository.refresh();
+    } finally {
+      this.markScanned();
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -134,8 +147,11 @@ export class DetectiveController implements vscode.Disposable {
   dispose(): void { void this.shutdown(); }
 
   private async restorePanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+    // VS Code may restore the panel before the first scan completes.
+    await this.scanned;
     const key = typeof state === 'object' && state !== null && 'mapKey' in state
-      ? String((state as { mapKey: unknown }).mapKey)
+      && typeof (state as { mapKey: unknown }).mapKey === 'string'
+      ? (state as { mapKey: string }).mapKey
       : this.session.current();
     const record = key ? this.repository.get(key) : undefined;
     await this.attachPanel(panel, isAccepted(record) ? record : undefined);
@@ -143,14 +159,11 @@ export class DetectiveController implements vscode.Disposable {
 
   private async attachPanel(panel: vscode.WebviewPanel, record: AcceptedMap | undefined): Promise<void> {
     this.panel = panel;
-    panel.webview.options = { enableScripts: true, localResourceRoots: [this.context.extensionUri] };
+    panel.webview.options = { enableScripts: true, localResourceRoots: [webviewRoot(this.context.extensionUri)] };
     panel.webview.html = webviewHtml(panel.webview, this.context.extensionUri);
-    panel.webview.onDidReceiveMessage(
-      (message: unknown) => { void this.onMessage(message); },
-      undefined,
-      this.context.subscriptions,
-    );
+    const messages = panel.webview.onDidReceiveMessage((message: unknown) => { void this.onMessage(message); });
     panel.onDidDispose(() => {
+      messages.dispose();
       if (this.panel === panel) {
         this.panel = undefined;
         this.highlights.clear();
@@ -168,17 +181,22 @@ export class DetectiveController implements vscode.Disposable {
     return isAccepted(record) ? record : undefined;
   }
 
-  private async openMap(key?: string): Promise<void> {
+  /** Creates the panel if needed (no map picker) and brings it to the front. */
+  private async ensurePanel(): Promise<void> {
     if (!this.panel) {
       const panel = vscode.window.createWebviewPanel(VIEW_TYPE, '代码侦探', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [this.context.extensionUri],
+        localResourceRoots: [webviewRoot(this.context.extensionUri)],
       });
       await this.attachPanel(panel, undefined);
     } else {
       this.panel.reveal(vscode.ViewColumn.Active, false);
     }
+  }
+
+  private async openMap(key?: string): Promise<void> {
+    await this.ensurePanel();
 
     const records = [...this.summaries()];
     if (records.length === 0) {
@@ -257,6 +275,16 @@ export class DetectiveController implements vscode.Disposable {
       } else if (!isAccepted(refreshed) && refreshed?.error) {
         this.notify(`地图无效，已保留上次有效版本：${refreshed.error}`, 'error');
         return this.pushSnapshot();
+      } else if (!refreshed) {
+        // Deleted, its `id` changed, or its workspace folder was removed.
+        const title = this.current.map.title;
+        await this.persist();
+        this.current = undefined;
+        this.ui = undefined;
+        this.sources.reset();
+        this.highlights.clear();
+        if (this.panel) this.panel.title = '代码侦探';
+        this.notify(`地图「${title}」已被删除或改名，请从列表重新选择。`, 'warning');
       }
     }
     this.pushSnapshot();
@@ -359,9 +387,6 @@ export class DetectiveController implements vscode.Disposable {
         await this.select(record);
         return;
       }
-      case 'map.openFile':
-        await this.openMapFile();
-        return;
       case 'source.reveal':
         await this.revealSource(asRevealPayload(message));
         return;
@@ -371,9 +396,6 @@ export class DetectiveController implements vscode.Disposable {
       case 'tour.stop':
         this.ui = this.ui ? { ...this.ui, stepId: undefined, selection: this.ui.selection?.kind === 'step' ? undefined : this.ui.selection } : this.ui;
         await this.commitUi();
-        return;
-      case 'highlight.clear':
-        this.highlights.clear();
         return;
       case 'highlight.setEnabled':
         await this.setHighlightEnabled(message.payload.enabled === true);
@@ -388,14 +410,21 @@ export class DetectiveController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Folder that AI generation and chat tools work in. The folder of the file
+   * you're editing wins; the open map's folder is only the fallback, so in a
+   * multi-root workspace a map from folder A doesn't pull work about B into A.
+   */
   private activeRoot(): vscode.WorkspaceFolder | undefined {
-    if (this.current) return this.current.root;
     const folders = vscode.workspace.workspaceFolders ?? [];
     if (folders.length <= 1) return folders[0];
     const active = vscode.window.activeTextEditor?.document.uri;
     if (active) {
       const owner = vscode.workspace.getWorkspaceFolder(active);
       if (owner) return owner;
+    }
+    if (this.current && folders.some(folder => folder.uri.toString() === this.current!.root.uri.toString())) {
+      return this.current.root;
     }
     return folders[0];
   }
@@ -418,12 +447,24 @@ export class DetectiveController implements vscode.Disposable {
     return { maps: this.summaries(), current: this.snapshot() };
   }
 
-  private async applyUiPatch(patch: Partial<ViewState>): Promise<void> {
+  private async applyUiPatch(patch: UiPatch): Promise<void> {
     if (!this.current || !this.ui) return;
-    const merged = sanitizeViewState(this.current.map, { ...this.ui, ...patch });
+    const { selection, ...rest } = patch;
+    const next: Partial<ViewState> = { ...this.ui, ...rest };
+    if (selection === null) {
+      // Clearing keeps an active walkthrough step; sanitizeViewState re-selects it.
+      delete next.selection;
+      delete next.sourceId;
+    } else if (selection !== undefined) {
+      next.selection = selection;
+    }
+    const merged = sanitizeViewState(this.current.map, next);
     this.ui = merged;
-    this.highlights.update(this.current, merged);
     this.session.save(this.current.key, merged);
+    // Pan / zoom only: the webview already shows it, so don't echo a full snapshot.
+    const keys = Object.keys(patch);
+    if (keys.length === 1 && keys[0] === 'viewport') return;
+    this.highlights.update(this.current, merged);
     this.pushSnapshot();
   }
 
@@ -547,14 +588,9 @@ export class DetectiveController implements vscode.Disposable {
     if (selection) this.highlights.schedule();
   }
 
-  private async openMapFile(): Promise<void> {
-    if (!this.current) throw new HostError('MAP_NOT_FOUND', '请先打开一张地图。');
-    const document = await vscode.workspace.openTextDocument(this.current.uri);
-    await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Beside, preview: false });
-  }
 
   private async generateMapCommand(): Promise<void> {
-    if (!this.panel) await this.openMap();
+    await this.ensurePanel();
     this.reveal();
     const topic = await vscode.window.showInputBox({
       title: '用 AI 生成代码地图',
@@ -578,9 +614,12 @@ export class DetectiveController implements vscode.Disposable {
   }
 
   private async openHelp(): Promise<void> {
-    const readme = vscode.Uri.joinPath(this.context.extensionUri, 'README.md');
     try {
-      const document = await vscode.workspace.openTextDocument(readme);
+      // vsce stores the readme lowercased; match case-insensitively for Linux / remote.
+      const entries = await vscode.workspace.fs.readDirectory(this.context.extensionUri);
+      const name = entries.find(([entry]) => entry.toLowerCase() === 'readme.md')?.[0];
+      if (!name) throw new Error('README not found');
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.context.extensionUri, name));
       await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Beside, preview: false });
     } catch {
       void vscode.env.openExternal(vscode.Uri.parse(HELP_URL));

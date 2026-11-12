@@ -5,6 +5,7 @@ import { errorMessage } from '../core/errors';
 import { extractJson } from '../ai/json';
 import { MAP_DIR, writeMapFile, type WrittenMap } from './mapWriter';
 import { checkedSourceUri } from './paths';
+import { MAX_QUERY_LENGTH, unsafeRegex } from './regexGuard';
 
 export const PARTICIPANT_ID = 'code-detective.detective';
 
@@ -64,15 +65,26 @@ const READ_SCHEMA = {
   },
 } as const;
 
+/** Upper bound for files the tools read whole (readSource, anchor filling). */
+const MAX_READ_BYTES = 2 * 1024 * 1024;
+/** Only this much of each line is matched, which bounds per-line regex work. */
+const MAX_MATCH_LINE = 1_000;
+const SEARCH_BUDGET_MS = 3_000;
+
 async function readWorkspaceText(root: vscode.WorkspaceFolder, file: string): Promise<string> {
   const { realUri } = await checkedSourceUri(root.uri, file);
+  const stat = await vscode.workspace.fs.stat(realUri);
+  if (stat.size > MAX_READ_BYTES) {
+    throw new Error(`${file} 超过 ${MAX_READ_BYTES / 1024 / 1024} MiB，不读取。`);
+  }
   const bytes = await vscode.workspace.fs.readFile(realUri);
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
 }
 
 function splitLines(text: string): string[] {
-  return text.replace(/\r\n/g, '\n').split('\n');
+  return text.replace(/\r\n?/g, '\n').split('\n');
 }
+
 
 export interface SourceMatch {
   file: string;
@@ -83,8 +95,14 @@ export interface SourceMatch {
 export async function searchSources(
   root: vscode.WorkspaceFolder,
   input: { query: string; regex?: boolean; caseSensitive?: boolean; glob?: string; maxResults?: number },
+  token?: vscode.CancellationToken,
 ): Promise<SourceMatch[]> {
   const limit = Math.min(Math.max(input.maxResults ?? 20, 1), MAX_SEARCH_RESULTS);
+  if (typeof input.query !== 'string' || input.query.length === 0) throw new Error('query 不能为空。');
+  if (input.query.length > MAX_QUERY_LENGTH) throw new Error(`query 不能超过 ${MAX_QUERY_LENGTH} 个字符。`);
+  if (input.regex && unsafeRegex(input.query)) {
+    throw new Error('正则含有嵌套量词或反向引用，可能导致回溯爆炸；请改用更简单的表达式或普通文本搜索。');
+  }
   let pattern: RegExp;
   try {
     pattern = input.regex
@@ -94,10 +112,11 @@ export async function searchSources(
     throw new Error(`正则无效：${errorMessage(error)}`);
   }
   const include = new vscode.RelativePattern(root, input.glob && input.glob.trim() ? input.glob.trim() : SOURCE_GLOB);
-  const uris = await vscode.workspace.findFiles(include, EXCLUDE_GLOB, MAX_SEARCH_FILES);
+  const uris = await vscode.workspace.findFiles(include, EXCLUDE_GLOB, MAX_SEARCH_FILES, token);
   const matches: SourceMatch[] = [];
+  const deadline = Date.now() + SEARCH_BUDGET_MS;
   for (const uri of uris) {
-    if (matches.length >= limit) break;
+    if (matches.length >= limit || token?.isCancellationRequested || Date.now() > deadline) break;
     if (uri.scheme !== 'file') continue;
     const file = vscode.workspace.asRelativePath(uri, false).split('\\').join('/');
     if (!file || file.startsWith('..')) continue;
@@ -111,7 +130,7 @@ export async function searchSources(
     const lines = splitLines(text);
     for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
       const line = lines[index]!;
-      if (pattern.test(line)) matches.push({ file, line: index + 1, text: line.slice(0, 240) });
+      if (pattern.test(line.slice(0, MAX_MATCH_LINE))) matches.push({ file, line: index + 1, text: line.slice(0, 240) });
     }
   }
   return matches;
@@ -350,6 +369,7 @@ async function handleMapRequest(
       stream.markdown('> 本次没有读取任何源码，行号可能不准确，请打开地图后核对。\n\n');
     }
     const planned = await plan(request.model, explored.messages, token, stream);
+    if (token.isCancellationRequested) return { metadata: { phase: 'cancelled' } };
     if (!planned.draft) {
       stream.markdown(`没能生成地图：${planned.error ?? '未知原因'}\n\n可以补充更具体的话题，或用 \`代码侦探: 用 AI 生成地图\` 指定 AI 服务。`);
       return {};
@@ -360,6 +380,10 @@ async function handleMapRequest(
     await hooks.openMap(outcome.written.key);
     return { metadata: { mapKey: outcome.written.key } };
   } catch (error) {
+    if (token.isCancellationRequested || error instanceof vscode.CancellationError) {
+      stream.markdown('已取消。');
+      return { metadata: { phase: 'cancelled' } };
+    }
     const message = errorMessage(error);
     stream.markdown(`生成失败：${message}\n\n`);
     stream.markdown(`已保留上次有效地图。可执行 \`代码侦探: 用 AI 生成地图\` 改用本地模型服务重试。`);
@@ -375,9 +399,10 @@ export function registerChatIntegration(hooks: ChatHostHooks): vscode.Disposable
     prepareInvocation: options => ({
       invocationMessage: `读取 ${options.input.file}${options.input.startLine ? ` 第 ${options.input.startLine} 行起` : ''}`,
     }),
-    async invoke(options) {
+    async invoke(options, token) {
       const root = hooks.root();
       if (!root) throw new Error('请先打开一个工作区文件夹。');
+      if (token.isCancellationRequested) throw new vscode.CancellationError();
       const slice = await readSource(root, options.input);
       return new vscode.LanguageModelToolResult([textPart(`${slice.file}（第 ${slice.startLine}–${slice.endLine} 行，共 ${slice.totalLines} 行）\n${slice.content}`)]);
     },
@@ -387,10 +412,10 @@ export function registerChatIntegration(hooks: ChatHostHooks): vscode.Disposable
     prepareInvocation: options => ({
       invocationMessage: `搜索 ${options.input.query}`,
     }),
-    async invoke(options) {
+    async invoke(options, token) {
       const root = hooks.root();
       if (!root) throw new Error('请先打开一个工作区文件夹。');
-      const matches = await searchSources(root, options.input);
+      const matches = await searchSources(root, options.input, token);
       const body = matches.length === 0
         ? '没有匹配。可以换关键字，或先用更宽泛的搜索定位文件。'
         : matches.map(match => `${match.file}:${match.line}\t${match.text}`).join('\n');

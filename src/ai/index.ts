@@ -12,7 +12,7 @@ export interface AgentDescriptor {
   id: string;
   label: string;
   /** Builds the CLI adapter for this agent. */
-  create(command: string, extraArgs: string[]): AgentCli;
+  create(command: string, config: AiConfig): AgentCli;
 }
 
 /**
@@ -20,8 +20,8 @@ export interface AgentDescriptor {
  * through `codeDetective.ai.cli.agents`, so the list stays extensible.
  */
 export const AGENTS: AgentDescriptor[] = [
-  { id: 'claude', label: 'Claude Code', create: command => new ClaudeCli(command) },
-  { id: 'codex', label: 'Codex CLI', create: command => new CodexCli(command) },
+  { id: 'claude', label: 'Claude Code', create: (command, config) => new ClaudeCli(command, config.extraArgs, config.allowedTools) },
+  { id: 'codex', label: 'Codex CLI', create: (command, config) => new CodexCli(command, config.extraArgs) },
 ];
 
 function customAgent(config: AiConfig): AgentCli | undefined {
@@ -50,7 +50,7 @@ export function agentCli(config: AiConfig): AgentCli {
       `未知的 agent：${config.agent}。可选：${AGENTS.map(item => item.id).join('、')}。`);
   }
   const command = config.command || descriptor.id;
-  return descriptor.create(command, config.extraArgs);
+  return descriptor.create(command, config);
 }
 
 /** A live conversation: each `send` continues the CLI session when supported. */

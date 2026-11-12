@@ -27,6 +27,7 @@ export class MapRepository implements vscode.Disposable {
   private watchers: vscode.Disposable[] = [];
   private timer?: ReturnType<typeof setTimeout>;
   private generation = 0;
+  private latest?: Promise<void>;
   private disposed = false;
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChange = this.changed.event;
@@ -47,7 +48,8 @@ export class MapRepository implements vscode.Disposable {
 
   schedule(): void {
     if (this.disposed) return;
-    ++this.generation;
+    // Only debounce here. Bumping `generation` would abandon an in-flight
+    // refresh that a caller (e.g. "write map, refresh, open it") is awaiting.
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
@@ -55,11 +57,27 @@ export class MapRepository implements vscode.Disposable {
     }, 200);
   }
 
+  /**
+   * Rescans every workspace folder. When a newer refresh supersedes this one,
+   * the returned promise waits for that newer scan, so on resolve `get()`
+   * always reflects files written before the call.
+   */
   async refresh(): Promise<void> {
     if (this.disposed) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    const generation = ++this.generation;
+    const run = this.scan(++this.generation);
+    this.latest = run;
+    await run;
+  }
+
+  private async scan(generation: number): Promise<void> {
+    const superseded = async (): Promise<boolean> => {
+      if (this.disposed) return true;
+      if (generation === this.generation) return false;
+      await this.latest;
+      return true;
+    };
     const oldFiles = this.files;
     const nextFiles = new Map<string, MapRecord>();
     const roots = vscode.workspace.workspaceFolders ?? [];
@@ -79,10 +97,10 @@ export class MapRepository implements vscode.Disposable {
       for (let offset = 0; offset < uris.length; offset += 8) {
         const batch = await Promise.all(uris.slice(offset, offset + 8).map(uri => this.readFile(root, uri, oldFiles.get(uri.toString()))));
         for (const record of batch) nextFiles.set(record.uri.toString(), record);
-        if (generation !== this.generation || this.disposed) return;
+        if (await superseded()) return;
       }
     }
-    if (generation !== this.generation || this.disposed) return;
+    if (await superseded()) return;
 
     const groups = new Map<string, MapRecord[]>();
     for (const record of nextFiles.values()) {

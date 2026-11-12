@@ -18,14 +18,17 @@ export class CodexCli implements AgentCli {
   readonly id = 'codex';
   readonly label = 'Codex CLI';
 
-  constructor(private readonly command = 'codex') { }
+  constructor(
+    private readonly command = 'codex',
+    private readonly extraArgs: readonly string[] = [],
+  ) { }
 
   args(): string[] {
-    return [this.command, 'exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check'];
+    return [this.command, 'exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', ...this.extraArgs];
   }
 
   resumeArgs(sessionId: string): string[] {
-    return [this.command, 'exec', 'resume', sessionId, '--json', '--skip-git-repo-check'];
+    return [this.command, 'exec', 'resume', sessionId, '--json', '--skip-git-repo-check', ...this.extraArgs];
   }
 
   parse(stdout: string, _stderr: string): AgentReply {

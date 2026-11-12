@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readOnlyTools } from './agent/claude';
 
 /** Built-in agent CLIs. Users can add more via `codeDetective.ai.cli.extra`. */
 export const DEFAULT_AGENT = 'claude';
@@ -8,7 +9,7 @@ export interface AiConfig {
   agent: string;
   /** Path or bare command of the agent executable. */
   command: string;
-  /** Extra argv prepended to the built-in args of the chosen agent. */
+  /** Extra argv appended after the built-in args of a built-in agent (e.g. `--model`). */
   extraArgs: string[];
   /** Additional agent definitions, so the list stays extensible. */
   customAgents: { id: string; label: string; command: string; args: string[] }[];
@@ -27,6 +28,7 @@ export function readAiConfig(): AiConfig {
     extraArgs: config.get<string[]>('cli.extraArgs', []) ?? [],
     customAgents: config.get<AiConfig['customAgents']>('cli.agents', []) ?? [],
     timeoutMs: Math.min(Math.max(config.get<number>('timeoutMs', 300_000), 10_000), 1_800_000),
-    allowedTools: config.get<string>('cli.allowedTools', 'Read,Grep,Glob,LS').trim(),
+    // Filtered to read-only tools, so the status shown is what actually runs.
+    allowedTools: readOnlyTools(config.get<string>('cli.allowedTools', 'Read,Grep,Glob,LS')),
   };
 }

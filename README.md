@@ -90,7 +90,7 @@ Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索
 | `codeDetective.ai.agent` | `claude` / `codex`，或 `cli.agents` 里自定义的 id |
 | `codeDetective.ai.cli.command` | 可执行文件路径，留空用 agent id |
 | `codeDetective.ai.cli.extraArgs` | 追加到内置参数之后，用于透传 `--model` 等 |
-| `codeDetective.ai.cli.allowedTools` | Claude Code 允许的工具，保持只读 |
+| `codeDetective.ai.cli.allowedTools` | Claude Code 允许的工具；只保留只读工具（`Read`、`Grep`、`Glob`、`LS` 等），`Edit` / `Write` / `Bash` 会被忽略 |
 | `codeDetective.ai.cli.agents` | 自定义 agent：`{ id, label, command, args }` |
 | `codeDetective.ai.timeoutMs` | 单轮超时，默认 5 分钟，agent 要读多个文件时留足 |
 

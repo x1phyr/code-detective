@@ -75,6 +75,7 @@ export class SourceService implements vscode.Disposable {
     const record = this.current;
     if (this.disposed || !record) return;
     const generation = ++this.generation;
+    let marked = false;
     for (const id of Object.keys(record.map.sources)) {
       const previous = this.resolved.get(id);
       if (previous?.status.state === 'pending') continue;
@@ -83,8 +84,10 @@ export class SourceService implements vscode.Disposable {
         ...previous,
         status: { file: ref.file, startLine: ref.startLine, endLine: ref.endLine, state: 'pending', message: '正在检查源码位置…' },
       });
-      this.changed.fire();
+      marked = true;
     }
+    // One notification for the whole batch, not one full snapshot per source.
+    if (marked) this.changed.fire();
     const entries = Object.entries(record.map.sources);
     const next = new Map<string, Resolved>();
     for (let offset = 0; offset < entries.length; offset += BATCH) {
@@ -105,7 +108,7 @@ export class SourceService implements vscode.Disposable {
     const original = { file: ref.file, startLine: ref.startLine, endLine: ref.endLine };
     try {
       const { uri, realUri } = await checkedSourceUri(record.root.uri, ref.file);
-      const text = await this.documentText(uri);
+      const text = await this.documentText(uri, realUri);
       const status = resolveSourceText(ref, text);
       return [id, { status, fileKeys: new Set([uriKey(uri), uriKey(realUri)]) }];
     } catch (error) {
@@ -120,11 +123,16 @@ export class SourceService implements vscode.Disposable {
     }
   }
 
-  private async documentText(uri: vscode.Uri): Promise<string> {
-    const key = uriKey(uri);
-    const open = vscode.workspace.textDocuments.find(document => uriKey(document.uri) === key);
+  /**
+   * Prefers an open editor's (possibly unsaved) text. Disk reads go through the
+   * realpath that `checkedSourceUri` verified, so a symlink swapped after the
+   * check can't redirect the read outside the workspace.
+   */
+  private async documentText(uri: vscode.Uri, realUri: vscode.Uri): Promise<string> {
+    const keys = new Set([uriKey(uri), uriKey(realUri)]);
+    const open = vscode.workspace.textDocuments.find(document => keys.has(uriKey(document.uri)));
     if (open) return open.getText();
-    const bytes = await vscode.workspace.fs.readFile(uri);
+    const bytes = await vscode.workspace.fs.readFile(realUri);
     return new TextDecoder('utf-8').decode(bytes);
   }
 

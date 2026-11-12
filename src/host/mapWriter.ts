@@ -16,6 +16,9 @@ export interface WrittenMap {
   relativePath: string;
 }
 
+/** Names handed out but not yet on disk, so concurrent writers never pick the same one. */
+const reserved = new Set<string>();
+
 async function exists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
@@ -34,13 +37,25 @@ export async function writeMapFile(map: CodeMap, options: MapWriteOptions): Prom
   const directory = vscode.Uri.joinPath(root.uri, ...MAP_DIR.split('/'));
   await vscode.workspace.fs.createDirectory(directory);
   const base = sanitizeMapId(map.id || map.title);
+  const keyOf = (candidate: string): string => `${root.uri.toString()}::${candidate}`;
   const taken = async (candidate: string): Promise<boolean> =>
-    options.hasMap(`${root.uri.toString()}::${candidate}`)
+    reserved.has(keyOf(candidate))
+    || options.hasMap(keyOf(candidate))
     || await exists(vscode.Uri.joinPath(directory, `${candidate}.json`));
-  const chosen = await freeMapName(base, taken);
+  // freeMapName awaits between checks, so claim the name synchronously once found.
+  const chosen = await freeMapName(base, async candidate => {
+    if (await taken(candidate)) return true;
+    if (reserved.has(keyOf(candidate))) return true;
+    reserved.add(keyOf(candidate));
+    return false;
+  });
   const target = vscode.Uri.joinPath(directory, chosen.fileName);
   const body = `${JSON.stringify({ ...map, id: chosen.id }, null, 2)}\n`;
-  await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(body));
+  try {
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(body));
+  } finally {
+    reserved.delete(keyOf(chosen.id));
+  }
   return {
     key: `${root.uri.toString()}::${chosen.id}`,
     id: chosen.id,

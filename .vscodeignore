@@ -14,3 +14,7 @@ tsconfig.json
 package-lock.json
 *.zip
 **/*.map
+examples/**
+.gitignore
+.gitattributes
+docs/**

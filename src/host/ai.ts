@@ -33,6 +33,8 @@ interface Task {
 
 export class AiService implements vscode.Disposable {
   private running?: Task;
+  /** Set synchronously before the first await, so two quick requests can't both start. */
+  private starting = false;
   private lastProgress = 0;
   private lastPhase = '';
 
@@ -47,7 +49,7 @@ export class AiService implements vscode.Disposable {
 
   constructor(private readonly hooks: AiHostHooks) {}
 
-  get busy(): boolean { return this.running !== undefined; }
+  get busy(): boolean { return this.starting || this.running !== undefined; }
 
   /** Which agent CLIs are configured, for the webview picker. */
   status(): { providers: AiAgentStatus[]; config: AiConfig } {
@@ -101,11 +103,17 @@ export class AiService implements vscode.Disposable {
       this.hooks.notify('请先打开一个工作区文件夹。', 'warning');
       return;
     }
-    if (this.running) {
+    if (this.busy) {
       this.hooks.notify('已有 AI 任务在运行，请先取消。', 'warning');
       return;
     }
-    if (agentId) await this.setAgent(agentId);
+    this.starting = true;
+    try {
+      if (agentId) await this.setAgent(agentId);
+    } catch (error) {
+      this.starting = false;
+      throw error;
+    }
 
     const source = new vscode.CancellationTokenSource();
     const listeners = new Set<() => void>();
@@ -124,6 +132,7 @@ export class AiService implements vscode.Disposable {
       dispose: () => { subscription.dispose(); listeners.clear(); },
     };
     this.running = task;
+    this.starting = false;
     const started = Date.now();
     this.lastPhase = '';
     this.lastProgress = 0;
@@ -176,8 +185,8 @@ export class AiService implements vscode.Disposable {
       this.report(cancelled ? 'cancelled' : 'error', message);
       this.hooks.result({ ok: false, phase: cancelled ? 'cancelled' : 'error', message });
     } finally {
-      this.running?.dispose();
-      this.running = undefined;
+      task.dispose();
+      if (this.running === task) this.running = undefined;
       source.dispose();
     }
   }
