@@ -4,7 +4,7 @@ import { VueFlow, useVueFlow, type Edge, type Node, type ViewportTransform } fro
 import { Background } from '@vue-flow/background';
 import type {
   AiPhase,
-  AiProviderStatus,
+  AiAgentStatus,
   AiResultPayload,
   AiStatusPayload,
   HostMessage,
@@ -44,7 +44,7 @@ let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 const aiOpen = ref(false);
 const aiTopic = ref('');
 const aiStatus = ref<AiStatusPayload>();
-const aiProvider = ref('auto');
+const aiAgent = ref('claude');
 const aiPhase = ref<AiPhase>();
 const aiMessage = ref('');
 const aiChars = ref(0);
@@ -263,8 +263,8 @@ function openAi(): void {
   if (aiOpen.value) post('ai.status', {});
 }
 
-function onAiProviderChange(): void {
-  post('ai.select', { provider: aiProvider.value });
+function onAiAgentChange(): void {
+  post('ai.select', { agent: aiAgent.value });
 }
 
 function generateWithAi(): void {
@@ -288,7 +288,7 @@ function generateWithAi(): void {
   }
   aiResult.value = undefined;
   aiChars.value = 0;
-  post('ai.generate', { topic, provider: aiProvider.value, files });
+  post('ai.generate', { topic, agent: aiAgent.value, files });
 }
 
 function cancelAi(): void {
@@ -322,7 +322,7 @@ function handle(message: HostMessage): void {
       break;
     case 'ai.status':
       aiStatus.value = message.payload;
-      aiProvider.value = message.payload.provider;
+      aiAgent.value = message.payload.agent;
       break;
     case 'ai.progress':
       aiPhase.value = message.payload.phase;
@@ -338,7 +338,7 @@ function handle(message: HostMessage): void {
   }
 }
 
-const providerList = computed<AiProviderStatus[]>(() => aiStatus.value?.providers ?? []);
+const agentList = computed<AiAgentStatus[]>(() => aiStatus.value?.providers ?? []);
 
 async function prepareLayout(current: MapSnapshot): Promise<void> {
   layout.value = await computeLayout(current.map);
@@ -583,19 +583,16 @@ onMounted(() => {
       </header>
 
       <label class="cd-ai-field">
-        <span>AI 服务</span>
-        <select :value="aiProvider" :disabled="aiBusy" @change="onAiProviderChange">
-          <option v-for="item in providerList" :key="item.id" :value="item.id">
+        <span>Agent</span>
+        <select :value="aiAgent" :disabled="aiBusy" @change="onAiAgentChange">
+          <option v-for="item in agentList" :key="item.id" :value="item.id">
             {{ item.label }}{{ item.available ? '' : '（不可用）' }}
           </option>
-          <option v-if="providerList.length === 0" value="auto">自动选择</option>
+          <option v-if="agentList.length === 0" value="claude">Claude Code</option>
         </select>
       </label>
-      <p v-if="providerList.find(item => item.id === aiProvider)?.detail" class="cd-ai-hint">
-        {{ providerList.find(item => item.id === aiProvider)?.detail }}
-      </p>
-      <p v-if="aiStatus?.remoteBaseUrl && !aiStatus?.allowRemote" class="cd-ai-hint warn">
-        当前地址不是本机，请求会被阻止。请在设置中开启 codeDetective.ai.allowRemote。
+      <p v-if="agentList.find(item => item.id === aiAgent)?.detail" class="cd-ai-hint">
+        {{ agentList.find(item => item.id === aiAgent)?.detail }}
       </p>
 
       <label class="cd-ai-field">
@@ -608,7 +605,7 @@ onMounted(() => {
         ></textarea>
       </label>
 
-      <p class="cd-ai-hint">AI 会读取当前打开的文件和当前选中节点的源码，生成结果先通过 JSON 校验再写入 .code-detective/maps/。</p>
+      <p class="cd-ai-hint">agent 会在当前工作区里自己阅读源码，结果先通过 JSON 校验再写入 .code-detective/maps/。</p>
 
       <div class="cd-ai-actions">
         <button class="cd-button primary" :disabled="aiBusy" @click="generateWithAi">

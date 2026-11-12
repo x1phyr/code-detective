@@ -1,45 +1,32 @@
 import * as vscode from 'vscode';
-import { isLoopbackHost, normalizeBaseUrl } from './endpoint';
 
-export { isLoopbackHost, normalizeBaseUrl };
-
-export type AiProviderKind = 'auto' | 'openai-compatible' | 'cli' | 'vscode-lm';
+/** Built-in agent CLIs. Users can add more via `codeDetective.ai.cli.extra`. */
+export const DEFAULT_AGENT = 'claude';
 
 export interface AiConfig {
-  provider: AiProviderKind;
-  baseUrl: string;
-  model: string;
-  cliCommand: string;
-  cliArgs: string[];
+  /** Which agent CLI drives the exploration: `claude` / `codex` / a custom id. */
+  agent: string;
+  /** Path or bare command of the agent executable. */
+  command: string;
+  /** Extra argv prepended to the built-in args of the chosen agent. */
+  extraArgs: string[];
+  /** Additional agent definitions, so the list stays extensible. */
+  customAgents: { id: string; label: string; command: string; args: string[] }[];
   timeoutMs: number;
-  allowRemote: boolean;
-  vscodeLmVendor: string;
-  vscodeLmFamily: string;
+  /** Tool names the agent may use; kept read-only so maps never mutate code. */
+  allowedTools: string;
 }
 
 const SECTION = 'codeDetective.ai';
-const SECRET_KEY = 'codeDetective.ai.apiKey';
 
 export function readAiConfig(): AiConfig {
   const config = vscode.workspace.getConfiguration(SECTION);
   return {
-    provider: config.get<AiProviderKind>('provider', 'auto'),
-    baseUrl: config.get<string>('baseUrl', 'http://127.0.0.1:11434/v1').trim(),
-    model: config.get<string>('model', '').trim(),
-    cliCommand: config.get<string>('cli.command', 'claude').trim(),
-    cliArgs: config.get<string[]>('cli.args', ['-p']) ?? ['-p'],
-    timeoutMs: Math.min(Math.max(config.get<number>('timeoutMs', 180_000), 5_000), 900_000),
-    allowRemote: config.get<boolean>('allowRemote', false),
-    vscodeLmVendor: config.get<string>('vscodeLm.vendor', 'copilot').trim(),
-    vscodeLmFamily: config.get<string>('vscodeLm.family', '').trim(),
+    agent: config.get<string>('agent', DEFAULT_AGENT).trim() || DEFAULT_AGENT,
+    command: config.get<string>('cli.command', '').trim(),
+    extraArgs: config.get<string[]>('cli.extraArgs', []) ?? [],
+    customAgents: config.get<AiConfig['customAgents']>('cli.agents', []) ?? [],
+    timeoutMs: Math.min(Math.max(config.get<number>('timeoutMs', 300_000), 10_000), 1_800_000),
+    allowedTools: config.get<string>('cli.allowedTools', 'Read,Grep,Glob,LS').trim(),
   };
-}
-
-export async function readApiKey(secrets: vscode.SecretStorage): Promise<string | undefined> {
-  const key = await secrets.get(SECRET_KEY);
-  return key && key.length > 0 ? key : undefined;
-}
-
-export async function storeApiKey(secrets: vscode.SecretStorage, value: string): Promise<void> {
-  await (value ? secrets.store(SECRET_KEY, value) : secrets.delete(SECRET_KEY));
 }

@@ -29,17 +29,22 @@ AI 负责分析功能、产出地图 JSON；插件负责严格校验、渲染地
 
 ## 生成地图
 
-### 1. 用内置 AI
+### 1. 用本机 agent CLI
 
-在地图面板点 **AI 生成**，或执行 **代码侦探: 用 AI 生成地图**：选择 AI 服务 → 描述想了解的功能 → 插件附带当前文件与选中节点的源码 → AI 返回 JSON → 校验（失败自动带错误重试一次）→ 写入 `.code-detective/maps/` → 直接打开。
+在地图面板点 **AI 生成**，或执行 **代码侦探: 用 AI 生成地图**：选择 agent → 描述想了解的功能 → **agent 在当前工作区里用只读工具自己阅读源码** → 输出地图 JSON → 插件校验（失败时在同一次会话里让 agent 修正一次）→ 写入 `.code-detective/maps/` → 直接打开。
 
-内置三种通道，默认 `auto` 按顺序探测，**代码默认不离开本机**：
+插件只支持本机 agent CLI，不内置任何模型，也不把源码文本发给外部服务：
 
-| 通道 | 适用工具 |
+| Agent | 调用方式 |
 | --- | --- |
-| OpenAI 兼容 | Ollama、LM Studio、llama.cpp / vLLM、LocalAI |
-| 本地 CLI | `claude -p`、`codex exec` 等已登录的 CLI agent（提示词走 stdin，不经 shell） |
-| VS Code 语言模型 | 通过 `vscode.lm` 调用已安装的模型（如 Copilot Chat） |
+| Claude Code | `claude -p --output-format json --allowedTools Read,Grep,Glob,LS` |
+| Codex CLI | `codex exec --json --sandbox read-only --skip-git-repo-check` |
+
+它是**一次会话**而不是一次性问答：agent 先探索工作区，插件校验后若不通过，会用 `--resume` / `codex exec resume` 在**同一个 session** 里让它修正，因此不会重新读一遍代码。
+
+提示词始终通过 stdin 传入，`shell: false`，话题内容不可能被解释成 CLI 参数。
+
+要接入别的 CLI，用 `codeDetective.ai.cli.agents` 添加（见下方设置）。
 
 ### 2. 在 Copilot Chat 里生成
 
@@ -72,28 +77,38 @@ Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索
 
 ```json
 {
-  "codeDetective.ai.provider": "auto",
-  "codeDetective.ai.baseUrl": "http://127.0.0.1:11434/v1",
-  "codeDetective.ai.model": "qwen2.5-coder:14b",
-  "codeDetective.ai.cli.command": "claude",
-  "codeDetective.ai.cli.args": ["-p"],
-  "codeDetective.ai.allowRemote": false
+  "codeDetective.ai.agent": "claude",
+  "codeDetective.ai.cli.command": "",
+  "codeDetective.ai.cli.extraArgs": [],
+  "codeDetective.ai.cli.allowedTools": "Read,Grep,Glob,LS",
+  "codeDetective.ai.timeoutMs": 300000
 }
 ```
 
 | 设置 | 说明 |
 | --- | --- |
-| `codeDetective.ai.provider` | `auto` / `openai-compatible` / `cli` / `vscode-lm`，默认依次尝试 |
-| `codeDetective.ai.baseUrl` | OpenAI 兼容地址，Ollama 默认 `http://127.0.0.1:11434/v1` |
-| `codeDetective.ai.model` | 模型名，留空用服务默认模型 |
-| `codeDetective.ai.cli.command` / `.args` | 本地 CLI 与参数，Claude Code 用 `-p`，Codex 用 `exec` |
-| `codeDetective.ai.vscodeLm.vendor` / `.family` | `vscode-lm` 通道的模型筛选 |
-| `codeDetective.ai.allowRemote` | 允许非本机地址，默认关闭 |
-| `codeDetective.ai.timeoutMs` | 单次请求超时，默认 180 秒 |
+| `codeDetective.ai.agent` | `claude` / `codex`，或 `cli.agents` 里自定义的 id |
+| `codeDetective.ai.cli.command` | 可执行文件路径，留空用 agent id |
+| `codeDetective.ai.cli.extraArgs` | 追加到内置参数之后，用于透传 `--model` 等 |
+| `codeDetective.ai.cli.allowedTools` | Claude Code 允许的工具，保持只读 |
+| `codeDetective.ai.cli.agents` | 自定义 agent：`{ id, label, command, args }` |
+| `codeDetective.ai.timeoutMs` | 单轮超时，默认 5 分钟，agent 要读多个文件时留足 |
 
-- **代码侦探: 选择 AI 服务** 会探测本机端口并列出可用模型，选中后记住选择。
-- API Key 存在 VS Code SecretStorage（**代码侦探: 设置 AI 服务 API Key**），不写入设置文件；本地模型通常不需要。
-- `auto` 的回退顺序：已选好模型的地址 → 本机探测 → 本地 CLI → VS Code 语言模型；只填地址不选模型不会卡住后续通道。
+扩展方式示例：
+
+```json
+{
+  "codeDetective.ai.cli.agents": [
+    { "id": "aider", "label": "Aider", "command": "aider", "args": ["--message-file", "-", "--yes"] }
+  ],
+  "codeDetective.ai.agent": "aider"
+}
+```
+
+自定义 agent 的 stdout 会被取最后一行作为回答，因此它需要把 JSON 作为最后一条输出。
+
+- **代码侦探: 选择本地 Agent CLI** 在已注册的 agent 之间切换。
+- agent 需要已登录（`claude` / `codex login`），插件不保存任何凭据。
 
 ## 命令
 
@@ -103,8 +118,8 @@ Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索
 | `代码侦探: 重新扫描地图` | 重新发现地图文件 |
 | `代码侦探: 开始导读` / `下一步` / `上一步` / `停止导读` | 按步骤阅读 |
 | `代码侦探: 切换相关代码高亮` / `清除高亮` | 控制编辑器装饰 |
-| `代码侦探: 用 AI 生成地图` | 内置 AI 生成 |
-| `代码侦探: 选择 AI 服务` / `设置 AI 服务 API Key` / `取消 AI 任务` | AI 配置与取消 |
+| `代码侦探: 用 AI 生成地图` | 交给本机 agent CLI 生成 |
+| `代码侦探: 选择本地 Agent CLI` / `取消 AI 任务` | 切换 agent、取消生成 |
 | `代码侦探: 复制 AI 地图生成提示词` | 交给外部 AI |
 | `代码侦探: 查看地图格式与使用说明` | 打开本文件 |
 

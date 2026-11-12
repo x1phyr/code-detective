@@ -4,8 +4,8 @@ import { AiError } from './types';
 import { extractJson } from './json';
 
 /**
- * Turns raw model output into a validated map. Kept separate from the provider
- * layer so it can be tested without any network or VS Code host.
+ * Turns raw model output into a validated map. Kept separate from the agent
+ * layer so it can be tested without spawning any CLI.
  */
 export function mapFromResponse(raw: string): CodeMap {
   const json = extractJson(raw);

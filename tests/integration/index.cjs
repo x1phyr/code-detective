@@ -15,7 +15,6 @@ const COMMANDS = [
   'codeDetective.generateMap',
   'codeDetective.chooseAiProvider',
   'codeDetective.cancelAi',
-  'codeDetective.setAiApiKey',
 ];
 
 const TOOLS = ['codeDetective_searchSources', 'codeDetective_readSource', 'codeDetective_createMap'];

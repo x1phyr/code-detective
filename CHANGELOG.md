@@ -7,11 +7,13 @@
 - 地图草稿的 `anchorText` 改由插件按真实文件生成：模型只写 `file` / `startLine` / `endLine`，引用不可读文件的来源、节点、连线、步骤会被裁剪移除并在结果中列出，避免整张地图因抄错文本而失败。
 - `codeDetective.openMap` 支持带 `mapKey` 参数调用，用于聊天窗口的“打开地图”按钮与工具结果。
 - 抽出共用的 `writeMapFile`，内置 AI 生成与 chat 提交走同一套递增命名与写盘逻辑。
-- 新增内置 AI 生成：OpenAI 兼容本地服务（Ollama / LM Studio / llama.cpp / vLLM / LocalAI）、本地 CLI agent（`claude -p`、`codex exec`）、`vscode.lm`，`auto` 自动探测。
-- 地图 Webview 增加「AI 生成」面板：选择服务、输入话题、流式进度、取消、生成后直接打开。
+- 新增本机 agent CLI 生成：`claude`（Claude Code）与 `codex`（Codex CLI），可用 `codeDetective.ai.cli.agents` 扩展。agent 在工作区里用只读工具自己读源码，插件只接收最终 JSON。
+- 生成走**单 session 多轮**：首轮探索，校验失败时用 `--resume` / `codex exec resume` 在同一会话里让 agent 修正，不重复读代码。
+- 提示词通过 stdin 传入、`shell: false`，话题不会被解释成 CLI 参数；Claude Code 限制为 `Read,Grep,Glob,LS`，Codex 使用 `--sandbox read-only`。
+- 地图 Webview 的「AI 生成」面板改为选择 agent、输入话题、显示进度与取消，生成后直接打开。
 - 生成结果先经 `parseMap` 严格校验，失败时把错误回灌重试一次；重复生成自动递增 id 与文件名。
-- 默认只允许回环地址，API Key 存 SecretStorage；新增 `codeDetective.ai.*` 设置与四个命令。
-- `timeoutMs` 对 HTTP 通道同样生效（超时报 `AI_TIMEOUT`，取消报 `AI_CANCELLED`）；`auto` 回退顺序修正为“已配置模型的地址 → 本机探测 → CLI → `vscode.lm`”，只填地址不选模型不再吞掉后续通道。
+- 新增 `codeDetective.ai.agent` / `cli.*` / `timeoutMs` 设置；移除模型服务、`vscode.lm` 与 API Key 相关设置和命令。
+- 超时报 `AI_TIMEOUT`、取消报 `AI_CANCELLED`，都会终止 agent 子进程；`timeoutMs` 默认提高到 5 分钟以适应多文件探索。
 - 生成地图的草稿会先收敛成合法形状：`id` 统一规范化、超长文本裁剪到 200 字、重复/畸形来源与节点被丢弃而不是抛出 `TypeError`，重复 `sourceIds` 自动去重。
 - webview 传来的文件路径改用与校验器一致的规则，中文目录、空格与 `@scope` 文件名不再被误判为越界。
 - 重开面板会恢复上次打开的地图；地图内容被改写时按新内容重算布局。高对比度浅色主题使用浅色原生控件。

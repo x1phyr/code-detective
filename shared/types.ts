@@ -103,8 +103,8 @@ export type ThemeKind = 'dark' | 'light' | 'high-contrast' | 'high-contrast-ligh
 
 export type AiPhase = 'preparing' | 'running' | 'validating' | 'retry' | 'done' | 'error' | 'cancelled';
 
-/** Status of one selectable AI backend, shown in the webview picker. */
-export interface AiProviderStatus {
+/** Status of one selectable agent CLI, shown in the webview picker. */
+export interface AiAgentStatus {
   id: string;
   label: string;
   available: boolean;
@@ -113,18 +113,20 @@ export interface AiProviderStatus {
 }
 
 export interface AiStatusPayload {
-  providers: AiProviderStatus[];
-  provider: string;
-  model: string;
-  allowRemote: boolean;
-  remoteBaseUrl: boolean;
+  providers: AiAgentStatus[];
+  /** Agent CLI currently selected, e.g. `claude` / `codex`. */
+  agent: string;
+  /** Executable path or bare command. */
+  command: string;
+  /** Read-only tool list the agent is allowed to use. */
+  allowedTools: string;
 }
 
 export interface AiGeneratePayload {
   topic: string;
-  /** Optional explicit provider id; falls back to the configured one. */
-  provider?: string;
-  /** Workspace-relative files the user wants the model to read first. */
+  /** Optional explicit agent id; falls back to the configured one. */
+  agent?: string;
+  /** Workspace-relative files the user is looking at, used as a starting hint. */
   files?: string[];
 }
 

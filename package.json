@@ -110,17 +110,12 @@
       },
       {
         "command": "codeDetective.chooseAiProvider",
-        "title": "选择 AI 服务",
+        "title": "选择本地 Agent CLI",
         "category": "代码侦探"
       },
       {
         "command": "codeDetective.cancelAi",
         "title": "取消 AI 任务",
-        "category": "代码侦探"
-      },
-      {
-        "command": "codeDetective.setAiApiKey",
-        "title": "设置 AI 服务 API Key",
         "category": "代码侦探"
       }
     ],
@@ -423,69 +418,74 @@
       {
         "title": "代码侦探",
         "properties": {
-          "codeDetective.ai.provider": {
+          "codeDetective.ai.agent": {
             "type": "string",
+            "default": "claude",
             "enum": [
-              "auto",
-              "openai-compatible",
-              "cli",
-              "vscode-lm"
+              "claude",
+              "codex"
             ],
             "enumDescriptions": [
-              "依次尝试：本地模型服务 → 本地 CLI → VS Code 语言模型",
-              "任意 OpenAI 兼容的本地服务（Ollama、LM Studio、llama.cpp、vLLM、LocalAI）",
-              "调用本机已登录的 CLI agent，如 claude -p 或 codex exec",
-              "使用 VS Code 中已安装的语言模型（如 Copilot Chat）"
+              "Claude Code（claude -p）",
+              "Codex CLI（codex exec）"
             ],
-            "default": "auto",
-            "markdownDescription": "选择用哪个 AI 生成代码地图。推荐使用本地模型服务，代码不会离开本机。"
-          },
-          "codeDetective.ai.baseUrl": {
-            "type": "string",
-            "default": "http://127.0.0.1:11434/v1",
-            "markdownDescription": "OpenAI 兼容服务地址。Ollama 为 `http://127.0.0.1:11434/v1`，LM Studio 为 `http://127.0.0.1:1234/v1`。默认只允许本机地址。"
-          },
-          "codeDetective.ai.model": {
-            "type": "string",
-            "default": "",
-            "markdownDescription": "模型名称，例如 `qwen2.5-coder:14b`。留空时使用服务的默认模型。"
-          },
-          "codeDetective.ai.allowRemote": {
-            "type": "boolean",
-            "default": false,
-            "markdownDescription": "允许连接非本机地址的 AI 服务。开启后源码上下文可能离开本机，请自行确认合规。"
+            "markdownDescription": "用哪个本机 agent CLI 生成地图。agent 会在当前工作区里用只读工具自己阅读源码，插件不发送任何源码文本。新增 agent 见 `codeDetective.ai.cli.agents`。"
           },
           "codeDetective.ai.cli.command": {
             "type": "string",
-            "default": "claude",
-            "markdownDescription": "本地 CLI agent 的可执行文件，例如 `claude` 或 `codex`。提示词通过 stdin 传入，不经过 shell。"
+            "default": "",
+            "markdownDescription": "agent 可执行文件路径，留空则用 agent id（`claude` / `codex`）。提示词通过 stdin 传入，不经过 shell。"
           },
-          "codeDetective.ai.cli.args": {
+          "codeDetective.ai.cli.extraArgs": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "default": [
-              "-p"
-            ],
-            "markdownDescription": "CLI 参数。Claude Code 用 `-p`；Codex 用 `exec`。"
+            "default": [],
+            "markdownDescription": "追加到内置参数之后的自定义参数，用于透传 `--model` 等 CLI 选项。"
           },
-          "codeDetective.ai.vscodeLm.vendor": {
+          "codeDetective.ai.cli.allowedTools": {
             "type": "string",
-            "default": "copilot",
-            "markdownDescription": "当 provider 为 `vscode-lm` 时使用的模型厂商（`vscode.lm` 的 vendor 字段）。留空表示任意厂商。"
+            "default": "Read,Grep,Glob,LS",
+            "markdownDescription": "Claude Code 允许使用的工具列表。保持只读，避免 agent 修改工作区源码。"
           },
-          "codeDetective.ai.vscodeLm.family": {
-            "type": "string",
-            "default": "",
-            "markdownDescription": "可选的模型族名称，例如 `gpt-4o`。留空表示任意族。"
+          "codeDetective.ai.cli.agents": {
+            "type": "array",
+            "markdownDescription": "自定义 agent：`id` / `label` / `command` / `args`。用于接入 claude、codex 之外的其他 CLI。",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "command"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "唯一标识，用于 codeDetective.ai.agent"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                }
+              }
+            }
           },
           "codeDetective.ai.timeoutMs": {
             "type": "number",
-            "default": 180000,
-            "minimum": 5000,
-            "maximum": 900000,
-            "markdownDescription": "单次 AI 请求的超时时间（毫秒）。"
+            "default": 300000,
+            "minimum": 10000,
+            "maximum": 1800000,
+            "markdownDescription": "单轮 agent 调用的超时时间（毫秒）。默认 5 分钟，agent 需要读多个文件时请留足时间。"
           }
         }
       }

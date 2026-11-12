@@ -22,7 +22,6 @@ import { SessionStore } from './session';
 import { SourceService, isUsableSource, type AcceptedMap } from './sources';
 import { AiService } from './ai';
 import { registerChatIntegration } from './chat';
-import { isLoopbackHost } from '../ai/config';
 import { webviewHtml } from './webview';
 
 const VIEW_TYPE = 'codeDetective.mapView';
@@ -60,7 +59,6 @@ export class DetectiveController implements vscode.Disposable {
     this.sources = new SourceService(this.log);
     this.highlights = new HighlightController(this.sources);
     this.ai = new AiService({
-      secrets: context.secrets,
       log: this.log,
       root: () => this.activeRoot(),
       refresh: () => this.repository.refresh(),
@@ -107,7 +105,6 @@ export class DetectiveController implements vscode.Disposable {
       vscode.commands.registerCommand('codeDetective.generateMap', () => this.generateMapCommand()),
       vscode.commands.registerCommand('codeDetective.chooseAiProvider', () => this.chooseAiProviderCommand()),
       vscode.commands.registerCommand('codeDetective.cancelAi', () => this.ai.cancel()),
-      vscode.commands.registerCommand('codeDetective.setAiApiKey', () => this.ai.promptForApiKey()),
       vscode.commands.registerCommand('codeDetective.openHelp', () => this.openHelp()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.repository.installWatchers()),
     );
@@ -340,18 +337,14 @@ export class DetectiveController implements vscode.Disposable {
         await this.pushAiStatus();
         return;
       case 'ai.select':
-        await this.ai.setProvider(
-          String(message.payload.provider),
-          message.payload.baseUrl === undefined ? undefined : String(message.payload.baseUrl),
-          message.payload.model === undefined ? undefined : String(message.payload.model),
-        );
+        await this.ai.setAgent(String(message.payload.agent));
         await this.pushAiStatus();
         return;
       case 'ai.generate': {
         const files = Array.isArray(message.payload.files) ? message.payload.files as string[] : undefined;
         await this.ai.generate(
           String(message.payload.topic),
-          message.payload.provider === undefined ? undefined : String(message.payload.provider),
+          message.payload.agent === undefined ? undefined : String(message.payload.agent),
           files,
         );
         await this.pushAiStatus();
@@ -408,18 +401,15 @@ export class DetectiveController implements vscode.Disposable {
   }
 
   private async pushAiStatus(): Promise<void> {
-    const { providers, config } = await this.ai.status();
-    let remoteBaseUrl = false;
-    try { remoteBaseUrl = !isLoopbackHost(new URL(config.baseUrl)); } catch { remoteBaseUrl = false; }
+    const { providers, config } = this.ai.status();
     this.post({
       protocolVersion: 1,
       type: 'ai.status',
       payload: {
         providers,
-        provider: config.provider,
-        model: config.model,
-        allowRemote: config.allowRemote,
-        remoteBaseUrl,
+        agent: config.agent,
+        command: config.command,
+        allowedTools: config.allowedTools,
       },
     });
   }

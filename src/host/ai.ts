@@ -1,18 +1,16 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import type { AiPhase, AiProviderStatus, AiResultPayload, CodeMap } from '../../shared/types';
-import { readAiConfig, readApiKey, storeApiKey, normalizeBaseUrl, type AiConfig } from '../ai/config';
-import { LOCAL_PROBES, resolveProvider } from '../ai/index';
-import { OpenAiCompatibleProvider } from '../ai/openaiCompatible';
+import type { AiPhase, AiAgentStatus, AiResultPayload, CodeMap } from '../../shared/types';
+import { readAiConfig, type AiConfig } from '../ai/config';
+import { agentCatalog, createSession } from '../ai/index';
 import { generateMap } from '../ai/mapGenerator';
-import { AiError, type AiCancel } from '../ai/types';
+import { AiError, type AgentCancel } from '../ai/types';
 import { errorMessage } from '../core/errors';
 import { assertRelativeSourcePath } from '../core/paths';
 import { checkedSourceUri } from './paths';
 import { writeMapFile, type WrittenMap } from './mapWriter';
 
 export interface AiHostHooks {
-  secrets: vscode.SecretStorage;
   log: vscode.OutputChannel;
   root(): vscode.WorkspaceFolder | undefined;
   refresh(): Promise<void>;
@@ -25,12 +23,19 @@ export interface AiHostHooks {
 
 const PROGRESS_INTERVAL_MS = 250;
 
+/** Last session of the current task, so a retry continues the same conversation. */
+interface Task {
+  topic: string;
+  sessionId?: string;
+  cancel: vscode.CancellationTokenSource;
+  dispose(): void;
+}
+
 export class AiService implements vscode.Disposable {
-  private running?: { topic: string; dispose(): void; source: vscode.CancellationTokenSource };
+  private running?: Task;
   private lastProgress = 0;
   private lastPhase = '';
 
-  /** Streaming tokens arrive per chunk; throttle so the webview is not flooded. */
   private report(phase: AiPhase, message?: string, chars?: number): void {
     const now = Date.now();
     const phaseChanged = phase !== this.lastPhase;
@@ -44,146 +49,53 @@ export class AiService implements vscode.Disposable {
 
   get busy(): boolean { return this.running !== undefined; }
 
-  async status(): Promise<{ providers: AiProviderStatus[]; config: AiConfig }> {
+  /** Which agent CLIs are configured, for the webview picker. */
+  status(): { providers: AiAgentStatus[]; config: AiConfig } {
     const config = readAiConfig();
-    const apiKey = await readApiKey(this.hooks.secrets);
-    let localDetail = `${config.baseUrl}${config.model ? ` · ${config.model}` : ' · 未选择模型'}`;
-    let localAvailable = false;
-    for (const probe of LOCAL_PROBES) {
-      const models = await new OpenAiCompatibleProvider({
-        baseUrl: probe.baseUrl, model: '', apiKey, timeoutMs: 1_200,
-      }).listModels().catch(() => []);
-      if (models.length > 0) {
-        localAvailable = true;
-        if (probe.baseUrl === config.baseUrl.replace(/\/+$/, '') || !config.model) {
-          localDetail = `${probe.label} · ${models.slice(0, 3).join(', ')}${models.length > 3 ? ' …' : ''}`;
-        }
-        break;
-      }
-    }
-    if (!localAvailable) localDetail += '（未探测到本地服务）';
-    let lmDetail = '使用已安装的 Copilot Chat 等模型';
-    let lmAvailable = false;
-    try {
-      const models = await vscode.lm.selectChatModels(config.vscodeLmVendor ? { vendor: config.vscodeLmVendor } : {});
-      lmAvailable = models.length > 0;
-      lmDetail = models.length > 0 ? models.slice(0, 3).map(model => model.name).join(', ') : '没有可用模型';
-    } catch {
-      lmDetail = '不可用';
-    }
-    const providers: AiProviderStatus[] = [
-      { id: 'auto', label: '自动选择', available: true, detail: '优先本地模型服务，其次 CLI，最后 VS Code 模型', current: config.provider === 'auto' },
-      {
-        id: 'openai-compatible',
-        label: '本地模型服务（OpenAI 兼容）',
-        available: localAvailable || config.model.length > 0,
-        detail: localDetail,
-        current: config.provider === 'openai-compatible',
-      },
-      {
-        id: 'cli',
-        label: '本地 CLI Agent',
-        available: config.cliCommand.trim().length > 0,
-        detail: config.cliCommand ? `${config.cliCommand} ${config.cliArgs.join(' ')}`.trim() : '未配置',
-        current: config.provider === 'cli',
-      },
-      {
-        id: 'vscode-lm',
-        label: 'VS Code 语言模型',
-        available: lmAvailable,
-        detail: lmDetail,
-        current: config.provider === 'vscode-lm',
-      },
-    ];
+    const providers = agentCatalog(config).map(item => ({
+      id: item.id,
+      label: item.label,
+      available: true,
+      detail: item.id === config.agent
+        ? `${config.command || item.id} · 工作区 ${config.allowedTools}`
+        : `切换到 ${config.command || item.id}`,
+      current: item.id === config.agent,
+    }));
     return { providers, config };
   }
 
-  async setProvider(provider: string, baseUrl?: string, model?: string): Promise<void> {
+  async setAgent(agent: string): Promise<void> {
     const config = vscode.workspace.getConfiguration('codeDetective.ai');
-    // 工作区设置需要打开文件夹；单文件模式下退回用户设置。
     const section = vscode.workspace.workspaceFolders?.length
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
-    await config.update('provider', provider, section);
-    if (baseUrl !== undefined) await config.update('baseUrl', baseUrl, section);
-    if (model !== undefined) await config.update('model', model, section);
-    this.hooks.notify(`AI 服务已切换为 ${provider}。`);
+    await config.update('agent', agent, section);
+    this.hooks.notify(`已切换到 ${agent}。`);
   }
 
-  /** Lets the user pick a provider and, for local servers, an actual model. */
+  /** Quick pick over the built-in agents plus any configured custom ones. */
   async chooseInteractive(): Promise<boolean> {
     const config = readAiConfig();
-    const items: (vscode.QuickPickItem & { action: string; baseUrl?: string; model?: string })[] = [];
-    for (const probe of LOCAL_PROBES) {
-      const models = await new OpenAiCompatibleProvider({
-        baseUrl: probe.baseUrl, model: '', apiKey: await readApiKey(this.hooks.secrets), timeoutMs: 1_200,
-      }).listModels().catch(() => []);
-      if (models.length === 0) continue;
-      for (const model of models.slice(0, 12)) {
-        items.push({
-          label: `$(server) ${probe.label}`,
-          description: model,
-          detail: probe.baseUrl,
-          action: 'openai-compatible',
-          baseUrl: probe.baseUrl,
-          model,
-        });
-      }
-    }
-    if (config.cliCommand) {
-      items.push({
-        label: '$(terminal) 本地 CLI Agent',
-        description: `${config.cliCommand} ${config.cliArgs.join(' ')}`.trim(),
-        detail: '复用已登录的本地 agent，无需 API Key',
-        action: 'cli',
-      });
-    }
-    items.push({ label: '$(sparkle) VS Code 语言模型', description: 'Copilot Chat 等已安装模型', action: 'vscode-lm' });
-    items.push({ label: '$(gear) 自定义 OpenAI 兼容地址…', description: config.baseUrl, action: 'custom' });
-
-    const picked = await vscode.window.showQuickPick(items, {
-      title: '选择 AI 服务',
-      placeHolder: items.length > 0 ? '本地探测到的模型优先显示' : '没有探测到本地模型，请手动配置',
-      matchOnDescription: true,
-      matchOnDetail: true,
-    });
+    const known = agentCatalog(config);
+    const picked = await vscode.window.showQuickPick(
+      known.map(item => ({
+        label: item.label,
+        description: item.id === config.agent ? '当前' : undefined,
+        detail: item.id === config.agent ? `${config.command || item.id}` : undefined,
+        id: item.id,
+      })),
+      { title: '选择运行地图生成的 agent CLI', placeHolder: 'agent 会在当前工作区里自己阅读源码' },
+    );
     if (!picked) return false;
-    if (picked.action === 'custom') {
-      const url = await vscode.window.showInputBox({
-        title: 'OpenAI 兼容服务地址',
-        value: config.baseUrl,
-        prompt: '例如 http://127.0.0.1:11434/v1（Ollama）或 http://127.0.0.1:1234/v1（LM Studio）',
-        validateInput: value => {
-          try { new URL(value); return undefined; } catch { return '请输入合法的 URL。'; }
-        },
-      });
-      if (!url) return false;
-      const model = await vscode.window.showInputBox({ title: '模型名称', value: config.model, prompt: '例如 qwen2.5-coder:14b' });
-      if (model === undefined) return false;
-      await this.setProvider('openai-compatible', url, model);
-      return true;
-    }
-    await this.setProvider(picked.action, picked.baseUrl, picked.model);
+    await this.setAgent(picked.id);
     return true;
   }
 
-  /** Optional API key entry, stored in SecretStorage rather than settings.json. */
-  async promptForApiKey(): Promise<void> {
-    const value = await vscode.window.showInputBox({
-      title: 'AI 服务 API Key（可留空）',
-      password: true,
-      prompt: '仅保存在 VS Code SecretStorage 中；本地模型通常不需要。',
-    });
-    if (value === undefined) return;
-    await storeApiKey(this.hooks.secrets, value.trim());
-    this.hooks.notify(value.trim() ? '已保存 API Key。' : '已清除 API Key。');
-  }
-
   cancel(): void {
-    this.running?.source.cancel();
+    this.running?.cancel.cancel();
   }
 
-  async generate(topic: string, providerId?: string, files?: string[]): Promise<void> {
+  async generate(topic: string, agentId?: string, files?: string[]): Promise<void> {
     const root = this.hooks.root();
     if (!root) {
       this.hooks.notify('请先打开一个工作区文件夹。', 'warning');
@@ -193,10 +105,12 @@ export class AiService implements vscode.Disposable {
       this.hooks.notify('已有 AI 任务在运行，请先取消。', 'warning');
       return;
     }
+    if (agentId) await this.setAgent(agentId);
+
     const source = new vscode.CancellationTokenSource();
     const listeners = new Set<() => void>();
     const subscription = source.token.onCancellationRequested(() => { for (const listener of listeners) listener(); });
-    const cancel: AiCancel = {
+    const cancel: AgentCancel = {
       get isCancellationRequested() { return source.token.isCancellationRequested; },
       onCancellationRequested(listener: () => void) {
         const inner = source.token.onCancellationRequested(listener);
@@ -204,41 +118,36 @@ export class AiService implements vscode.Disposable {
         return inner;
       },
     };
-    this.running = { topic, source, dispose: () => { subscription.dispose(); listeners.clear(); } };
+    const task: Task = {
+      topic,
+      cancel: source,
+      dispose: () => { subscription.dispose(); listeners.clear(); },
+    };
+    this.running = task;
     const started = Date.now();
+    this.lastPhase = '';
+    this.lastProgress = 0;
+
     try {
       const config = readAiConfig();
-      if (providerId && providerId !== config.provider) {
-        // 直接落盘，避免 setProvider 额外弹出切换提示。
-        const target = vscode.workspace.workspaceFolders?.length
-          ? vscode.ConfigurationTarget.Workspace
-          : vscode.ConfigurationTarget.Global;
-        await vscode.workspace.getConfiguration('codeDetective.ai').update('provider', providerId, target);
-      }
-      const effective = readAiConfig();
-      if (effective.provider === 'openai-compatible') {
-        // 明确选择该通道时提前校验地址；`auto` 交给回退链逐项尝试。
-        normalizeBaseUrl(effective.baseUrl, effective);
-      }
-      this.lastPhase = '';
-      this.lastProgress = 0;
-      this.report('preparing', '正在准备上下文');
-      const resolved = await resolveProvider(readAiConfig(), {
-        secrets: this.hooks.secrets,
-        log: this.hooks.log,
-        cwd: root.uri.fsPath,
-      });
-      this.report('running', `使用 ${resolved.provider.label}`);
-      const result = await generateMap(resolved.provider, {
+      this.report('preparing', `正在启动 ${config.agent}`);
+      const session = createSession(config);
+      const result = await generateMap(session, {
         topic,
-        root,
+        rootName: root.name,
         priorityFiles: await this.priorityFiles(root, files),
+        cwd: root.uri.fsPath,
+        timeoutMs: config.timeoutMs,
         cancel,
-        onProgress: (phase, text) => {
-          this.report(phase, phase === 'validating' ? '正在校验生成结果'
-            : phase === 'retry' ? '校验失败，正在重试' : `使用 ${resolved.provider.label}`, text.length);
+        onPhase: (phase, detail) => {
+          this.report(phase, phase === 'validating' ? '正在校验地图'
+            : phase === 'retry' ? `校验失败，正在让 ${session.label} 修正` : `${session.label} 正在阅读源码`,
+          detail === undefined ? undefined : detail.length);
         },
+        onProgress: chars => this.report('running', `${session.label} 正在阅读源码`, chars),
       }, { retries: 1 });
+      task.sessionId = result.sessionId;
+
       if (source.token.isCancellationRequested) {
         this.hooks.result({ ok: false, phase: 'cancelled', message: '已取消。' });
         return;
@@ -255,8 +164,8 @@ export class AiService implements vscode.Disposable {
         mapKey: written.key,
         title: result.map.title,
         fileName: written.relativePath,
-        provider: resolved.provider.label,
-        message: `${resolved.provider.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 次尝试`,
+        provider: session.label,
+        message: `${session.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 轮`,
       });
     } catch (error) {
       const cancelled = source.token.isCancellationRequested
@@ -273,6 +182,7 @@ export class AiService implements vscode.Disposable {
     }
   }
 
+  /** Files the user is looking at; only a hint, the agent reads what it needs. */
   private async priorityFiles(root: vscode.WorkspaceFolder, explicit?: string[]): Promise<string[]> {
     const seen = new Set<string>();
     const output: string[] = [];
@@ -294,8 +204,7 @@ export class AiService implements vscode.Disposable {
       } catch { /* skip files outside the workspace */ }
     }
     for (const editor of vscode.window.visibleTextEditors) add(editor.document.uri);
-    for (const document of vscode.workspace.textDocuments) if (!document.isUntitled) add(document.uri);
-    return output;
+    return output.slice(0, 20);
   }
 
   private async writeMap(

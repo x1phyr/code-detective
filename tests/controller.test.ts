@@ -160,12 +160,12 @@ test('生成请求里带上当前节点的来源时，路径都能在工作区�
   const sourceIds = controller.map.nodes.find(node => node.id === 'open')?.sourceIds ?? [];
   const files = [...new Set(sourceIds.map(id => controller.map.sources[id]!.file))];
   assert.ok(files.length > 0, '示例节点应带源码');
-  controller.receive(envelope('ai.generate', { topic: '背包打开流程', provider: 'auto', files }));
+  controller.receive(envelope('ai.generate', { topic: '背包打开流程', agent: 'claude', files }));
 });
 
 test('ai 消息的类型与负载都会被校验', () => {
   assert.throws(() => parseBridgeMessage(envelope('ai.generate', { topic: '' })), /话题/);
-  assert.throws(() => parseBridgeMessage(envelope('ai.select', { provider: 'nope' })), /服务类型/);
+  assert.throws(() => parseBridgeMessage(envelope('ai.select', { agent: '../evil' })), /agent/);
   assert.doesNotThrow(() => parseBridgeMessage(envelope('ai.cancel')));
   assert.doesNotThrow(() => parseBridgeMessage(envelope('ai.status')));
 });

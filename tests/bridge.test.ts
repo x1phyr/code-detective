@@ -105,12 +105,12 @@ test('工作区边界判定不会把前缀相同的兄弟目录当作内部', ()
 test('ai.generate 只接受合法话题与工作区相对文件', () => {
   assert.equal(parseBridgeMessage(message({
     type: 'ai.generate',
-    payload: { topic: '背包加载流程', files: ['src/bag-button.ts', 'src/bag-panel.ts'] },
+    payload: { topic: '背包加载流程', agent: 'codex', files: ['src/bag-button.ts', 'src/bag-panel.ts'] },
   })).type, 'ai.generate');
 
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: '   ' } }))), 'INVALID_MESSAGE');
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'x'.repeat(4001) } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', provider: 'evil' } }))), 'INVALID_MESSAGE');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', agent: '../evil' } }))), 'INVALID_MESSAGE');
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['../secret.ts'] } }))), 'INVALID_MESSAGE');
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['/etc/passwd'] } }))), 'INVALID_MESSAGE');
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['src/./a.ts'] } }))), 'INVALID_MESSAGE');
@@ -129,13 +129,13 @@ test('ai.generate 拒绝非法文件数量与类型', () => {
   assert.equal(codeOf(() => validateGeneratePayload({ topic: 'a', files: 'src/a.ts' })), 'INVALID_MESSAGE');
 });
 
-test('ai.select 只接受已知服务类型', () => {
-  assert.equal(parseBridgeMessage(message({
-    type: 'ai.select',
-    payload: { provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen' },
-  })).type, 'ai.select');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { provider: 'nope' } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { provider: 'cli', model: 5 } }))), 'INVALID_MESSAGE');
+test('ai.select 只接受合法的 agent 标识', () => {
+  assert.equal(parseBridgeMessage(message({ type: 'ai.select', payload: { agent: 'claude' } })).type, 'ai.select');
+  assert.equal(parseBridgeMessage(message({ type: 'ai.select', payload: { agent: 'my-agent_2' } })).type, 'ai.select');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { agent: '' } }))), 'INVALID_MESSAGE');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { agent: '../evil' } }))), 'INVALID_MESSAGE');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { agent: 'claude', model: 'x' } }))), 'INVALID_MESSAGE');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: {} }))), 'INVALID_MESSAGE');
 });
 
 test('ai.status 与 ai.cancel 是全局消息，不能携带地图字段', () => {

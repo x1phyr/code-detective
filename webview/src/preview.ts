@@ -110,15 +110,12 @@ export function createPreviewHost(): HostBridge {
           type: 'ai.status',
           payload: {
             providers: [
-              { id: 'auto', label: '自动选择', available: true, detail: '预览模式无真实 AI', current: true },
-              { id: 'openai-compatible', label: '本地模型服务（OpenAI 兼容）', available: false, detail: 'http://127.0.0.1:11434/v1', current: false },
-              { id: 'cli', label: '本地 CLI Agent', available: false, detail: 'claude -p', current: false },
-              { id: 'vscode-lm', label: 'VS Code 语言模型', available: false, detail: '需要 Copilot Chat', current: false },
+              { id: 'claude', label: 'Claude Code', available: true, detail: '预览模式无真实 agent', current: true },
+              { id: 'codex', label: 'Codex CLI', available: true, detail: '预览模式无真实 agent', current: false },
             ],
-            provider: 'auto',
-            model: '',
-            allowRemote: false,
-            remoteBaseUrl: false,
+            agent: 'claude',
+            command: '',
+            allowedTools: 'Read,Grep,Glob,LS',
           },
         });
         return;

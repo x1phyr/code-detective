@@ -37,17 +37,17 @@ export function validateUiPatch(value: Record<string, unknown>): Partial<ViewSta
   return value as Partial<ViewState>;
 }
 
-const AI_PROVIDERS = ['auto', 'openai-compatible', 'cli', 'vscode-lm'];
+const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 const MAX_FILE_PATH_LENGTH = 1024;
 
 export function validateGeneratePayload(value: Record<string, unknown>): void {
-  exactKeys(value, ['topic', 'provider', 'files']);
+  exactKeys(value, ['topic', 'agent', 'files']);
   if (typeof value.topic !== 'string' || value.topic.trim().length === 0 || value.topic.length > 4000) {
     fail('请填写要分析的话题（1–4000 字）。');
   }
-  if (value.provider !== undefined && (typeof value.provider !== 'string' || !AI_PROVIDERS.includes(value.provider))) {
-    fail('AI 服务类型无效。');
+  if (value.agent !== undefined && (typeof value.agent !== 'string' || !AGENT_ID.test(value.agent))) {
+    fail('agent 标识无效。');
   }
   if (value.files !== undefined) {
     if (!Array.isArray(value.files) || value.files.length > 40) fail('文件列表格式无效。');
@@ -88,10 +88,8 @@ export function parseBridgeMessage(value: unknown): BridgeMessage<Record<string,
   } else if (value.type === 'ai.generate') {
     validateGeneratePayload(payload);
   } else if (value.type === 'ai.select') {
-    exactKeys(payload, ['provider', 'baseUrl', 'model']);
-    if (typeof payload.provider !== 'string' || !AI_PROVIDERS.includes(payload.provider)) fail('AI 服务类型无效。');
-    if (payload.baseUrl !== undefined && (typeof payload.baseUrl !== 'string' || payload.baseUrl.length > 2048)) fail('AI 服务地址无效。');
-    if (payload.model !== undefined && (typeof payload.model !== 'string' || payload.model.length > 200)) fail('AI 模型名称无效。');
+    exactKeys(payload, ['agent']);
+    if (typeof payload.agent !== 'string' || !AGENT_ID.test(payload.agent)) fail('agent 标识无效。');
   } else {
     exactKeys(payload, []);
   }
