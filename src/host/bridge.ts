@@ -1,8 +1,9 @@
 import type { BridgeMessage, RevealPayload, Selection, ViewState } from '../../shared/types';
-import { HostError } from './paths';
+import { HostError } from '../core/errors';
+import { isCanonicalRelativePath } from '../core/paths';
 
-const GLOBAL_MESSAGES = new Set(['view.ready', 'maps.refresh', 'prompt.copy', 'help.open']);
-const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.clear', 'highlight.setEnabled', 'ui.patch', 'map.openFile']);
+const GLOBAL_MESSAGES = new Set(['view.ready', 'maps.refresh', 'prompt.copy', 'help.open', 'ai.status', 'ai.cancel']);
+const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.clear', 'highlight.setEnabled', 'ui.patch', 'map.openFile', 'ai.generate', 'ai.select']);
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -22,19 +23,11 @@ function selection(value: unknown): value is Selection {
 }
 
 export function validateUiPatch(value: Record<string, unknown>): Partial<ViewState> {
-  exactKeys(value, ['selection', 'sourceId', 'stepId', 'highlightEnabled', 'positions', 'viewport']);
+  exactKeys(value, ['selection', 'sourceId', 'stepId', 'highlightEnabled', 'viewport']);
   if (value.selection !== undefined && !selection(value.selection)) fail('选中对象格式无效。');
   if (value.sourceId !== undefined && !id(value.sourceId)) fail('来源 ID 格式无效。');
   if (value.stepId !== undefined && !id(value.stepId)) fail('步骤 ID 格式无效。');
   if (value.highlightEnabled !== undefined && typeof value.highlightEnabled !== 'boolean') fail('高亮状态必须是布尔值。');
-  if (value.positions !== undefined) {
-    if (!isObject(value.positions) || Object.keys(value.positions).length > 500) fail('节点位置格式或数量无效。');
-    for (const [key, point] of Object.entries(value.positions)) {
-      if (!id(key) || !isObject(point)) fail('节点位置格式无效。');
-      exactKeys(point, ['x', 'y']);
-      if (!finite(point.x) || !finite(point.y)) fail('节点位置必须是有限坐标。');
-    }
-  }
   if (value.viewport !== undefined) {
     if (!isObject(value.viewport)) fail('画布视口格式无效。');
     exactKeys(value.viewport, ['x', 'y', 'zoom']);
@@ -42,6 +35,29 @@ export function validateUiPatch(value: Record<string, unknown>): Partial<ViewSta
       || value.viewport.zoom < 0.01 || value.viewport.zoom > 20) fail('画布视口坐标或缩放值无效。');
   }
   return value as Partial<ViewState>;
+}
+
+const AI_PROVIDERS = ['auto', 'openai-compatible', 'cli', 'vscode-lm'];
+
+const MAX_FILE_PATH_LENGTH = 1024;
+
+export function validateGeneratePayload(value: Record<string, unknown>): void {
+  exactKeys(value, ['topic', 'provider', 'files']);
+  if (typeof value.topic !== 'string' || value.topic.trim().length === 0 || value.topic.length > 4000) {
+    fail('请填写要分析的话题（1–4000 字）。');
+  }
+  if (value.provider !== undefined && (typeof value.provider !== 'string' || !AI_PROVIDERS.includes(value.provider))) {
+    fail('AI 服务类型无效。');
+  }
+  if (value.files !== undefined) {
+    if (!Array.isArray(value.files) || value.files.length > 40) fail('文件列表格式无效。');
+    for (const file of value.files) {
+      // 允许中文、空格等真实文件名；越界与规范化规则统一由 core/paths 判定。
+      if (typeof file !== 'string' || file.length > MAX_FILE_PATH_LENGTH || !isCanonicalRelativePath(file)) {
+        fail('文件路径必须是工作区相对路径。');
+      }
+    }
+  }
 }
 
 export function parseBridgeMessage(value: unknown): BridgeMessage<Record<string, unknown>> {
@@ -69,6 +85,13 @@ export function parseBridgeMessage(value: unknown): BridgeMessage<Record<string,
     if (typeof payload.enabled !== 'boolean') fail('高亮开关必须是布尔值。');
   } else if (value.type === 'ui.patch') {
     validateUiPatch(payload);
+  } else if (value.type === 'ai.generate') {
+    validateGeneratePayload(payload);
+  } else if (value.type === 'ai.select') {
+    exactKeys(payload, ['provider', 'baseUrl', 'model']);
+    if (typeof payload.provider !== 'string' || !AI_PROVIDERS.includes(payload.provider)) fail('AI 服务类型无效。');
+    if (payload.baseUrl !== undefined && (typeof payload.baseUrl !== 'string' || payload.baseUrl.length > 2048)) fail('AI 服务地址无效。');
+    if (payload.model !== undefined && (typeof payload.model !== 'string' || payload.model.length > 200)) fail('AI 模型名称无效。');
   } else {
     exactKeys(payload, []);
   }
