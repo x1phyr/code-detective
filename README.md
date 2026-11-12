@@ -1,69 +1,140 @@
 # 代码侦探 🕵️ Code Detective
 
-把 AI 对某个功能的分析，变成能点击源码的代码地图。
+把 AI 生成的功能地图变成可点击的源码导读：调用关系、源码跳转与相关代码高亮。
 
-**外部 AI 负责分析；代码侦探负责展示、跳转和高亮。** 第一版读取工作区内的地图 JSON，不需要在插件中配置模型或 API Key。
+AI 负责分析功能、产出地图 JSON；插件负责严格校验、渲染地图、跳转到真实源码并高亮相关范围。地图由谁生成都一样——插件内置的 AI、Copilot Chat，或者你手写的 JSON，最终都走同一套校验与展示链路。
 
-当前版本：**0.1.0，初步开发版**。界面沿用已选定的深色地图风格：蓝色节点、紫色条件节点、琥珀色当前关系与源码高亮。
+要求 VS Code **1.95 或以上**，仅支持桌面版本的本地工作区。
 
-## 快速试用
+## 安装与上手
 
-1. 在 VS Code 桌面版（1.95 或以上）执行 `Extensions: Install from VSIX...`，选择 `code-detective-0.1.0.vsix`。
-2. 解压源码包，以 **`examples/bag-demo` 为工作区根目录** 打开。地图会从这个根目录下的 `.code-detective/maps/` 发现。
-3. 打开命令面板，执行 **代码侦探: 打开地图**。
-4. 点击“加载界面”节点查看实现，点击“未命中时调用”连线查看调用处。多个来源会显示列表，选择具体位置后再跳转。
-5. 点击“开始导读”体验三个阅读步骤。停止导读或清除高亮会移除本插件的装饰。
+从源码构建出的安装包在 `artifacts/code-detective-0.2.0.vsix`：
 
-安装包也在源码项目的 `artifacts/` 中。用源码启动时，先执行下方构建命令，再按 F5 选择“运行代码侦探”，会在 Extension Development Host 中打开背包示例。
+1. 在 VS Code 中执行 `Extensions: Install from VSIX...`，选择该文件。
+2. 打开一个包含 `.code-detective/maps/*.json` 的工作区（仓库内的示例是 `examples/bag-demo`）。
+3. 执行 **代码侦探: 打开地图**，选择地图即可浏览。
 
-## 在自己的项目中使用
+想先用示例体验，直接以 `examples/bag-demo` 作为工作区根目录打开即可，里面的地图已经可以直接加载。
 
-在项目根目录创建 `.code-detective/maps/`。执行 **代码侦探: 复制 AI 地图生成提示词**，把复制的规范和你想了解的话题交给现有编码 AI。
+## 能做什么
 
-例如：
+- **地图浏览**：节点按 `事件` / `函数` / `条件` / `步骤` 分类着色，支持缩放、平移、适应窗口、分支、循环、自环与平行边。
+- **源码定位**：点击节点跳到实现，点击连线跳到调用或关系所在位置；同一处有多个来源时列出候选，由你选择。
+- **两层高亮**：相关范围与当前选择分别高亮，同文件多个可见编辑器会各自应用。
+- **顺序导读**：按 `walkthrough` 步骤前进/后退，也可随时停止并清除装饰，不影响文件本身。
+- **状态恢复**：重开面板回到上次打开的地图；地图内容变化时重新布局。
+- **主题跟随**：配色取自 VS Code 注入的 `--vscode-*` 变量，支持深色、浅色与高对比度。
 
-> 帮我梳理从点击背包按钮，到加载资源、创建界面，再到刷新物品列表的流程，生成代码侦探地图。
+插件不会推导调用关系。图中的结论来自地图作者；文本锚点只用于恢复位置，不代表分析结论仍然成立。
 
-AI 写入有效 JSON 后，插件会更新地图列表。AI 保存到一半或生成了不合法的新版本时，插件保留上次有效地图并显示错误；点击“查看 JSON”可以修正文件。
+## 生成地图
 
-地图协议详见 [AI 生成规范](docs/ai-authoring.md) 和 [JSON Schema](schemas/code-map-v1.schema.json)。完整设计在 [开发文档](docs/development.md)。
+### 1. 用内置 AI
 
-## 已实现
+在地图面板点 **AI 生成**，或执行 **代码侦探: 用 AI 生成地图**：选择 AI 服务 → 描述想了解的功能 → 插件附带当前文件与选中节点的源码 → AI 返回 JSON → 校验（失败自动带错误重试一次）→ 写入 `.code-detective/maps/` → 直接打开。
 
-- 发现、选择和监听 `.code-detective/maps/*.json`，支持多个工作区根目录。
-- 严格 JSON、重复键、字段、范围、ID 与引用校验。
-- Vue Flow 交互地图与 ELK 自动布局，支持缩放、平移、拖动、分支、循环、自环与平行边。
-- 节点定位实现，连线定位调用或关系所在位置；多处来源由用户选择。
-- 真实 VS Code 编辑器分栏导航，保留地图焦点，并可显式“进入源码”。
-- 相关范围和当前选择两层高亮，同文件多个可见编辑器分别应用。
-- 前进、后退与停止导读；地图选择、节点位置、视口和阅读状态恢复。
-- 基于当前编辑器文本（含未保存修改）的来源检查。
-- 精确文本锚点匹配与唯一位置恢复；缺失、越界和不确定位置有明确状态。
-- 深色与浅色主题、键盘可用的对象目录和来源列表。
+内置三种通道，默认 `auto` 按顺序探测，**代码默认不离开本机**：
 
-插件不推导调用关系；图中的结论和解释来自地图作者。文本锚点匹配只恢复位置，不代表分析结论仍然正确。
+| 通道 | 适用工具 |
+| --- | --- |
+| OpenAI 兼容 | Ollama、LM Studio、llama.cpp / vLLM、LocalAI |
+| 本地 CLI | `claude -p`、`codex exec` 等已登录的 CLI agent（提示词走 stdin，不经 shell） |
+| VS Code 语言模型 | 通过 `vscode.lm` 调用已安装的模型（如 Copilot Chat） |
+
+### 2. 在 Copilot Chat 里生成
+
+安装 Copilot Chat 后可以直接把探索调用链交给聊天窗口：
+
+- `@detective <话题>`：先用 `#codeDetectiveSearch` / `#codeDetectiveRead` 读真实源码，再经 `#codeDetectiveCreateMap` 提交结构化流程，插件补全锚点、校验并打开地图。
+- `@detective /map <话题>`：同上，显式走地图生成。
+- `@detective /open`、`@detective /next`、`@detective /help`：打开地图、导读下一步、查看用法。
+
+Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索结果落成地图。模型只写 `file` / `startLine` / `endLine`，`anchorText` 由插件按真实文件生成；引用不存在文件的来源会被裁掉并在结果中列出。
+
+### 3. 交给任意编码 AI
+
+在项目根目录创建 `.code-detective/maps/`，执行 **代码侦探: 复制 AI 地图生成提示词**，把规范连同话题交给现有 AI。AI 写入有效 JSON 后地图列表会自动更新。
+
+如果保存到一半或写出了不合法的版本，插件会在地图列表里把它标记为错误项并保留上一次有效内容；改好文件后列表会自动刷新。
+
+## 地图格式
+
+地图是工作区根目录 `.code-detective/maps/<id>.json` 下的单个 JSON 文件，`schemaVersion` 为 `1`，主要由四部分组成：
+
+- `sources`：`file`（工作区相对路径）、`startLine`、`endLine`，可选 `anchorText`（完整整行文本，用于恢复位置）。
+- `nodes`：id、`label`、分类 `kind`、`sourceIds`。
+- `edges`：id、`label`、起止节点、关系类型 `kind`。
+- `walkthrough`：可选的阅读步骤，引用已存在的节点与连线 id。
+
+校验是严格的：JSON 重复键、未知字段、越界行号、越界路径、重复或悬空引用都会导致地图被拒绝，并给出具体位置。装好插件后编辑地图文件也会获得 JSON Schema 补全与提示（见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）。
+
+## 设置
+
+```json
+{
+  "codeDetective.ai.provider": "auto",
+  "codeDetective.ai.baseUrl": "http://127.0.0.1:11434/v1",
+  "codeDetective.ai.model": "qwen2.5-coder:14b",
+  "codeDetective.ai.cli.command": "claude",
+  "codeDetective.ai.cli.args": ["-p"],
+  "codeDetective.ai.allowRemote": false
+}
+```
+
+| 设置 | 说明 |
+| --- | --- |
+| `codeDetective.ai.provider` | `auto` / `openai-compatible` / `cli` / `vscode-lm`，默认依次尝试 |
+| `codeDetective.ai.baseUrl` | OpenAI 兼容地址，Ollama 默认 `http://127.0.0.1:11434/v1` |
+| `codeDetective.ai.model` | 模型名，留空用服务默认模型 |
+| `codeDetective.ai.cli.command` / `.args` | 本地 CLI 与参数，Claude Code 用 `-p`，Codex 用 `exec` |
+| `codeDetective.ai.vscodeLm.vendor` / `.family` | `vscode-lm` 通道的模型筛选 |
+| `codeDetective.ai.allowRemote` | 允许非本机地址，默认关闭 |
+| `codeDetective.ai.timeoutMs` | 单次请求超时，默认 180 秒 |
+
+- **代码侦探: 选择 AI 服务** 会探测本机端口并列出可用模型，选中后记住选择。
+- API Key 存在 VS Code SecretStorage（**代码侦探: 设置 AI 服务 API Key**），不写入设置文件；本地模型通常不需要。
+- `auto` 的回退顺序：已选好模型的地址 → 本机探测 → 本地 CLI → VS Code 语言模型；只填地址不选模型不会卡住后续通道。
+
+## 命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `代码侦探: 打开地图` | 选择并打开工作区中的地图 |
+| `代码侦探: 重新扫描地图` | 重新发现地图文件 |
+| `代码侦探: 开始导读` / `下一步` / `上一步` / `停止导读` | 按步骤阅读 |
+| `代码侦探: 切换相关代码高亮` / `清除高亮` | 控制编辑器装饰 |
+| `代码侦探: 用 AI 生成地图` | 内置 AI 生成 |
+| `代码侦探: 选择 AI 服务` / `设置 AI 服务 API Key` / `取消 AI 任务` | AI 配置与取消 |
+| `代码侦探: 复制 AI 地图生成提示词` | 交给外部 AI |
+| `代码侦探: 查看地图格式与使用说明` | 打开本文件 |
+
+## 已知限制
+
+- 只支持桌面 VS Code 的本地工作区；远程工作区、虚拟工作区以及 Cursor 等衍生编辑器未做适配。
+- 节点位置由布局计算，不可拖动，地图不会保存坐标。
+- Webview 的浏览器预览只是开发用的模拟环境（右侧源码组为只读模拟），真实插件使用 VS Code 原生编辑器。
 
 ## 开发
 
-需要 Node.js **20.19+ 或 22.12+** 和 npm。推荐使用当前 Node.js LTS。
+需要 Node.js **20.19+ 或 22.12+** 与 npm。
 
 ```sh
 npm ci
-npm run check
-npm run package
+npm run check        # 类型检查 + 单元测试 + 构建
+npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 ```
 
 | 命令 | 用途 |
 | --- | --- |
-| `npm run typecheck` | 检查扩展、Webview、测试与示例 TypeScript |
-| `npm test` | 核心、Host 输入边界及 Controller 模拟测试 |
-| `npm run build` | 输出 Host 与 Webview 到 `dist/` |
-| `npm run package` | 生成 `artifacts/code-detective-0.1.0.vsix` |
-| `npm run dev` | 启动浏览器中的 Webview 交互预览 |
+| `npm run typecheck` | 检查扩展、Webview、测试与示例的 TypeScript |
+| `npm test` | 核心、Host 输入边界与 Controller 模拟测试 |
+| `npm run test:integration` | 在 Extension Host 中验证命令与工具注册 |
+| `npm run build` | 输出 `dist/extension.cjs` 与 `dist/webview/` |
+| `npm run dev` | 浏览器中的 Webview 交互预览 |
 
-浏览器预览使用 `webview/preview.ts`，通过示例数据模拟 Host 消息，右侧源码是演示区域。**实际插件只渲染地图 Webview，右侧使用 VS Code 原生源码编辑器。** 预览适配器不会进入 VSIX 的生产脚本。
+用源码调试时执行 `npm run build`（或让 F5 的 preLaunchTask 触发），选择 **运行代码侦探** 会在 Extension Development Host 中以 `examples/bag-demo` 打开；**运行代码侦探（当前工作区）** 则使用你当前打开的项目。
 
-开发服务器的 `scripts/preview-env.cjs` 只在环境无法枚举网卡信息时省略可选的 LAN 地址展示，不改变监听权限或插件代码。
+浏览器预览通过 `webview/preview.ts` 用示例数据模拟 Host 消息，并套了一层 VS Code 工作台外壳（`webview/src/preview-shell.ts`），状态栏左侧的色块按钮可循环切换 Dark / Light / High Contrast。预览仅按 `import.meta.env.DEV` 动态加载，不会进入 VSIX。
 
 ## 工程结构
 
@@ -71,22 +142,14 @@ npm run package
 | --- | --- |
 | `src/extension.ts` | 扩展激活与退出 |
 | `src/core/` | 地图校验、来源位置匹配、选择状态 |
-| `src/host/` | 工作区文件、消息、源码导航、高亮和持久化 |
-| `shared/` | 地图类型与消息协议 |
+| `src/host/` | 工作区文件、消息、源码导航、高亮、持久化与 Chat 集成 |
+| `src/ai/` | AI 通道、提示词、草稿收敛与写盘 |
+| `shared/` | 地图类型与 Webview 消息协议 |
 | `webview/src/` | Vue 地图、详情与导读界面 |
-| `schemas/` | v1 JSON Schema |
-| `examples/bag-demo/` | 可以编译和实际运行的背包示例 |
-| `tests/` | 可重复的自动验证 |
-| `docs/` | 开发规范、AI 生成规范和验收记录 |
+| `schemas/` | v1 JSON Schema（随插件注册给地图文件） |
+| `examples/bag-demo/` | 可直接运行的背包示例与示例地图 |
+| `tests/` | 单元测试与 Extension Host 集成测试 |
 
-## 本轮验证的边界
+## 状态
 
-类型检查、核心测试、Host 边界测试、Controller 模拟和构建/打包结果见 [验收记录](docs/verification.md)。Controller 测试使用真实地图与临时源码文件，VS Code API 使用测试替身，不能代替真实 Extension Host 验收。
-
-本轮的云浏览器无法连接本地预览服务，尚未完成第 2 张设计稿与实际渲染的截图比对。当前环境也没有可运行的 VS Code 图形会话，真实编辑器中的分栏、焦点和装饰仍需安装后验证。相关状态记录在 `design-qa.md`，未标记为通过。
-
-首轮面向桌面 VS Code；远程工作区、虚拟工作区、Cursor 和 PinK 的专门适配尚未验收。
-
-## 发布前
-
-`publisher` 当前为本地开发标识 `code-detective-dev`。发布 Marketplace 前应配置实际 publisher、发布授权与项目许可。本项目当前标记为 `UNLICENSED`，第三方依赖许可保存在 `THIRD-PARTY-NOTICES.txt`。
+当前版本 **0.2.0**，处于初步开发阶段，变更见 [CHANGELOG.md](CHANGELOG.md)。项目以 `UNLICENSED` 发布，`publisher` 仍是本地开发标识 `code-detective-dev`。

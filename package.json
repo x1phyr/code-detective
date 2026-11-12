@@ -2,43 +2,494 @@
   "name": "code-detective",
   "displayName": "代码侦探 🕵️",
   "description": "把 AI 生成的功能地图变成可点击的源码导读：调用关系、源码跳转与相关代码高亮。",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "code-detective-dev",
   "private": true,
   "license": "UNLICENSED",
-  "engines": { "vscode": "^1.95.0" },
-  "categories": ["Visualization", "Other"],
-  "keywords": ["code map", "walkthrough", "code reading", "代码导读"],
-  "extensionKind": ["workspace"],
-  "capabilities": {
-    "untrustedWorkspaces": { "supported": false },
-    "virtualWorkspaces": { "supported": false }
+  "engines": {
+    "vscode": "^1.95.0"
   },
-  "activationEvents": ["workspaceContains:.code-detective/maps/*.json"],
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "code map",
+    "walkthrough",
+    "code reading",
+    "代码导读"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "activationEvents": [
+    "workspaceContains:.code-detective/maps/*.json",
+    "onCommand:codeDetective.openMap",
+    "onCommand:codeDetective.generateMap",
+    "onCommand:codeDetective.chooseAiProvider",
+    "onChatParticipant:code-detective.detective",
+    "onLanguageModelTool:codeDetective_searchSources",
+    "onLanguageModelTool:codeDetective_readSource",
+    "onLanguageModelTool:codeDetective_createMap"
+  ],
   "main": "./dist/extension.cjs",
   "scripts": {
     "dev": "node --require ./scripts/preview-env.cjs ./node_modules/vite/bin/vite.js --config vite.config.ts",
     "build": "node scripts/build.mjs",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p examples/bag-demo/tsconfig.json",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:integration": "node tests/integration/run.cjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "package": "vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links --skip-license --out artifacts/code-detective-0.1.0.vsix",
+    "package": "vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links --skip-license --out artifacts/code-detective-0.2.0.vsix",
     "vscode:prepublish": "npm run build"
   },
   "contributes": {
     "commands": [
-      { "command": "codeDetective.openMap", "title": "打开地图", "category": "代码侦探" },
-      { "command": "codeDetective.refreshMaps", "title": "重新扫描地图", "category": "代码侦探" },
-      { "command": "codeDetective.startWalkthrough", "title": "开始导读", "category": "代码侦探" },
-      { "command": "codeDetective.nextStep", "title": "下一步", "category": "代码侦探" },
-      { "command": "codeDetective.previousStep", "title": "上一步", "category": "代码侦探" },
-      { "command": "codeDetective.stopWalkthrough", "title": "停止导读", "category": "代码侦探" },
-      { "command": "codeDetective.clearHighlights", "title": "清除高亮", "category": "代码侦探" },
-      { "command": "codeDetective.toggleHighlights", "title": "切换相关代码高亮", "category": "代码侦探" },
-      { "command": "codeDetective.copyAuthoringPrompt", "title": "复制 AI 地图生成提示词", "category": "代码侦探" },
-      { "command": "codeDetective.openHelp", "title": "查看地图格式与使用说明", "category": "代码侦探" }
+      {
+        "command": "codeDetective.openMap",
+        "title": "打开地图",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.refreshMaps",
+        "title": "重新扫描地图",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.startWalkthrough",
+        "title": "开始导读",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.nextStep",
+        "title": "下一步",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.previousStep",
+        "title": "上一步",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.stopWalkthrough",
+        "title": "停止导读",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.clearHighlights",
+        "title": "清除高亮",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.toggleHighlights",
+        "title": "切换相关代码高亮",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.copyAuthoringPrompt",
+        "title": "复制 AI 地图生成提示词",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.openHelp",
+        "title": "查看地图格式与使用说明",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.generateMap",
+        "title": "用 AI 生成地图",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.chooseAiProvider",
+        "title": "选择 AI 服务",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.cancelAi",
+        "title": "取消 AI 任务",
+        "category": "代码侦探"
+      },
+      {
+        "command": "codeDetective.setAiApiKey",
+        "title": "设置 AI 服务 API Key",
+        "category": "代码侦探"
+      }
     ],
-    "jsonValidation": [{ "fileMatch": ["**/.code-detective/maps/*.json"], "url": "./schemas/code-map-v1.schema.json" }]
+    "chatParticipants": [
+      {
+        "id": "code-detective.detective",
+        "name": "detective",
+        "fullName": "代码侦探",
+        "description": "读源码追踪调用链，生成并打开可点击的代码地图",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "map",
+            "description": "分析调用流程并生成代码地图",
+            "sampleRequest": "从点击背包按钮到刷新物品列表的完整流程"
+          },
+          {
+            "name": "open",
+            "description": "打开已生成的代码地图"
+          },
+          {
+            "name": "next",
+            "description": "导读下一步"
+          },
+          {
+            "name": "help",
+            "description": "查看用法"
+          }
+        ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "codeDetective_searchSources",
+        "tags": [
+          "code-detective",
+          "search"
+        ],
+        "displayName": "代码侦探：搜索源码",
+        "userDescription": "在工作区源码中按关键字搜索并返回文件与行号",
+        "modelDescription": "在工作区源码中按关键字或正则搜索，返回 file、line 与整行文本。用于定位入口函数与调用点。",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "codeDetectiveSearch",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "要查找的文本，默认按子串匹配"
+            },
+            "regex": {
+              "type": "boolean",
+              "description": "是否按正则匹配"
+            },
+            "caseSensitive": {
+              "type": "boolean",
+              "description": "是否区分大小写"
+            },
+            "glob": {
+              "type": "string",
+              "description": "可选的额外文件过滤，例如 src/**/*.ts"
+            },
+            "maxResults": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40,
+              "description": "最多返回多少条匹配"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "codeDetective_readSource",
+        "tags": [
+          "code-detective",
+          "read"
+        ],
+        "displayName": "代码侦探：读取源码片段",
+        "userDescription": "读取工作区文件指定行范围，输出带行号的文本",
+        "modelDescription": "读取工作区文件的指定行范围，输出带行号的文本。行号必须以此处的编号为准。",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "codeDetectiveRead",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "工作区相对路径，使用 / 分隔"
+            },
+            "startLine": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "起始行，默认 1"
+            },
+            "endLine": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "结束行（含），默认 startLine + 199"
+            }
+          },
+          "required": [
+            "file"
+          ]
+        }
+      },
+      {
+        "name": "codeDetective_createMap",
+        "tags": [
+          "code-detective",
+          "map"
+        ],
+        "displayName": "代码侦探：生成代码地图",
+        "userDescription": "把结构化调用流程写成地图文件并在面板中打开",
+        "modelDescription": "把探索得到的调用流程写成代码地图。只需给出 sources 的 file/startLine/endLine，插件会按真实文件补全 anchorText、校验并打开地图。节点与连线必须引用真实源码位置。",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "codeDetectiveCreateMap",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title",
+            "sources",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "kebab-case 地图 id，可省略"
+            },
+            "title": {
+              "type": "string",
+              "description": "地图标题，不超过 200 字"
+            },
+            "description": {
+              "type": "string",
+              "description": "可选说明"
+            },
+            "sources": {
+              "type": "object",
+              "description": "源码位置表，键为 sourceId",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file",
+                  "startLine",
+                  "endLine"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "工作区相对路径，使用 / 分隔"
+                  },
+                  "startLine": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "endLine": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "label",
+                  "sourceIds"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "step",
+                      "function",
+                      "condition",
+                      "event"
+                    ]
+                  },
+                  "sourceIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "from",
+                  "to",
+                  "sourceIds"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "call",
+                      "flow",
+                      "event",
+                      "related"
+                    ]
+                  },
+                  "sourceIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "walkthrough": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "title",
+                  "nodeIds",
+                  "edgeIds"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "nodeIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "edgeIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "**/.code-detective/maps/*.json"
+        ],
+        "url": "./schemas/code-map-v1.schema.json"
+      }
+    ],
+    "configuration": [
+      {
+        "title": "代码侦探",
+        "properties": {
+          "codeDetective.ai.provider": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "openai-compatible",
+              "cli",
+              "vscode-lm"
+            ],
+            "enumDescriptions": [
+              "依次尝试：本地模型服务 → 本地 CLI → VS Code 语言模型",
+              "任意 OpenAI 兼容的本地服务（Ollama、LM Studio、llama.cpp、vLLM、LocalAI）",
+              "调用本机已登录的 CLI agent，如 claude -p 或 codex exec",
+              "使用 VS Code 中已安装的语言模型（如 Copilot Chat）"
+            ],
+            "default": "auto",
+            "markdownDescription": "选择用哪个 AI 生成代码地图。推荐使用本地模型服务，代码不会离开本机。"
+          },
+          "codeDetective.ai.baseUrl": {
+            "type": "string",
+            "default": "http://127.0.0.1:11434/v1",
+            "markdownDescription": "OpenAI 兼容服务地址。Ollama 为 `http://127.0.0.1:11434/v1`，LM Studio 为 `http://127.0.0.1:1234/v1`。默认只允许本机地址。"
+          },
+          "codeDetective.ai.model": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "模型名称，例如 `qwen2.5-coder:14b`。留空时使用服务的默认模型。"
+          },
+          "codeDetective.ai.allowRemote": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "允许连接非本机地址的 AI 服务。开启后源码上下文可能离开本机，请自行确认合规。"
+          },
+          "codeDetective.ai.cli.command": {
+            "type": "string",
+            "default": "claude",
+            "markdownDescription": "本地 CLI agent 的可执行文件，例如 `claude` 或 `codex`。提示词通过 stdin 传入，不经过 shell。"
+          },
+          "codeDetective.ai.cli.args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "-p"
+            ],
+            "markdownDescription": "CLI 参数。Claude Code 用 `-p`；Codex 用 `exec`。"
+          },
+          "codeDetective.ai.vscodeLm.vendor": {
+            "type": "string",
+            "default": "copilot",
+            "markdownDescription": "当 provider 为 `vscode-lm` 时使用的模型厂商（`vscode.lm` 的 vendor 字段）。留空表示任意厂商。"
+          },
+          "codeDetective.ai.vscodeLm.family": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "可选的模型族名称，例如 `gpt-4o`。留空表示任意族。"
+          },
+          "codeDetective.ai.timeoutMs": {
+            "type": "number",
+            "default": 180000,
+            "minimum": 5000,
+            "maximum": 900000,
+            "markdownDescription": "单次 AI 请求的超时时间（毫秒）。"
+          }
+        }
+      }
+    ]
   },
   "dependencies": {
     "vue": "3.5.45",
