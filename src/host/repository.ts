@@ -113,7 +113,7 @@ export class MapRepository implements vscode.Disposable {
       ? { ...previous, root, uri, relativePath, error: undefined }
       : { root, uri, relativePath, key: mapKey(root.uri, `invalid:${relativePath}`) };
     try {
-      const localPath = uri.path.slice(root.uri.path.replace(//$/, '').length + 1);
+      const localPath = uri.path.slice(root.uri.path.replace(/\/$/, '').length + 1);
       await checkedSourceUri(root.uri, localPath);
       const stat = await vscode.workspace.fs.stat(uri);
       if (stat.size > MAX_MAP_BYTES) throw new Error('地图文件超过 2 MiB，请拆分成较小的话题地图。');

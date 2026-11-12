@@ -1,9 +1,7 @@
 import type { SourceRef, SourceStatus } from '../../shared/types';
 
 function normalize(text: string): string {
-  return text.replace(/
-/g, '
-');
+  return text.replace(/\r\n/g, '\n');
 }
 
 function lineMatches(lines: readonly string[], anchor: readonly string[]): number[] {
@@ -36,8 +34,7 @@ export function resolveSourceText(
     || ref.startLine < 1 || ref.endLine < ref.startLine) {
     return { ...original, state: 'out-of-range', message: '来源行号无效，需要更新地图。' };
   }
-  const lines = normalize(text).split('
-');
+  const lines = normalize(text).split('\n');
   const rangeExists = ref.endLine <= lines.length;
   if (ref.anchorText === undefined) {
     if (changedWithoutAnchor) {
@@ -49,13 +46,11 @@ export function resolveSourceText(
     return { ...original, state: 'range-only', message: '仅按行号定位，未提供文本锚点。' };
   }
   const anchor = normalize(ref.anchorText);
-  const anchorLines = anchor.split('
-');
+  const anchorLines = anchor.split('\n');
   if (anchorLines.length !== ref.endLine - ref.startLine + 1) {
     return { ...original, state: 'stale', message: '文本锚点的行数与声明范围不同，请让 AI 更新地图。' };
   }
-  if (rangeExists && lines.slice(ref.startLine - 1, ref.endLine).join('
-') === anchor) {
+  if (rangeExists && lines.slice(ref.startLine - 1, ref.endLine).join('\n') === anchor) {
     return { ...original, state: 'matched' };
   }
   const matches = lineMatches(lines, anchorLines);
