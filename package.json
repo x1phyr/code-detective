@@ -44,6 +44,7 @@
   "scripts": {
     "dev": "node --require ./scripts/preview-env.cjs ./node_modules/vite/bin/vite.js --config vite.config.ts",
     "build": "node scripts/build.mjs",
+    "watch": "node scripts/watch.mjs",
     "typecheck": "vue-tsc --noEmit && tsc --noEmit -p examples/bag-demo/tsconfig.json",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:integration": "node tests/integration/run.cjs",

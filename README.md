@@ -145,9 +145,23 @@ npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 | `npm test` | 核心、Host 输入边界与 Controller 模拟测试 |
 | `npm run test:integration` | 在 Extension Host 中验证命令与工具注册 |
 | `npm run build` | 输出 `dist/extension.cjs` 与 `dist/webview/` |
+| `npm run watch` | 监听扩展与 Webview，供调试时热重建 |
 | `npm run dev` | 浏览器中的 Webview 交互预览 |
 
-用源码调试时执行 `npm run build`（或让 F5 的 preLaunchTask 触发），选择 **运行代码侦探** 会在 Extension Development Host 中以 `examples/bag-demo` 打开；**运行代码侦探（当前工作区）** 则使用你当前打开的项目。
+### 调试
+
+`.vscode/launch.json` 提供四个配置：
+
+| 配置 | 工作区 | 说明 |
+| --- | --- | --- |
+| **运行代码侦探** | `examples/bag-demo` | 一次构建后启动 Extension Development Host |
+| **运行代码侦探（当前工作区）** | 你当前打开的文件夹 | 调试真实项目 |
+| **调试代码侦探（watch）** | `examples/bag-demo` | 常驻 `npm run watch`，改完源码只需在宿主窗口 `⌘R` 重载 |
+| **扩展集成测试** | `examples/bag-demo` | 跑 `tests/integration` |
+
+断点直接打在 `src/**` 里即可：`scripts/build.mjs` 会生成带 `sourcesContent` 的 sourcemap，`outFiles` 已指向 `dist/**/*.cjs`。
+
+> 命令面板的模糊搜索只索引命令标题（`代码侦探: 打开地图`），不索引命令 ID。想按 ID 查请搜 `代码侦探`，或先用 `Developer: Show Running Extensions` 确认扩展已激活。
 
 浏览器预览通过 `webview/preview.ts` 用示例数据模拟 Host 消息，并套了一层 VS Code 工作台外壳（`webview/src/preview-shell.ts`），状态栏左侧的色块按钮可循环切换 Dark / Light / High Contrast。预览仅按 `import.meta.env.DEV` 动态加载，不会进入 VSIX。
 

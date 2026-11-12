@@ -24,6 +24,21 @@
       },
       "problemMatcher": ["$tsc"],
       "label": "npm: check"
+    },
+    {
+      "type": "npm",
+      "script": "watch",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "code-detective-watch",
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[watch\\] building$",
+          "endsPattern": "^\\[watch\\] ready$"
+        }
+      },
+      "label": "npm: watch",
+      "detail": "扩展宿主与 Webview 增量构建"
     }
   ]
 }

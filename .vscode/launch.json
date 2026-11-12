@@ -21,6 +21,17 @@
       "preLaunchTask": "npm: build"
     },
     {
+      "name": "调试代码侦探（watch）",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}/examples/bag-demo"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "preLaunchTask": "npm: watch"
+    },
+    {
       "name": "扩展集成测试",
       "type": "extensionHost",
       "request": "launch",
