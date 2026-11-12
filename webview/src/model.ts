@@ -1,0 +1,76 @@
+import type { CodeMap, MapEdge, MapNode, Selection, SourceState } from '../../shared/types';
+
+export interface NodeData {
+  node: MapNode;
+  active: boolean;
+  related: boolean;
+  inStep: boolean;
+}
+
+export interface EdgeData {
+  edge: MapEdge;
+  active: boolean;
+  related: boolean;
+}
+
+export const NODE_KIND_LABELS: Record<NonNullable<MapNode['kind']> | 'default', string> = {
+  step: '步骤',
+  function: '函数',
+  condition: '条件',
+  event: '事件',
+  default: '节点',
+};
+
+export function relatedSelection(map: CodeMap, selection?: Selection): { nodes: Set<string>; edges: Set<string> } {
+  const nodes = new Set<string>();
+  const edges = new Set<string>();
+  if (!selection) return { nodes, edges };
+  if (selection.kind === 'node') {
+    nodes.add(selection.id);
+    for (const edge of map.edges) {
+      if (edge.from === selection.id || edge.to === selection.id) {
+        edges.add(edge.id);
+        nodes.add(edge.from);
+        nodes.add(edge.to);
+      }
+    }
+  } else if (selection.kind === 'edge') {
+    const edge = map.edges.find(item => item.id === selection.id);
+    edges.add(selection.id);
+    if (edge) {
+      nodes.add(edge.from);
+      nodes.add(edge.to);
+    }
+  } else {
+    const step = map.walkthrough?.find(item => item.id === selection.id);
+    step?.nodeIds.forEach(id => nodes.add(id));
+    step?.edgeIds.forEach(id => edges.add(id));
+  }
+  return { nodes, edges };
+}
+
+export function selectedEdgeIds(map: CodeMap, selection?: Selection): Set<string> {
+  if (!selection) return new Set();
+  if (selection.kind === 'edge') return new Set([selection.id]);
+  if (selection.kind === 'step') {
+    return new Set(map.walkthrough?.find(step => step.id === selection.id)?.edgeIds ?? []);
+  }
+  return new Set();
+}
+
+export function statusTone(state: SourceState | undefined): 'ok' | 'warn' | 'error' | 'idle' {
+  if (!state || state === 'pending') return 'idle';
+  if (state === 'matched') return 'ok';
+  if (state === 'range-only' || state === 'relocated') return 'warn';
+  return 'error';
+}
+
+export function edgeKindLabel(edge: MapEdge): string {
+  switch (edge.kind) {
+    case 'call': return '调用';
+    case 'flow': return '流程';
+    case 'event': return '事件';
+    case 'related': return '相关';
+    default: return '';
+  }
+}

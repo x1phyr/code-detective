@@ -1,0 +1,280 @@
+/*
+ * 浏览器预览专用的 VS Code 工作台外壳样式。
+ * 不进入 VSIX：只有 webview/src/preview-shell.ts 会引用它。
+ */
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+body[data-vs-theme] {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  overflow: hidden;
+}
+
+.vs-workbench {
+  display: flex;
+  height: 100vh;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+/* ---- 活动栏 ---- */
+.vs-activitybar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 48px;
+  background: var(--vscode-activityBar-background);
+  color: var(--vscode-activityBar-inactiveForeground);
+}
+.vs-activity-list { display: flex; flex-direction: column; }
+.vs-activity-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  font-size: 22px;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.vs-activity-item:hover { color: var(--vscode-activityBar-foreground); }
+.vs-activity-item.active {
+  color: var(--vscode-activityBar-foreground);
+  border-left-color: var(--vscode-activityBar-activeBorder);
+}
+
+/* ---- 主区域 ---- */
+.vs-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editor-background);
+  border-left: 1px solid var(--vscode-sideBar-border);
+}
+
+.vs-titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 35px;
+  padding: 0 8px;
+  background: var(--vscode-titleBar-activeBackground);
+  color: var(--vscode-titleBar-activeForeground);
+  border-bottom: 1px solid var(--vscode-titleBar-border);
+}
+.vs-titlebar-left { display: flex; align-items: center; gap: 8px; width: 68px; }
+.vs-light { width: 12px; height: 12px; border-radius: 50%; background: rgba(128, 128, 128, 0.45); }
+.vs-light.close { background: #ff5f57; }
+.vs-light.minimize { background: #febc2e; }
+.vs-light.maximize { background: #28c840; }
+
+.vs-commandcenter {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 560px;
+  height: 22px;
+  margin: 0 auto;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 6px;
+}
+.vs-titlebar-right { display: flex; align-items: center; gap: 2px; width: 68px; justify-content: flex-end; }
+.vs-title-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  color: var(--vscode-titleBar-activeForeground);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.vs-title-button:hover { background: var(--vscode-list-hoverBackground); }
+
+/* ---- 编辑区分栏 ---- */
+.vs-editors {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 1px;
+  background: var(--vscode-editorGroup-border);
+}
+.vs-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+}
+/* 和真实插件一样：地图在左，源码编辑器在右。源码组更窄，地图有足够空间。 */
+.vs-group-map { flex: 1 1 0; }
+.vs-group-source { flex: 0 1 360px; min-width: 300px; }
+
+.vs-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 35px;
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+  border-bottom: 1px solid var(--vscode-tab-border);
+}
+.vs-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 0 8px 0 10px;
+  font-size: 13px;
+  color: var(--vscode-tab-inactiveForeground);
+  background: var(--vscode-tab-inactiveBackground);
+  border-right: 1px solid var(--vscode-tab-border);
+  border-top: 1px solid transparent;
+  cursor: default;
+}
+.vs-tab.active {
+  color: var(--vscode-tab-activeForeground);
+  background: var(--vscode-tab-activeBackground);
+  border-top-color: var(--vscode-focusBorder);
+}
+.vs-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vs-tab-close { font-size: 14px; opacity: 0.7; }
+.vs-tabs-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding: 0 10px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 14px;
+}
+
+.vs-breadcrumbs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.vs-sep { opacity: 0.6; }
+.vs-crumb-current { color: var(--vscode-foreground); }
+
+/* ---- 地图挂载点 ---- */
+.vs-map-slot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.vs-map-slot > .cd-root { height: 100%; }
+
+/* ---- 只读源码视图 ---- */
+.vs-code {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0 12px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  line-height: 19px;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+  outline: none;
+}
+.vs-code-line { display: flex; }
+.vs-code-line.active { background: var(--vscode-editor-selectionBackground); }
+.vs-code-number {
+  flex: none;
+  width: 48px;
+  padding-right: 14px;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground);
+  user-select: none;
+}
+.vs-code-text { white-space: pre; padding-right: 16px; }
+.vs-code-empty {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---- 状态栏 ---- */
+.vs-statusbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--vscode-statusBar-foreground);
+  background: var(--vscode-statusBar-background);
+  border-top: 1px solid var(--vscode-statusBar-border);
+}
+.vs-statusbar-left, .vs-statusbar-right { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.vs-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  color: inherit;
+  background: none;
+  border: 0;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vs-status-button { cursor: pointer; }
+.vs-status-item:hover.vs-status-button { background: var(--vscode-list-hoverBackground); }
+
+/* 滚动条贴近日志/编辑器原生的观感 */
+.vs-code::-webkit-scrollbar,
+.cd-side::-webkit-scrollbar,
+.vs-map-slot ::-webkit-scrollbar { width: 10px; height: 10px; }
+.vs-code::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); }
+.vs-code::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground); }
+.vs-code::-webkit-scrollbar-track { background: transparent; }
+
+/* 窗口太窄时先收起只读源码组，保证地图不被压到看不清。 */
+@media (max-width: 1180px) {
+  .vs-group-source { display: none; }
+  .vs-editors { gap: 0; }
+  .vs-group-map { flex: 1 1 auto; }
+}
