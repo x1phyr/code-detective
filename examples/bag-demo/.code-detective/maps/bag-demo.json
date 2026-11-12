@@ -1,5 +1,5 @@
 {
-  "$schema": "../../schemas/code-map-v1.schema.json",
+  "$schema": "../../../../schemas/code-map-v1.schema.json",
   "schemaVersion": 1,
   "id": "bag-demo",
   "title": "背包打开流程",

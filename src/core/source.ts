@@ -1,8 +1,5 @@
 import type { SourceRef, SourceStatus } from '../../shared/types';
-
-function normalize(text: string): string {
-  return text.replace(/\r\n/g, '\n');
-}
+import { normalizeLineEndings, splitLines } from './text';
 
 function lineMatches(lines: readonly string[], anchor: readonly string[]): number[] {
   const prefix = new Array<number>(anchor.length).fill(0);
@@ -34,7 +31,7 @@ export function resolveSourceText(
     || ref.startLine < 1 || ref.endLine < ref.startLine) {
     return { ...original, state: 'out-of-range', message: '来源行号无效，需要更新地图。' };
   }
-  const lines = normalize(text).split('\n');
+  const lines = splitLines(text);
   const rangeExists = ref.endLine <= lines.length;
   if (ref.anchorText === undefined) {
     if (changedWithoutAnchor) {
@@ -45,7 +42,7 @@ export function resolveSourceText(
     }
     return { ...original, state: 'range-only', message: '仅按行号定位，未提供文本锚点。' };
   }
-  const anchor = normalize(ref.anchorText);
+  const anchor = normalizeLineEndings(ref.anchorText);
   const anchorLines = anchor.split('\n');
   if (anchorLines.length !== ref.endLine - ref.startLine + 1) {
     return { ...original, state: 'stale', message: '文本锚点的行数与声明范围不同，请让 AI 更新地图。' };

@@ -54,3 +54,18 @@ test('锚点行数与声明范围不符时不使用锚点', () => {
   assert.equal(status.state, 'stale');
   assert.match(status.message ?? '', /行数与声明范围不同/);
 });
+
+test('末尾换行不会多出一行', () => {
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 3, endLine: 3 }, 'a\nb\n').state, 'out-of-range');
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 2, endLine: 2 }, 'a\nb\n').state, 'range-only');
+  assert.notEqual(resolveSourceText({ file: 'a.ts', startLine: 3, endLine: 3, anchorText: '' }, 'a\nb\n').state, 'matched');
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 2, endLine: 2, anchorText: 'b' }, 'a\nb\n').state, 'matched');
+  // A genuinely blank last line (two trailing newlines) still counts.
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 3, endLine: 3, anchorText: '' }, 'a\nb\n\n').state, 'matched');
+});
+
+test('单独的 CR 换行与 LF 视为同一内容', () => {
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 1, endLine: 3, anchorText: anchor }, anchor.replaceAll('\n', '\r')).state, 'matched');
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 2, endLine: 2, anchorText: 'b' }, 'a\rb\rc').state, 'matched');
+  assert.equal(resolveSourceText({ file: 'a.ts', startLine: 1, endLine: 3, anchorText: anchor.replaceAll('\n', '\r') }, anchor).state, 'matched');
+});

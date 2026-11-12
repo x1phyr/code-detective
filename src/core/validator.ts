@@ -2,6 +2,8 @@ import Ajv, { type ErrorObject } from 'ajv';
 import { parseTree, printParseErrorCode, type Node, type ParseError } from 'jsonc-parser';
 import schema from '../../schemas/code-map-v1.schema.json';
 import type { CodeMap } from '../../shared/types';
+import { isCanonicalRelativePath } from './paths';
+import { normalizeLineEndings } from './text';
 
 export const MAP_LIMITS = {
   bytes: 2 * 1024 * 1024,
@@ -98,13 +100,9 @@ function checkReferences(ids: readonly string[], known: ReadonlySet<string>, pat
 }
 
 function checkPath(file: string, path: string): void {
-  if (!file.trim() || file.startsWith('/') || file.includes('\\') || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(file)
-    || /[\u0000-\u001f\u007f]/.test(file)) {
-    fail(path, 'file 必须是以 / 分隔的工作区相对文件路径，不能使用绝对路径、URI 或控制字符');
-  }
-  const parts = file.split('/');
-  if (parts.some(part => part === '.' || part === '..' || part.length === 0)) {
-    fail(path, 'file 不能包含 . 或 .. 路径段，也不能包含空路径段');
+  if (!isCanonicalRelativePath(file)) {
+    fail(path, 'file 必须是以 / 分隔的工作区相对文件路径：不能使用绝对路径、URI、反斜杠或控制字符，'
+      + '也不能包含 .、..、空白或空路径段');
   }
 }
 
@@ -153,7 +151,7 @@ export function parseMap(text: string): CodeMap {
     checkPath(source.file, `${base}/file`);
     if (source.endLine < source.startLine) fail(base, 'endLine 必须大于或等于 startLine');
     if (source.anchorText !== undefined) {
-      const lines = source.anchorText.replace(/\r\n/g, '\n').split('\n').length;
+      const lines = normalizeLineEndings(source.anchorText).split('\n').length;
       if (lines !== source.endLine - source.startLine + 1) {
         fail(`${base}/anchorText`, '必须包含 startLine 至 endLine 的全部完整行，不能只提供其中一段文本');
       }

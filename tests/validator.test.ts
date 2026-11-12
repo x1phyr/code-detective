@@ -97,3 +97,55 @@ test('校验错误带行列信息', () => {
   const message = codeOf(() => parseMap(text));
   assert.match(message, /第 4 行/);
 });
+
+test('拒绝重复的导读步骤 ID', () => {
+  const text = withChange(map => {
+    const first = map.walkthrough?.[0];
+    assert.ok(first, '示例地图需要导读步骤');
+    map.walkthrough!.push({ ...first, title: '重复' });
+  });
+  assert.match(codeOf(() => parseMap(text)), /\/walkthrough\/\d+\/id.*重复 ID|重复 ID/);
+});
+
+test('拒绝空白路径段与带下划线的 scheme', () => {
+  for (const file of [' ', 'src/ /a.ts', 'src/', 'my_dir:x/a.ts']) {
+    const text = withChange(map => { map.sources['button.id']!.file = file; });
+    assert.match(codeOf(() => parseMap(text)), /file/, `expected rejection for ${JSON.stringify(file)}`);
+  }
+});
+
+test('数量上限：恰好达到上限时通过，超过一个时拒绝', () => {
+  const build = (counts: { nodes?: number; edges?: number; sources?: number; steps?: number }): string => {
+    const sourceCount = counts.sources ?? 1;
+    const nodeCount = counts.nodes ?? 2;
+    const sources: CodeMap['sources'] = {};
+    for (let index = 0; index < sourceCount; index += 1) sources[`s${index}`] = { file: 'a.ts', startLine: 1, endLine: 1 };
+    const map: CodeMap = {
+      schemaVersion: 1,
+      id: 'limits',
+      title: 'limits',
+      sources,
+      nodes: Array.from({ length: nodeCount }, (_, index) => ({ id: `n${index}`, label: 'N', sourceIds: ['s0'] })),
+      edges: Array.from({ length: counts.edges ?? 0 }, (_, index) => ({ id: `e${index}`, from: 'n0', to: 'n1', sourceIds: [] })),
+      walkthrough: Array.from({ length: counts.steps ?? 0 }, (_, index) => ({ id: `w${index}`, title: 'W', nodeIds: ['n0'], edgeIds: [] })),
+    };
+    return JSON.stringify(map);
+  };
+  const cases: [keyof typeof MAP_LIMITS & ('nodes' | 'edges' | 'sources' | 'steps'), number][] = [
+    ['nodes', MAP_LIMITS.nodes],
+    ['edges', MAP_LIMITS.edges],
+    ['sources', MAP_LIMITS.sources],
+    ['steps', MAP_LIMITS.steps],
+  ];
+  for (const [key, limit] of cases) {
+    assert.doesNotThrow(() => parseMap(build({ [key]: limit })), `${key} = ${limit}`);
+    assert.match(codeOf(() => parseMap(build({ [key]: limit + 1 }))), /不能超过/, `${key} = ${limit + 1}`);
+  }
+});
+
+test('anchorText 中的单独 CR 按换行计算行数', () => {
+  const text = withChange(map => {
+    map.sources['button.id'] = { file: 'a.ts', startLine: 1, endLine: 2, anchorText: 'a\rb' };
+  });
+  assert.doesNotThrow(() => parseMap(text));
+});

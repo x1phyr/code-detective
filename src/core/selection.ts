@@ -36,6 +36,9 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Same viewport zoom bounds the host bridge enforces. */
+export const ZOOM_RANGE = { min: 0.01, max: 20 } as const;
+
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -70,7 +73,7 @@ export function sanitizeViewState(map: CodeMap, state?: Partial<ViewState>): Vie
   }
 
   if (record(input.viewport) && finite(input.viewport.x) && finite(input.viewport.y)
-    && finite(input.viewport.zoom) && input.viewport.zoom > 0) {
+    && finite(input.viewport.zoom) && input.viewport.zoom >= ZOOM_RANGE.min && input.viewport.zoom <= ZOOM_RANGE.max) {
     output.viewport = { x: input.viewport.x, y: input.viewport.y, zoom: input.viewport.zoom };
   }
   return output;

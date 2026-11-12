@@ -67,3 +67,27 @@ test('默认开启高亮且不保存节点位置', () => {
   assert.equal(state.highlightEnabled, true);
   assert.equal('positions' in state, false);
 });
+
+test('无效选择会清除 stepId', () => {
+  const state = sanitizeViewState(map, { selection: { kind: 'step', id: 'ghost' }, stepId: 's1' });
+  assert.equal(state.selection, undefined);
+  assert.equal(state.stepId, undefined);
+  const malformed = sanitizeViewState(map, { selection: 'n1' as never, stepId: 's1' });
+  assert.equal(malformed.stepId, undefined);
+});
+
+test('视口缩放限制在 0.01–20 之间', () => {
+  const zoom = (value: number) => sanitizeViewState(map, { viewport: { x: 1, y: 2, zoom: value } }).viewport;
+  assert.deepEqual(zoom(1), { x: 1, y: 2, zoom: 1 });
+  assert.deepEqual(zoom(0.01), { x: 1, y: 2, zoom: 0.01 });
+  assert.deepEqual(zoom(20), { x: 1, y: 2, zoom: 20 });
+  assert.equal(zoom(0.009), undefined);
+  assert.equal(zoom(20.5), undefined);
+  assert.equal(zoom(1e300), undefined);
+  assert.equal(zoom(Number.POSITIVE_INFINITY), undefined);
+});
+
+test('原型链上的名字不会被当成已有来源', () => {
+  const state = sanitizeViewState(map, { selection: { kind: 'node', id: 'n1' }, sourceId: 'constructor' });
+  assert.equal(state.sourceId, undefined);
+});

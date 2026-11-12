@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DRAFT_MAP_SCHEMA, describeAdjustments, fillAnchors, normalizeDraft } from '../src/core/mapDraft';
-import { parseMap } from '../src/core/validator';
+import { MAP_LIMITS, parseMap } from '../src/core/validator';
 import type { CodeMap } from '../shared/types';
 
 const demoFiles: Record<string, string> = {
@@ -165,4 +165,235 @@ test('重复的 sourceIds 会被去重，避免 uniqueItems 校验失败', () =>
 test('缺少 title 时给出可读错误', () => {
   assert.throws(() => normalizeDraft({ title: '   ', sources: {}, nodes: [], edges: [] }), /title/);
   assert.throws(() => normalizeDraft({ sources: {}, nodes: [], edges: [] }), /title/);
+});
+
+const oneLine = (): string => 'line\n';
+
+test('normalize 阶段丢弃的来源、节点、连线与步骤会进入调整报告', () => {
+  const normalized = normalizeDraft({
+    title: 'x',
+    sources: { good: { file: 'a.ts', startLine: 1, endLine: 1 }, 'bad id!': { file: 'a.ts', startLine: 1, endLine: 1 }, nullRef: null },
+    nodes: ['nope', { id: 'n1', label: 'N', sourceIds: ['good', 'bad id!', 'nullRef'] }, { id: 'n2' }],
+    edges: [{ id: 'e1', from: 'n1' }],
+    walkthrough: [{ id: 'w1', title: 'W', nodeIds: ['n1', 'x y'], edgeIds: [] }, { title: 'no id' }],
+  });
+  const filled = fillAnchors(normalized, oneLine);
+  assert.deepEqual(filled.droppedSources.map(item => item.id).sort(), ['bad id!', 'nullRef']);
+  assert.deepEqual(filled.droppedNodes.map(item => item.id), ['nodes[0]', 'n2']);
+  assert.deepEqual(filled.droppedEdges.map(item => item.id), ['e1']);
+  assert.deepEqual(filled.droppedSteps.map(item => item.id), ['walkthrough[1]']);
+  assert.equal(filled.filteredRefs.some(ref => ref.includes('n1.sourceIds') && ref.includes('bad id!')), true);
+  assert.equal(filled.filteredRefs.some(ref => ref.includes('n1.sourceIds') && ref.includes('nullRef')), true);
+  assert.equal(filled.filteredRefs.some(ref => ref.includes('w1.nodeIds') && ref.includes('x y')), true);
+  const report = describeAdjustments(filled).join('\n');
+  for (const text of ['已丢弃的来源', '已丢弃的节点', '已丢弃的连线', '已丢弃的导读步骤', '已移除的引用']) {
+    assert.match(report, new RegExp(text));
+  }
+  assert.deepEqual(filled.map.nodes[0]?.sourceIds, ['good']);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
+});
+
+test('sourceIds 在 normalize 阶段全部失效的节点会被丢弃，而不是变成无锚点节点', () => {
+  const normalized = normalizeDraft({
+    title: 'x',
+    sources: { good: { file: 'a.ts', startLine: 1, endLine: 1 }, broken: { file: 'a.ts', startLine: 'x', endLine: 1 } },
+    nodes: [
+      { id: 'n1', label: 'N', sourceIds: ['good'] },
+      { id: 'lost', label: 'L', sourceIds: ['broken'] },
+      { id: 'lost2', label: 'L2', sourceIds: [42] },
+      { id: 'free', label: 'F', sourceIds: [] },
+    ],
+    edges: [],
+  });
+  const filled = fillAnchors(normalized, oneLine);
+  assert.deepEqual(filled.map.nodes.map(node => node.id), ['n1', 'free']);
+  assert.deepEqual(filled.droppedNodes.map(item => item.id), ['lost', 'lost2']);
+  assert.match(describeAdjustments(filled).join('\n'), /lost（引用的源码位置都不可用）/);
+});
+
+test('被移除目标的引用会被报告', () => {
+  const input = draft();
+  input.edges[0]!.sourceIds = ['s1', 'gone'];
+  input.walkthrough![0]!.nodeIds = ['click', 'ghost'];
+  const filled = fillAnchors(input, readDemo);
+  assert.equal(filled.filteredRefs.some(ref => ref.includes('e1.sourceIds') && ref.includes('gone')), true);
+  assert.equal(filled.filteredRefs.some(ref => ref.includes('w1.nodeIds') && ref.includes('ghost')), true);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
+});
+
+test('重复 id 只保留第一个，步骤内重复引用会去重', () => {
+  const normalized = normalizeDraft({
+    title: 'x',
+    sources: { s1: { file: 'a.ts', startLine: 1, endLine: 1 } },
+    nodes: [
+      { id: 'n1', label: 'first', sourceIds: ['s1'] },
+      { id: 'n1', label: 'second', sourceIds: ['s1'] },
+      { id: 'n2', label: 'N2', sourceIds: ['s1'] },
+    ],
+    edges: [
+      { id: 'e1', from: 'n1', to: 'n2', sourceIds: [] },
+      { id: 'e1', from: 'n2', to: 'n1', sourceIds: [] },
+    ],
+    walkthrough: [
+      { id: 'w1', title: 'A', nodeIds: ['n1', 'n1', 'n2'], edgeIds: ['e1', 'e1'] },
+      { id: 'w1', title: 'B', nodeIds: ['n2'], edgeIds: [] },
+    ],
+  });
+  const filled = fillAnchors(normalized, oneLine);
+  assert.deepEqual(filled.map.nodes.map(node => node.label), ['first', 'N2']);
+  assert.equal(filled.map.edges.length, 1);
+  assert.deepEqual(filled.map.walkthrough, [{ id: 'w1', title: 'A', nodeIds: ['n1', 'n2'], edgeIds: ['e1'] }]);
+  assert.deepEqual(filled.droppedNodes.map(item => item.id), ['n1']);
+  assert.deepEqual(filled.droppedEdges.map(item => item.id), ['e1']);
+  assert.deepEqual(filled.droppedSteps.map(item => item.id), ['w1']);
+  assert.match(describeAdjustments(filled).join('\n'), /重复使用同一 id/);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
+});
+
+test('fillAnchors 直接收到重复 id 的地图时同样只丢弃重复项', () => {
+  const input = draft();
+  input.nodes.push({ id: 'click', label: 'dup', sourceIds: ['s1'] });
+  input.edges.push({ id: 'e1', from: 'render', to: 'click', sourceIds: [] });
+  input.walkthrough!.push({ id: 'w1', title: 'dup', nodeIds: ['click'], edgeIds: [] });
+  input.walkthrough![0]!.nodeIds = ['click', 'click'];
+  const filled = fillAnchors(input, readDemo);
+  assert.equal(filled.map.nodes.length, 2);
+  assert.equal(filled.map.edges.length, 1);
+  assert.equal(filled.map.walkthrough?.length, 1);
+  assert.deepEqual(filled.map.walkthrough?.[0]?.nodeIds, ['click']);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
+});
+
+test('原型链上的名字可以作为 sourceId 使用', () => {
+  // Parsed from text so `__proto__` is an own key, exactly as a model response would arrive.
+  const normalized = normalizeDraft(JSON.parse(`{
+    "title": "x",
+    "sources": {
+      "__proto__": { "file": "a.ts", "startLine": 1, "endLine": 1 },
+      "constructor": { "file": "a.ts", "startLine": 1, "endLine": 1 }
+    },
+    "nodes": [
+      { "id": "n1", "label": "P", "sourceIds": ["__proto__"] },
+      { "id": "n2", "label": "C", "sourceIds": ["constructor"] },
+      { "id": "n3", "label": "T", "sourceIds": ["toString", "hasOwnProperty"] }
+    ],
+    "edges": []
+  }`));
+  assert.deepEqual(Object.keys(normalized.sources), ['__proto__', 'constructor']);
+  const filled = fillAnchors(normalized, oneLine);
+  assert.deepEqual(Object.keys(filled.map.sources), ['__proto__', 'constructor']);
+  assert.deepEqual(filled.map.nodes.map(node => [node.id, node.sourceIds]), [['n1', ['__proto__']], ['n2', ['constructor']]]);
+  assert.deepEqual(filled.droppedNodes.map(item => item.id), ['n3']);
+  const parsed = parseMap(JSON.stringify(filled.map));
+  assert.equal(Object.hasOwn(parsed.sources, '__proto__'), true);
+});
+
+test('起始行超出文件末尾时丢弃来源，而不是锚定到无关的最后一行', () => {
+  const input = draft();
+  input.sources.s2 = { file: 'src/bag-panel.ts', startLine: 50, endLine: 60 };
+  const filled = fillAnchors(input, readDemo);
+  assert.equal(filled.map.sources.s2, undefined);
+  assert.match(filled.droppedSources.find(item => item.id === 's2')?.reason ?? '', /只有 4 行/);
+  assert.deepEqual(filled.droppedNodes.map(item => item.id), ['render']);
+  assert.deepEqual(filled.clamped, []);
+});
+
+test('起始行恰好是最后一行时只裁剪 endLine', () => {
+  const input = draft();
+  input.sources.s2 = { file: 'src/bag-panel.ts', startLine: 4, endLine: 9 };
+  const filled = fillAnchors(input, readDemo);
+  assert.deepEqual(filled.map.sources.s2, { file: 'src/bag-panel.ts', startLine: 4, endLine: 4, anchorText: 'export function renderBag() {}' });
+  assert.deepEqual(filled.clamped, ['s2: 4-9 → 4-4']);
+});
+
+test('末尾换行之后的“空行”不算文件中的一行', () => {
+  const input = draft();
+  input.sources.s1 = { file: 'src/bag-button.ts', startLine: 4, endLine: 4 };
+  const filled = fillAnchors(input, readDemo);
+  assert.equal(filled.map.sources.s1, undefined);
+  assert.match(filled.droppedSources[0]?.reason ?? '', /只有 3 行/);
+});
+
+test('CRLF 与单独的 CR 换行都会被规范化', () => {
+  const input = draft();
+  input.sources = {
+    s1: { file: 'cr.ts', startLine: 2, endLine: 3 },
+    s2: { file: 'crlf.ts', startLine: 2, endLine: 3 },
+  };
+  const files: Record<string, string> = { 'cr.ts': 'a\rb\rc\r', 'crlf.ts': 'a\r\nb\r\nc\r\n' };
+  const filled = fillAnchors(input, file => files[file]);
+  assert.equal(filled.map.sources.s1?.anchorText, 'b\nc');
+  assert.equal(filled.map.sources.s2?.anchorText, 'b\nc');
+  assert.deepEqual(filled.clamped, []);
+});
+
+test('超长文本按码点截断，不会留下孤立的代理项', () => {
+  const normalized = normalizeDraft({
+    title: `${'t'.repeat(199)}😀😀`,
+    sources: { s1: { file: 'a.ts', startLine: 1, endLine: 1 } },
+    nodes: [{ id: 'n1', label: '😀'.repeat(300), sourceIds: ['s1'] }],
+    edges: [],
+  });
+  assert.equal(normalized.title, `${'t'.repeat(199)}😀`);
+  assert.equal(Array.from(normalized.nodes[0]!.label).length, 200);
+  assert.equal(normalized.nodes[0]!.label, '😀'.repeat(200));
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(normalized.title), false);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(fillAnchors(normalized, oneLine).map)));
+});
+
+test('字符串行号只接受普通十进制整数', () => {
+  const normalized = normalizeDraft({
+    title: 'x',
+    sources: {
+      ok: { file: 'a.ts', startLine: '2', endLine: '3' },
+      hex: { file: 'a.ts', startLine: '0x2', endLine: '3' },
+      exp: { file: 'a.ts', startLine: '1', endLine: '3e0' },
+      spaced: { file: 'a.ts', startLine: ' 1', endLine: '1' },
+      decimal: { file: 'a.ts', startLine: '1.0', endLine: '1' },
+      empty: { file: 'a.ts', startLine: '', endLine: '1' },
+    },
+    nodes: [{ id: 'n1', label: 'N', sourceIds: ['ok'] }],
+    edges: [],
+  });
+  assert.deepEqual(Object.keys(normalized.sources), ['ok']);
+  assert.deepEqual(normalized.sources.ok, { file: 'a.ts', startLine: 2, endLine: 3 });
+  const dropped = fillAnchors(normalized, () => '1\n2\n3\n').droppedSources.map(item => item.id).sort();
+  assert.deepEqual(dropped, ['decimal', 'empty', 'exp', 'hex', 'spaced']);
+});
+
+test('非规范路径的来源在 normalize 阶段被丢弃并报告', () => {
+  const normalized = normalizeDraft({
+    title: 'x',
+    sources: {
+      ok: { file: 'src/a.ts', startLine: 1, endLine: 1 },
+      abs: { file: '/etc/passwd', startLine: 1, endLine: 1 },
+      blank: { file: ' ', startLine: 1, endLine: 1 },
+    },
+    nodes: [{ id: 'n1', label: 'N', sourceIds: ['ok', 'abs'] }],
+    edges: [],
+  });
+  assert.deepEqual(Object.keys(normalized.sources), ['ok']);
+  const filled = fillAnchors(normalized, oneLine);
+  assert.deepEqual(filled.droppedSources.map(item => item.id).sort(), ['abs', 'blank']);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
+});
+
+test('超出校验器数量上限的条目会被裁掉并报告', () => {
+  const nodes = Array.from({ length: MAP_LIMITS.nodes + 1 }, (_, index) => ({ id: `n${index}`, label: 'N', sourceIds: ['s1'] }));
+  const steps = Array.from({ length: MAP_LIMITS.steps + 3 }, (_, index) => ({ id: `w${index}`, title: 'W', nodeIds: ['n0'], edgeIds: [] }));
+  const edges = Array.from({ length: MAP_LIMITS.edges + 2 }, (_, index) => ({ id: `e${index}`, from: 'n0', to: 'n1', sourceIds: [] }));
+  const sources: Record<string, unknown> = {};
+  for (let index = 0; index < MAP_LIMITS.sources + 1; index += 1) sources[index === 0 ? 's1' : `x${index}`] = { file: 'a.ts', startLine: 1, endLine: 1 };
+  const normalized = normalizeDraft({ title: 'x', sources, nodes, edges, walkthrough: steps });
+  assert.equal(normalized.nodes.length, MAP_LIMITS.nodes);
+  assert.equal(normalized.edges.length, MAP_LIMITS.edges);
+  assert.equal(normalized.walkthrough?.length, MAP_LIMITS.steps);
+  assert.equal(Object.keys(normalized.sources).length, MAP_LIMITS.sources);
+  const filled = fillAnchors(normalized, oneLine);
+  assert.deepEqual(filled.droppedNodes.map(item => item.id), [`n${MAP_LIMITS.nodes}`]);
+  assert.equal(filled.droppedEdges.length, 2);
+  assert.equal(filled.droppedSteps.length, 3);
+  assert.equal(filled.droppedSources.length, 1);
+  assert.match(describeAdjustments(filled).join('\n'), /数量上限 500/);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
 });
