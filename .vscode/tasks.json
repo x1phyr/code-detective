@@ -5,7 +5,9 @@
       "type": "npm",
       "script": "build",
       "group": "build",
-      "problemMatcher": ["$tsc"],
+      "problemMatcher": [
+        "$tsc"
+      ],
       "label": "npm: build"
     },
     {
@@ -22,31 +24,73 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": ["$tsc"],
+      "problemMatcher": [
+        "$tsc"
+      ],
       "label": "npm: check"
     },
     {
       "type": "npm",
-      "script": "watch",
+      "script": "watch:ext",
+      "label": "npm: watch:ext",
+      "detail": "esbuild 监听扩展宿主",
       "isBackground": true,
       "problemMatcher": {
-        "owner": "code-detective-watch",
-        "pattern": {
-          "regexp": "^(.+?):(\\d+):(\\d+):\\s+(error|warning|info):\\s+(.+)$",
-          "file": 1,
-          "line": 2,
-          "column": 3,
-          "severity": 4,
-          "message": 5
-        },
+        "owner": "code-detective-esbuild",
+        "pattern": [
+          {
+            "regexp": "^✘ \\[(ERROR|WARNING)\\] (.+)$",
+            "severity": 1,
+            "message": 2
+          },
+          {
+            "regexp": "^\\s+(\\S+?):(\\d+):(\\d+):$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ],
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "^\\[watch\\] building$",
-          "endsPattern": "^\\[watch\\] ready$"
+          "beginsPattern": "^\\[watch\\] build started",
+          "endsPattern": "^\\[watch\\] build finished"
         }
-      },
-      "label": "npm: watch",
-      "detail": "扩展宿主与 Webview 增量构建"
+      }
+    },
+    {
+      "type": "npm",
+      "script": "watch:webview",
+      "label": "npm: watch:webview",
+      "detail": "vite 监听 Webview",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "code-detective-vite",
+        "pattern": [
+          {
+            "regexp": "^(/\\S+?|[A-Za-z]:\\\\\\S+?|[\\w./-]+?):(\\d+):(\\d+): (ERROR|WARNING): (.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^build started\\.\\.\\.$",
+          "endsPattern": "^built in \\d+ms\\.$"
+        }
+      }
+    },
+    {
+      "label": "watch",
+      "detail": "并行启动两个 watcher，供调试时热重建",
+      "dependsOn": [
+        "npm: watch:ext",
+        "npm: watch:webview"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
     }
   ]
 }

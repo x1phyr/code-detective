@@ -145,7 +145,8 @@ npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 | `npm test` | 核心、Host 输入边界与 Controller 模拟测试 |
 | `npm run test:integration` | 在 Extension Host 中验证命令与工具注册 |
 | `npm run build` | 输出 `dist/extension.cjs` 与 `dist/webview/` |
-| `npm run watch` | 监听扩展与 Webview，供调试时热重建 |
+| `npm run watch:ext` | esbuild 监听扩展宿主，改完 `src/**` 增量重建 |
+| `npm run watch:webview` | vite 监听 Webview，改完 `webview/**` 增量重建 |
 | `npm run dev` | 浏览器中的 Webview 交互预览 |
 
 ### 调试
@@ -156,10 +157,19 @@ npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 | --- | --- | --- |
 | **运行代码侦探** | `examples/bag-demo` | 一次构建后启动 Extension Development Host |
 | **运行代码侦探（当前工作区）** | 你当前打开的文件夹 | 调试真实项目 |
-| **调试代码侦探（watch）** | `examples/bag-demo` | 常驻 `npm run watch`，改完源码只需在宿主窗口 `⌘R` 重载 |
+| **调试代码侦探（watch）** | `examples/bag-demo` | 并行跑两个 watcher，改完源码只需在宿主窗口 `⌘R` 重载 |
 | **扩展集成测试** | `examples/bag-demo` | 跑 `tests/integration` |
 
 断点直接打在 `src/**` 里即可：`scripts/build.mjs` 会生成带 `sourcesContent` 的 sourcemap，`outFiles` 已指向 `dist/**/*.cjs`。
+
+两个 watcher 的就绪判断用的是工具自己的日志，没有自定义协议：
+
+| 任务 | beginsPattern | endsPattern |
+| --- | --- | --- |
+| `npm: watch:ext` | `[watch] build started` | `[watch] build finished` |
+| `npm: watch:webview` | `build started...` | `built in <n>ms.` |
+
+`activeOnStart: true` 让首轮构建无需等 begins 行就能就绪（esbuild 首次进入 watch 只打印 `build finished`）。
 
 > 命令面板的模糊搜索只索引命令标题（`代码侦探: 打开地图`），不索引命令 ID。想按 ID 查请搜 `代码侦探`，或先用 `Developer: Show Running Extensions` 确认扩展已激活。
 

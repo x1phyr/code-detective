@@ -9,15 +9,21 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "${workspaceFolder}/examples/bag-demo"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.cjs"
+      ],
       "preLaunchTask": "npm: build"
     },
     {
       "name": "运行代码侦探（当前工作区）",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.cjs"
+      ],
       "preLaunchTask": "npm: build"
     },
     {
@@ -28,8 +34,10 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "${workspaceFolder}/examples/bag-demo"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
-      "preLaunchTask": "npm: watch"
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.cjs"
+      ],
+      "preLaunchTask": "watch"
     },
     {
       "name": "扩展集成测试",
@@ -41,7 +49,9 @@
         "--extensionTestsPath=${workspaceFolder}/tests/integration/index.cjs",
         "${workspaceFolder}/examples/bag-demo"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.cjs"
+      ],
       "preLaunchTask": "npm: build"
     }
   ]
