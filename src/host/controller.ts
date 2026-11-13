@@ -445,9 +445,10 @@ export class DetectiveController implements vscode.Disposable {
     const { selection, ...rest } = patch;
     const next: Partial<ViewState> = { ...this.ui, ...rest };
     if (selection === null) {
-      // Clearing keeps an active walkthrough step; sanitizeViewState re-selects it.
+      // 点空白就是彻底清空，包括导读步骤（侧边栏里没有单独的“停止导读”按钮）。
       delete next.selection;
       delete next.sourceId;
+      delete next.stepId;
     } else if (selection !== undefined) {
       next.selection = selection;
     }
@@ -568,8 +569,11 @@ export class DetectiveController implements vscode.Disposable {
     this.pushSnapshot();
 
     const document = await vscode.workspace.openTextDocument(uri);
-    const column = focusEditor ? vscode.ViewColumn.One : vscode.ViewColumn.Beside;
-    const editor = await vscode.window.showTextDocument(document, { viewColumn: column, preview: false, preserveFocus: !focusEditor });
+    const editor = await vscode.window.showTextDocument(document, {
+      viewColumn: targetColumn(document.uri),
+      preview: false,
+      preserveFocus: !focusEditor,
+    });
     const range = sourceRange(document, status);
     if (range) {
       editor.selection = new vscode.Selection(range.start, range.start);
@@ -613,7 +617,7 @@ export class DetectiveController implements vscode.Disposable {
       const name = entries.find(([entry]) => entry.toLowerCase() === 'readme.md')?.[0];
       if (!name) throw new Error('README not found');
       const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.context.extensionUri, name));
-      await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      await vscode.window.showTextDocument(document, { viewColumn: targetColumn(document.uri), preview: false });
     } catch {
       void vscode.env.openExternal(vscode.Uri.parse(HELP_URL));
     }
@@ -633,4 +637,13 @@ function authoringPrompt(): string {
     '',
     '我想了解的话题：<在这里填写>',
   ].join('\n');
+}
+
+/**
+ * 源码总是在当前聚焦的编辑器组里以新页签打开，绝不新建分栏；
+ * 若该文件已在某个可见分栏里，就复用那个分栏，避免同一文件开两份。
+ */
+function targetColumn(uri: vscode.Uri): vscode.ViewColumn {
+  const visible = vscode.window.visibleTextEditors.find(editor => editor.document.uri.toString() === uri.toString());
+  return visible?.viewColumn ?? vscode.window.tabGroups.activeTabGroup.viewColumn ?? vscode.ViewColumn.Active;
 }
