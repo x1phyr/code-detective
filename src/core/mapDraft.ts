@@ -1,4 +1,4 @@
-import type { CodeMap, MapEdge, MapNode, SourceRef, WalkthroughStep } from '../../shared/types';
+import type { CodeMap, MapEdge, MapNode, SourceRef, TourInfo, WalkthroughStep } from '../../shared/types';
 import { t } from '../../shared/i18n';
 import { sanitizeMapId } from '../ai/mapNaming';
 import { isCanonicalRelativePath } from './paths';
@@ -140,7 +140,26 @@ function step(value: unknown, report: NormalizeReport): Parsed<WalkthroughStep> 
     edgeIds: idList(value.edgeIds, id, 'edgeIds', report),
   };
   if (typeof value.description === 'string') output.description = value.description;
+  const sourceId = validId(value.sourceId);
+  if (sourceId) output.sourceId = sourceId;
+  for (const key of ['why', 'watch', 'skip', 'example'] as const) {
+    if (typeof value[key] === 'string' && value[key].trim()) output[key] = value[key].trim();
+  }
+  if (value.aside === true) output.aside = true;
+  if (Array.isArray(value.branches)) {
+    const branches = idList(value.branches, id, 'branches', report);
+    if (branches.length) output.branches = branches;
+  }
   return { item: output };
+}
+
+function tourInfo(value: unknown): TourInfo | undefined {
+  if (!isRecord(value)) return undefined;
+  const output: TourInfo = {};
+  for (const key of ['example', 'recap', 'exercise'] as const) {
+    if (typeof value[key] === 'string' && value[key].trim()) output[key] = value[key].trim();
+  }
+  return Object.keys(output).length ? output : undefined;
 }
 
 /**
@@ -237,6 +256,8 @@ export function normalizeDraft(input: unknown): CodeMap {
   if (Array.isArray(draft.walkthrough)) {
     map.walkthrough = list(draft.walkthrough, 'walkthrough', MAP_LIMITS.steps, raw => step(raw, report), report.droppedSteps);
   }
+  const tour = tourInfo(draft.tour);
+  if (tour) map.tour = tour;
   drafts.set(map, report);
   return map;
 }
@@ -317,7 +338,23 @@ export const DRAFT_MAP_SCHEMA = {
           description: { type: 'string' },
           nodeIds: { type: 'array', items: { type: 'string' } },
           edgeIds: { type: 'array', items: { type: 'string' } },
+          sourceId: { type: 'string', description: '这一步只看的那段代码（sources 的 id）' },
+          why: { type: 'string', description: '为什么这样写' },
+          watch: { type: 'string', description: '值得注意、容易踩坑的地方' },
+          skip: { type: 'string', description: '这一步可以先跳过不看的部分' },
+          example: { type: 'string', description: '贯穿例子走到这一步时发生了什么' },
+          aside: { type: 'boolean', description: '岔路步骤，从某一步的 branches 进入' },
+          branches: { type: 'array', items: { type: 'string' }, description: '可以岔出去看的 aside 步骤 id' },
         },
+      },
+    },
+    tour: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        example: { type: 'string', description: '贯穿全程的具体例子' },
+        recap: { type: 'string', description: '看完后的总结' },
+        exercise: { type: 'string', description: '一个动手验证理解的小练习' },
       },
     },
   },
@@ -485,7 +522,20 @@ export function fillAnchors(
     keep(step.nodeIds, nodeIds, step.id, 'nodeIds', true);
     keep(step.edgeIds, edgeIds, step.id, 'edgeIds', true);
     stepIds.add(step.id);
-    walkthrough.push({ ...step, nodeIds: nodeRefs, edgeIds: edgeRefs });
+    const fixed: WalkthroughStep = { ...step, nodeIds: nodeRefs, edgeIds: edgeRefs };
+    if (fixed.sourceId !== undefined && !sources.has(fixed.sourceId)) {
+      filteredRefs.push(t('core.draftStepSourceRemoved', { id: step.id }));
+      delete fixed.sourceId;
+    }
+    walkthrough.push(fixed);
+  }
+  // 岔路只能指向存在的 aside 步骤；指向主线步骤的岔路会让“看完回来”失去意义，直接去掉。
+  const asides = new Set(walkthrough.filter(step => step.aside).map(step => step.id));
+  for (const step of walkthrough) {
+    if (!step.branches) continue;
+    const kept = keep(step.branches.filter(id => id !== step.id), asides, step.id, 'branches', true);
+    if (kept.length) step.branches = kept;
+    else delete step.branches;
   }
 
   if (nodes.length === 0) {
@@ -501,6 +551,7 @@ export function fillAnchors(
     edges,
     ...(input.description === undefined ? {} : { description: input.description }),
     ...(input.walkthrough === undefined ? {} : { walkthrough }),
+    ...(input.tour === undefined ? {} : { tour: input.tour }),
   };
   return { map, droppedSources, droppedNodes, droppedEdges, droppedSteps, filteredRefs, clamped };
 }

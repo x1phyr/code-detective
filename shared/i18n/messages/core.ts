@@ -156,6 +156,9 @@ export const core = {
   'core.edgeNodeNotFound': { 'zh-CN': '找不到节点 {id}', en: 'node {id} not found' },
   'core.parentSelf': { 'zh-CN': 'parent 不能指向节点自己。', en: 'parent cannot point to the node itself.' },
   'core.parentNotFound': { 'zh-CN': 'parent 引用了不存在的节点 {id}。', en: 'parent references a missing node {id}.' },
+  'core.stepBranchSelf': { 'zh-CN': '步骤的 branches 不能指向自己。', en: 'A step cannot list itself in branches.' },
+  'core.stepBranchNotAside': { 'zh-CN': 'branches 里的步骤 {id} 必须标记 aside: true。', en: 'Step {id} in branches must set aside: true.' },
+  'core.draftStepSourceRemoved': { 'zh-CN': '{id}.sourceId 指向不存在的源码，已去掉', en: '{id}.sourceId pointed to a missing source; removed' },
   'core.parentCycle': { 'zh-CN': '节点 {id} 的 parent 链形成了环。', en: 'The parent chain of node {id} forms a cycle.' },
   'core.draftParentCycle': { 'zh-CN': '{id}.parent 形成环，已移到上一层', en: '{id}.parent formed a cycle; moved up a level' },
 } satisfies Record<`core.${string}`, Message>;

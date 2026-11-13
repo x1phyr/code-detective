@@ -223,6 +223,7 @@ function planInstruction(): string {
     t('chat.planRule3'),
     t('chat.planRule4'),
     t('chat.planRule5'),
+    t('chat.planRule6'),
   ].join('\n');
 }
 

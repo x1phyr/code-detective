@@ -421,3 +421,21 @@ test('草稿保留 parent / branch / exit，去掉悬空或成环的 parent', ()
   parseMap(JSON.stringify(fixed.map));
   assert.equal(fixed.filteredRefs.some(ref => ref.includes('parent')), true);
 });
+
+test('草稿保留导读字段，去掉悬空的 sourceId 和指向非岔路的 branches', () => {
+  const input = draft() as CodeMap & { walkthrough: NonNullable<CodeMap['walkthrough']> };
+  input.walkthrough[0]!.sourceId = 's2';
+  input.walkthrough[0]!.why = '  原因  ';
+  input.walkthrough[0]!.branches = ['side', 'w1', 'ghost'];
+  input.walkthrough.push({ id: 'side', title: '岔路', nodeIds: ['render'], edgeIds: [], aside: true, sourceId: 'nope' });
+  (input as CodeMap).tour = { example: '例子', recap: '' };
+  const filled = fillAnchors(normalizeDraft(input), readDemo);
+  const [main, side] = filled.map.walkthrough!;
+  assert.equal(main!.sourceId, 's2');
+  assert.equal(main!.why, '原因');
+  assert.deepEqual(main!.branches, ['side']);
+  assert.equal(side!.aside, true);
+  assert.equal(side!.sourceId, undefined);
+  assert.deepEqual(filled.map.tour, { example: '例子' });
+  parseMap(JSON.stringify(filled.map));
+});

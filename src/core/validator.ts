@@ -172,9 +172,20 @@ export function parseMap(text: string): CodeMap {
     if (!nodeIds.has(edge.to)) fail(`/edges/${index}/to`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.to) }));
     checkReferences(edge.sourceIds, sourceIds, `/edges/${index}/sourceIds`);
   });
+  const steps = new Map((value.walkthrough ?? []).map(step => [step.id, step]));
   value.walkthrough?.forEach((step, index) => {
-    checkReferences(step.nodeIds, nodeIds, `/walkthrough/${index}/nodeIds`);
-    checkReferences(step.edgeIds, edgeIds, `/walkthrough/${index}/edgeIds`);
+    const base = `/walkthrough/${index}`;
+    checkReferences(step.nodeIds, nodeIds, `${base}/nodeIds`);
+    checkReferences(step.edgeIds, edgeIds, `${base}/edgeIds`);
+    if (step.sourceId !== undefined && !sourceIds.has(step.sourceId)) {
+      fail(`${base}/sourceId`, t('core.unknownRefId', { id: JSON.stringify(step.sourceId) }));
+    }
+    step.branches?.forEach((id, at) => {
+      const target = steps.get(id);
+      if (!target) fail(`${base}/branches/${at}`, t('core.unknownRefId', { id: JSON.stringify(id) }));
+      if (id === step.id) fail(`${base}/branches/${at}`, t('core.stepBranchSelf'));
+      if (!target.aside) fail(`${base}/branches/${at}`, t('core.stepBranchNotAside', { id: JSON.stringify(id) }));
+    });
   });
   return value;
 }

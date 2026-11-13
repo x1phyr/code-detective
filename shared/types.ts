@@ -38,9 +38,34 @@ export interface MapEdge {
 export interface WalkthroughStep {
   id: string;
   title: string;
+  /** 这一步是什么：1–3 句话。 */
   description?: string;
   nodeIds: string[];
   edgeIds: string[];
+  /** 这一步只看的那段代码；不写时取节点 / 连线的第一处源码。 */
+  sourceId?: string;
+  /** 为什么这样写。 */
+  why?: string;
+  /** 容易踩坑、值得注意的地方。 */
+  watch?: string;
+  /** 这一步里可以先跳过不看的部分。 */
+  skip?: string;
+  /** 贯穿例子走到这一步时发生了什么。 */
+  example?: string;
+  /** 岔路：不在主线上，只能从某一步的 `branches` 进入，看完回到出发的那一步。 */
+  aside?: boolean;
+  /** 从这一步可以岔出去看的支线步骤（必须是 aside 步骤）。 */
+  branches?: string[];
+}
+
+/** 导读的整体设定：一个贯穿全程的例子、收尾总结和动手练习。 */
+export interface TourInfo {
+  /** 贯穿例子，例如“用户 alice 输错密码三次后再登录”。 */
+  example?: string;
+  /** 看完后的总结。 */
+  recap?: string;
+  /** 一个可以自己动手验证理解的小练习。 */
+  exercise?: string;
 }
 export interface CodeMap {
   $schema?: string;
@@ -52,6 +77,7 @@ export interface CodeMap {
   nodes: MapNode[];
   edges: MapEdge[];
   walkthrough?: WalkthroughStep[];
+  tour?: TourInfo;
 }
 
 export type SourceState = 'pending' | 'range-only' | 'matched' | 'relocated' | 'stale' | 'missing' | 'out-of-range' | 'outside-root';

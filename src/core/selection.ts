@@ -17,7 +17,9 @@ export function sourceIdsForSelection(map: CodeMap, selection?: Selection): stri
     if (!step) return [];
     const nodes = new Map(map.nodes.map(node => [node.id, node]));
     const edges = new Map(map.edges.map(edge => [edge.id, edge]));
+    // 导读步骤显式指定的那段代码排第一：打开源码、行内讲解都落在它上面。
     return uniqueSources(map, [
+      ...(step.sourceId ? [step.sourceId] : []),
       ...step.nodeIds.flatMap(id => nodes.get(id)?.sourceIds ?? []),
       ...step.edgeIds.flatMap(id => edges.get(id)?.sourceIds ?? []),
     ]);

@@ -166,3 +166,22 @@ test('parent 必须指向存在的其他节点且不能成环；branch / exit �
     map.nodes[1]!.parent = map.nodes[0]!.id;
   }))), /parent 链形成了环/);
 });
+
+test('导读字段：sourceId 必须存在，branches 只能指向别的 aside 步骤', () => {
+  const ok = parseMap(withChange(map => {
+    const [first, second] = map.walkthrough!;
+    first!.sourceId = Object.keys(map.sources)[0];
+    first!.why = '为什么';
+    first!.branches = [second!.id];
+    second!.aside = true;
+    map.tour = { example: '例子', recap: '总结', exercise: '练习' };
+  }));
+  assert.equal(ok.tour?.example, '例子');
+  assert.match(codeOf(() => parseMap(withChange(map => { map.walkthrough![0]!.sourceId = 'ghost'; }))), /ghost/);
+  assert.match(codeOf(() => parseMap(withChange(map => { map.walkthrough![0]!.branches = [map.walkthrough![1]!.id]; }))), /aside/);
+  assert.match(codeOf(() => parseMap(withChange(map => {
+    map.walkthrough![0]!.aside = true;
+    map.walkthrough![0]!.branches = [map.walkthrough![0]!.id];
+  }))), /不能指向自己/);
+  assert.match(codeOf(() => parseMap(withChange(map => { (map.tour as Record<string, unknown>) = { other: 1 }; }))), /other/);
+});

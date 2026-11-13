@@ -25,7 +25,7 @@ interface PromptText {
   topic: (topic: string) => string;
   explore: string[];
   finish: string;
-  schema: { title: string; description: string; note: string; label: string; optional: string; edgeLabel: string; stepTitle: string; branch: string };
+  schema: { title: string; description: string; note: string; label: string; optional: string; edgeLabel: string; stepTitle: string; branch: string; stepWhat: string; why: string; watch: string; skip: string; stepExample: string; example: string; recap: string; exercise: string };
   contractHead: string[];
   contractTail: string[];
   retryHead: string;
@@ -46,6 +46,8 @@ const TEXT: Record<Locale, PromptText> = {
     schema: {
       title: '地图标题', description: '可选说明', note: '这段代码做了什么（一句话）',
       label: '短标签', optional: '可选', edgeLabel: '调用', stepTitle: '第一步', branch: '可选：分支条件',
+      stepWhat: '这一步在看什么（1–3 句）', why: '为什么这样写', watch: '值得注意的坑', skip: '可以先跳过的部分', stepExample: '例子走到这里时发生了什么',
+      example: '一个贯穿全程的具体例子', recap: '看完后的总结（3–5 句）', exercise: '一个动手验证理解的小练习',
     },
     contractHead: [
       '输出格式（硬性要求）：',
@@ -60,6 +62,9 @@ const TEXT: Record<Locale, PromptText> = {
       '7. 只写有源码依据的节点与连线，宁缺勿滥。',
       '8. 分层：顶层放 3–8 个功能块（整体阶段），每个功能块的内部步骤用 parent 指向该功能块；一层最多约 12 个节点，超过就再拆一层。简单流程可以不分层。',
       '9. 主干与支线：正常执行路径的边不写 branch；异常、提前返回、缓存命中、重试等分支的边写 branch（例如 "未命中缓存"、"校验失败"）。分叉点用 kind: "condition"，提前 return / 抛错 / 结束用 kind: "exit"。',
+      '10. walkthrough 是带人读代码的导读，像坐在旁边讲解一样写：主线 5–10 步沿正常路径走，每一步只指向一段代码（sourceId，通常 3–20 行）；description 说这段在做什么，why 说为什么这样写，watch 写容易踩的坑，skip 写这一步可以先略过的细节（都可选，没有就不写）。',
+      '11. 在 tour.example 里定一个具体例子（真实的输入 / 用户 / 数据），每一步的 example 写这个例子走到这里时发生了什么；tour.recap 写看完后的总结，tour.exercise 给一个可以动手验证理解的小练习（例如改一行代码、加一条日志后会看到什么）。',
+      '12. 异常、重试等支线不要塞进主线：写成 aside: true 的步骤，并在出发的那一步用 branches 列出它们；用户看完岔路会回到出发的那一步。',
     ],
     retryHead: '上一次的 JSON 没能通过校验。',
     retryTail: '请复用你已经读到的内容，输出修正后的完整 JSON 对象。仍然只输出 JSON。',
@@ -77,6 +82,8 @@ const TEXT: Record<Locale, PromptText> = {
     schema: {
       title: 'Map title', description: 'Optional description', note: 'What this code does (one sentence)',
       label: 'Short label', optional: 'Optional', edgeLabel: 'calls', stepTitle: 'Step one', branch: 'Optional: branch condition',
+      stepWhat: 'What this step looks at (1-3 sentences)', why: 'Why it is written this way', watch: 'A pitfall worth noticing', skip: 'What can be skipped for now', stepExample: 'What happens to the example here',
+      example: 'One concrete example that runs through the tour', recap: 'Summary after the tour (3-5 sentences)', exercise: 'A small hands-on exercise to check understanding',
     },
     contractHead: [
       'Output format (hard requirements):',
@@ -91,7 +98,10 @@ const TEXT: Record<Locale, PromptText> = {
       '7. Only include nodes and edges backed by the source; fewer but accurate is better.',
       '8. Layers: put 3–8 feature blocks (overall phases) at the top level; inner steps of a block set parent to that block. Keep each layer to about 12 nodes, split further if needed. Simple flows may stay flat.',
       '9. Main path vs branches: edges on the normal execution path have no branch; edges for errors, early returns, cache hits, retries etc. set branch (e.g. "cache miss", "validation failed"). Use kind "condition" at decision points and kind "exit" for early return / throw / end.',
-      '10. Write all titles, labels, descriptions, notes and branch labels in English.',
+      '10. walkthrough is a guided reading, written as if sitting next to the reader: a main line of 5-10 steps follows the normal path, each step points to exactly one piece of code (sourceId, usually 3-20 lines); description says what that code does, why explains why it is written this way, watch names a pitfall, skip names details that can be skipped for now (all optional; omit when there is nothing to say).',
+      '11. Put one concrete example in tour.example (a real input / user / piece of data); each step\'s example says what happens to that example at this point. tour.recap is the summary after the tour, tour.exercise is a small hands-on exercise to check understanding (e.g. what you would see after changing a line or adding a log).',
+      '12. Keep error / retry paths off the main line: write them as steps with aside: true and list them in branches of the step they start from; after an aside the reader returns to that step.',
+      '13. Write all titles, labels, descriptions, notes, branch labels and tour text in English.',
     ],
     retryHead: 'The previous JSON failed validation.',
     retryTail: 'Reuse what you have already read and output the complete corrected JSON object. Still output only JSON.',
@@ -134,8 +144,12 @@ function schema(): string {
     '               "kind": "step|function|condition|event|exit", "parent": "<blockNodeId>", "sourceIds": ["<sourceId>"] }],',
     `  "edges": [{ "id": "e1", "from": "step-1", "to": "step-2", "label": "${s.edgeLabel}",`,
     `              "kind": "call|flow|event|related", "branch": "${s.branch}", "sourceIds": ["<sourceId>"] }],`,
-    `  "walkthrough": [{ "id": "w1", "title": "${s.stepTitle}", "description": "${s.optional}",`,
-    '                    "nodeIds": ["step-1"], "edgeIds": ["e1"] }]',
+    `  "walkthrough": [{ "id": "w1", "title": "${s.stepTitle}", "description": "${s.stepWhat}",`,
+    '                    "nodeIds": ["step-1"], "edgeIds": ["e1"], "sourceId": "<sourceId>",',
+    `                    "why": "${s.why}", "watch": "${s.watch}", "skip": "${s.skip}", "example": "${s.stepExample}",`,
+    '                    "branches": ["w-aside"] },',
+    '                  { "id": "w-aside", "title": "…", "aside": true, "nodeIds": ["…"], "edgeIds": [], "sourceId": "<sourceId>" }],',
+    `  "tour": { "example": "${s.example}", "recap": "${s.recap}", "exercise": "${s.exercise}" }`,
     '}',
   ].join('\n');
 }
