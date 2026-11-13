@@ -18,6 +18,8 @@ export const webview = {
   'webview.sourceLineRange': { 'zh-CN': '第 {start}–{end} 行', en: 'Lines {start}–{end}' },
   'webview.noLinkedSource': { 'zh-CN': '这个对象没有关联源码。', en: 'This item has no linked source.' },
   'webview.readingOrder': { 'zh-CN': '阅读顺序', en: 'Reading order' },
+  'webview.startTour': { 'zh-CN': '开始带读', en: 'Start tour' },
+  'webview.startTourHint': { 'zh-CN': '从第 1 步开始，讲解会展开在代码下方', en: 'Start from step 1; explanations open right under the code' },
 
   // 空状态
   'webview.preparingTitle': { 'zh-CN': '正在准备地图…', en: 'Preparing map…' },

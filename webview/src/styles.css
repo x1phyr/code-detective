@@ -161,6 +161,22 @@ body {
   mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
 }
 .cd-steps::-webkit-scrollbar { display: none; }
+.cd-tour-start {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+.cd-tour-start:hover { background: var(--vscode-button-hoverBackground); }
+.cd-tour-start .codicon { font-size: 12px; }
 .cd-crumbs li { display: flex; align-items: center; min-width: 0; }
 .cd-crumbs li:last-child { flex: 0 1 auto; }
 .cd-steps li { display: flex; flex: none; }

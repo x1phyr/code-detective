@@ -564,6 +564,14 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
             <button class="cd-crumb" :disabled="index === breadcrumb.length - 1" @click="enter(block.id)">{{ block.label }}</button>
           </li>
         </ol>
+        <button
+          v-if="mainSteps.length && stepIndex < 0"
+          class="cd-tour-start"
+          :title="t('webview.startTourHint')"
+          @click="gotoStep(mainSteps[0]!.id)"
+        >
+          <span class="codicon codicon-play" aria-hidden="true"></span>{{ t('webview.startTour') }}
+        </button>
         <ol v-if="mainSteps.length" ref="stepsBar" class="cd-steps" :aria-label="t('webview.readingOrder')">
           <li v-for="(step, index) in mainSteps" :key="step.id">
             <button
