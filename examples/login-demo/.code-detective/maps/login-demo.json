@@ -624,25 +624,21 @@
   ],
   "walkthrough": [
     {
-      "id": "w.overview",
-      "title": "总入口",
-      "description": "onSubmit 依次调用校验、认证、跳转，失败都汇到错误出口。",
+      "id": "w.entry",
+      "title": "从提交开始",
       "nodeIds": [
-        "submit",
-        "validate",
-        "auth",
-        "route"
+        "submit"
       ],
-      "edgeIds": [
-        "e.submit-validate",
-        "e.ok-auth",
-        "e.profile-route"
-      ]
+      "edgeIds": [],
+      "sourceId": "ctl.submit",
+      "description": "onSubmit 是整个登录的入口。先别急着看细节，注意它的形状：校验 → 认证 → 跳转，三件事各占一行，失败都是提前 return。",
+      "why": "每一步失败都立刻返回，主流程就能保持“一条直线”，读起来不需要在脑子里维护 if/else 嵌套。",
+      "skip": "showError 只是打日志并返回错误对象，后面会单独看一眼，现在可以略过。",
+      "example": "alice 点了「登录」，form 里是她的用户名和正确的密码，没有填验证码。"
     },
     {
       "id": "w.validate",
-      "title": "表单校验",
-      "description": "三项检查，任一失败提前返回。",
+      "title": "本地校验",
       "nodeIds": [
         "v.username",
         "v.password",
@@ -652,40 +648,112 @@
         "e.v1-err",
         "e.v2-err",
         "e.v3-err"
+      ],
+      "sourceId": "val.captcha",
+      "description": "validateForm 依次检查用户名、密码长度、验证码，返回第一条错误。重点看第 7 行：只有“需要验证码但没填”才会拦下。",
+      "why": "校验函数返回“错误信息或 undefined”，而不是抛异常：调用方用一个 if 就能处理，也方便直接把文案展示给用户。",
+      "watch": "needsCaptcha 读的是内存里的失败计数，刷新页面就清零了——这只是示例，真实系统要放在服务端。",
+      "example": "alice 之前失败过 3 次，needsCaptcha 返回 true，而她没填验证码，所以会在这里被拦下，返回「请输入验证码」。",
+      "branches": [
+        "w.captcha"
       ]
+    },
+    {
+      "id": "w.captcha",
+      "title": "失败次数从哪来",
+      "aside": true,
+      "nodeIds": [
+        "a.record"
+      ],
+      "edgeIds": [],
+      "sourceId": "val.record",
+      "description": "失败计数是在认证失败时累加的（auth-service.ts 里调用 recordFailure）。校验和认证就这样通过一个共享的 Map 连在了一起。",
+      "watch": "这是两个模块之间的隐式耦合：改认证逻辑时很容易忘了这里会影响下一次校验。"
     },
     {
       "id": "w.cache",
-      "title": "token 缓存",
-      "description": "命中缓存时跳过登录请求。",
+      "title": "先查 token 缓存",
       "nodeIds": [
-        "a.cache",
-        "a.profile"
+        "a.cache"
       ],
       "edgeIds": [
-        "e.cache-hit"
+        "e.cache-hit",
+        "e.cache-miss"
+      ],
+      "sourceId": "auth.cache",
+      "description": "假设 alice 补上验证码重新提交，校验通过，进入 authenticate。第一件事是看有没有缓存的 token。",
+      "why": "命中缓存就完全跳过登录接口，只拉一次用户资料，能省一次网络请求。",
+      "watch": "缓存按用户名记，不校验密码——拿着别人的用户名也能命中缓存。示例代码为了简单这么写，真实系统不能这样。",
+      "example": "alice 是第一次登录，缓存里没有她，走“未命中”。"
+    },
+    {
+      "id": "w.request",
+      "title": "请求登录接口",
+      "nodeIds": [
+        "r.post",
+        "r.ok"
+      ],
+      "edgeIds": [
+        "e.post-ok"
+      ],
+      "sourceId": "req.post",
+      "description": "requestToken 用一个 for 循环最多尝试 3 次 POST /api/login，成功就直接返回 token。",
+      "skip": "循环里 401 / 423 / 其他错误的处理是支线，可以先走岔路看，也可以先跳过。",
+      "example": "alice 的密码正确，接口第一次就返回 200 和 token。",
+      "branches": [
+        "w.denied",
+        "w.retry"
       ]
     },
     {
-      "id": "w.retry",
-      "title": "请求与重试",
-      "description": "401/423 不重试；其他错误退避重试，最多 3 次。",
+      "id": "w.denied",
+      "title": "哪些错误不重试",
+      "aside": true,
       "nodeIds": [
-        "r.post",
-        "r.denied",
+        "r.denied"
+      ],
+      "edgeIds": [
+        "e.post-denied"
+      ],
+      "sourceId": "req.denied",
+      "description": "401（密码错）和 423（账号锁定）直接返回原因，不进入重试。",
+      "why": "这两种错误重试多少次结果都一样，重试只会白白拖慢用户、还可能触发更严格的风控。"
+    },
+    {
+      "id": "w.retry",
+      "title": "退避重试",
+      "aside": true,
+      "nodeIds": [
         "r.retry",
         "r.giveup"
       ],
       "edgeIds": [
-        "e.post-denied",
         "e.post-retry",
         "e.retry-giveup"
-      ]
+      ],
+      "sourceId": "req.retry",
+      "description": "其他错误（比如 500、网络抖动）会等待 200·2^attempt 毫秒再试，3 次都失败就返回「服务暂时不可用」。",
+      "watch": "等待时间是 400ms、800ms、1600ms，最坏情况下用户要多等将近 3 秒才看到错误。"
+    },
+    {
+      "id": "w.store",
+      "title": "缓存 token 并加载资料",
+      "nodeIds": [
+        "a.store",
+        "a.profile"
+      ],
+      "edgeIds": [
+        "e.ok-store",
+        "e.store-profile"
+      ],
+      "sourceId": "auth.store",
+      "description": "拿到 token 后先写进缓存，再用它拉取用户资料，组装成 { ok: true, user }。",
+      "skip": "loadProfile 只是带 token 调一次 /api/me，不需要细看。",
+      "example": "alice 的 token 被缓存下来，下次她再登录就会命中上一步的缓存分支。"
     },
     {
       "id": "w.route",
-      "title": "落地页",
-      "description": "改密码、首次引导、首页三个去向。",
+      "title": "决定去哪一页",
       "nodeIds": [
         "t.password",
         "t.onboarding",
@@ -695,7 +763,31 @@
         "e.route-password",
         "e.route-onboarding",
         "e.profile-route"
-      ]
+      ],
+      "sourceId": "route.fn",
+      "description": "routeAfterLogin 按优先级判断：必须改密码 > 首次登录 > 默认去首页（或 redirect 指定的页面）。",
+      "why": "顺序就是优先级：如果账号被要求改密码，就算是首次登录也要先去改密码。",
+      "watch": "redirect 只接受以 / 开头的站内路径（第 11 行），否则会被利用成开放重定向。",
+      "example": "alice 不需要改密码，但 firstLogin 为 true，所以落地到 /onboarding。"
+    },
+    {
+      "id": "w.error",
+      "title": "统一的失败出口",
+      "nodeIds": [
+        "show-error"
+      ],
+      "edgeIds": [
+        "e.v1-err",
+        "e.record-error"
+      ],
+      "sourceId": "ctl.error",
+      "description": "回头看 onSubmit 里的两个提前返回：它们都调用 showError。所有失败最终都汇到这一个地方。",
+      "why": "只有一个出口，以后要加埋点、统一提示样式，只需要改这一处。"
     }
-  ]
+  ],
+  "tour": {
+    "example": "用户 alice 用正确密码登录，但她之前已经输错过 3 次密码，而且是第一次登录这个系统。",
+    "recap": "登录被拆成三段：onSubmit 先做本地校验，任何一项不过就提前返回；authenticate 优先用缓存的 token，没有缓存才去请求接口，接口请求自带重试；拿到用户后 routeAfterLogin 按账号状态决定落地页。所有失败最后都汇到 showError 这一个出口。",
+    "exercise": "把 validate.ts 里 needsCaptcha 的阈值从 3 改成 1，然后想一想：alice 第一次输错密码后，下一次提交会在哪一步被拦下？在那一行加个 console.log 验证你的判断。"
+  }
 }

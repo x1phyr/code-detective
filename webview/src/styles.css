@@ -189,6 +189,7 @@ body {
 .cd-step .cd-index { background: none; padding: 0; min-width: 0; color: inherit; opacity: 0.7; }
 .cd-step.current { color: var(--cd-selected-text); background: var(--cd-selected); }
 .cd-step.current .cd-index { opacity: 1; }
+.cd-step-branch { font-size: 11px; opacity: 0.6; }
 
 /* 多个源码位置时的选择菜单，定位在点击处（会被限制在画布内）。 */
 .cd-popup {

@@ -14,6 +14,7 @@ import type {
 } from '../../shared/types';
 import { DEFAULT_VIEW_STATE, sourceStateLabel } from '../../shared/types';
 import { sourceIdsForSelection } from '../../src/core/selection';
+import { asideOrigin, mainline } from '../../src/core/tour';
 import { ancestry, childCounts, collapseBranches, levelOf, representativeAt, type LevelEdge } from '../../src/core/hierarchy';
 import { t } from '../../shared/i18n';
 import type { HostBridge } from './host';
@@ -155,11 +156,17 @@ const edges = computed<Edge[]>(() => {
   }));
 });
 
+/** 步骤条只列主线；岔路步骤在编辑器里的讲解面板中进入。 */
+const mainSteps = computed(() => (map.value ? mainline(map.value) : []));
+
+/** 当前高亮的主线步骤：在岔路里时，高亮出发的那一步。 */
 const stepIndex = computed(() => {
   const current = map.value;
   const active = selection.value;
   if (!current || active?.kind !== 'step') return -1;
-  return current.walkthrough?.findIndex(step => step.id === active.id) ?? -1;
+  const step = current.walkthrough?.find(item => item.id === active.id);
+  const anchor = step?.aside ? asideOrigin(current, step.id) : step;
+  return mainSteps.value.findIndex(item => item.id === anchor?.id);
 });
 
 // 侧栏很窄时步骤条会横向滚动：切换步骤后把当前步骤滚进可见区域。
@@ -545,7 +552,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   <div class="cd-root" :data-theme="theme">
 
     <div class="cd-body">
-      <nav v-if="map && (breadcrumb.length || map.walkthrough?.length)" class="cd-bar">
+      <nav v-if="map && (breadcrumb.length || mainSteps.length)" class="cd-bar">
         <ol v-if="breadcrumb.length" class="cd-crumbs" :aria-label="t('webview.breadcrumbLabel')">
           <li>
             <button class="cd-crumb" @click="enter(undefined)">
@@ -557,8 +564,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
             <button class="cd-crumb" :disabled="index === breadcrumb.length - 1" @click="enter(block.id)">{{ block.label }}</button>
           </li>
         </ol>
-        <ol v-if="map.walkthrough?.length" ref="stepsBar" class="cd-steps" :aria-label="t('webview.readingOrder')">
-          <li v-for="(step, index) in map.walkthrough" :key="step.id">
+        <ol v-if="mainSteps.length" ref="stepsBar" class="cd-steps" :aria-label="t('webview.readingOrder')">
+          <li v-for="(step, index) in mainSteps" :key="step.id">
             <button
               class="cd-step"
               :class="{ current: stepIndex === index }"
@@ -567,6 +574,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
             >
               <span class="cd-index">{{ index + 1 }}</span>
               <span class="cd-step-title">{{ step.title }}</span>
+              <span v-if="step.branches?.length" class="codicon codicon-git-branch cd-step-branch" aria-hidden="true"></span>
             </button>
           </li>
         </ol>
