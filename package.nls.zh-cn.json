@@ -60,5 +60,17 @@
   "config.ai.timeoutMs.markdownDescription": "单轮 agent 调用的超时时间（毫秒）。默认 5 分钟，agent 需要读多个文件时请留足时间。",
   "languageModelTools.2.sources.note.description": "一句话说明这几行做了什么，会显示在代码行尾",
   "languageModelTools.2.nodes.parent.description": "所属功能块（另一个节点的 id）；顶层节点不写",
-  "languageModelTools.2.edges.branch.description": "分支条件，例如“未命中缓存”；主干不写"
+  "languageModelTools.2.edges.branch.description": "分支条件，例如“未命中缓存”；主干不写",
+  "command.tourBranch": "走岔路",
+  "command.tourReply": "提问",
+  "languageModelTools.2.walkthrough.sourceId.description": "这一步只看的那段代码（sources 的 id）",
+  "languageModelTools.2.walkthrough.why.description": "为什么这样写",
+  "languageModelTools.2.walkthrough.watch.description": "值得注意、容易踩坑的地方",
+  "languageModelTools.2.walkthrough.skip.description": "这一步可以先跳过的细节",
+  "languageModelTools.2.walkthrough.example.description": "贯穿例子走到这一步时发生了什么",
+  "languageModelTools.2.walkthrough.aside.description": "岔路步骤：不在主线上，从某一步的 branches 进入",
+  "languageModelTools.2.walkthrough.branches.description": "从这一步可以岔出去看的 aside 步骤 id",
+  "languageModelTools.2.tour.example.description": "贯穿全程的具体例子",
+  "languageModelTools.2.tour.recap.description": "看完最后一步后的总结",
+  "languageModelTools.2.tour.exercise.description": "一个动手验证理解的小练习"
 }

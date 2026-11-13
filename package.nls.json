@@ -60,5 +60,17 @@
   "config.ai.timeoutMs.markdownDescription": "Timeout for one agent call (ms). Default 5 minutes; leave enough time when the agent has to read many files.",
   "languageModelTools.2.sources.note.description": "One sentence on what these lines do; shown at the end of the code line",
   "languageModelTools.2.nodes.parent.description": "Feature block this node belongs to (another node id); omit for top level",
-  "languageModelTools.2.edges.branch.description": "Branch condition, e.g. \"cache miss\"; omit for the main path"
+  "languageModelTools.2.edges.branch.description": "Branch condition, e.g. \"cache miss\"; omit for the main path",
+  "command.tourBranch": "Take a Side Path",
+  "command.tourReply": "Ask",
+  "languageModelTools.2.walkthrough.sourceId.description": "The one piece of code this step looks at (a sources id)",
+  "languageModelTools.2.walkthrough.why.description": "Why the code is written this way",
+  "languageModelTools.2.walkthrough.watch.description": "A pitfall worth noticing",
+  "languageModelTools.2.walkthrough.skip.description": "Details that can be skipped for now",
+  "languageModelTools.2.walkthrough.example.description": "What happens to the running example at this step",
+  "languageModelTools.2.walkthrough.aside.description": "Side-path step: off the main line, entered from another step's branches",
+  "languageModelTools.2.walkthrough.branches.description": "Ids of aside steps reachable from this step",
+  "languageModelTools.2.tour.example.description": "One concrete example that runs through the whole tour",
+  "languageModelTools.2.tour.recap.description": "Summary shown after the last step",
+  "languageModelTools.2.tour.exercise.description": "A small hands-on exercise to check understanding"
 }

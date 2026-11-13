@@ -23,6 +23,8 @@ import { SourceService, isUsableSource, type AcceptedMap } from './sources';
 import { AiService } from './ai';
 import { registerChatIntegration } from './chat';
 import { webviewHtml, webviewRoot } from './webview';
+import { TourGuide } from './tour';
+import { mainline, moveTo, stepBy, stepSource, type TourPosition } from '../core/tour';
 import { t } from '../../shared/i18n';
 
 const VIEW_TYPE = 'codeDetective.mapView';
@@ -47,6 +49,9 @@ export class DetectiveController implements vscode.Disposable {
   private readonly sources: SourceService;
   private readonly highlights: HighlightController;
   private readonly ai: AiService;
+  private readonly guide: TourGuide;
+  /** 导读位置（含岔路的返回栈）；`ui.stepId` 只记当前步骤，返回栈只在本次会话里。 */
+  private tour?: TourPosition;
   private readonly disposables: vscode.Disposable[] = [];
   /** The sidebar webview, once VS Code has resolved it (the user opened the tab). */
   private panel?: vscode.WebviewView;
@@ -63,6 +68,7 @@ export class DetectiveController implements vscode.Disposable {
     this.session = new SessionStore(context.workspaceState);
     this.sources = new SourceService(this.log);
     this.highlights = new HighlightController(this.sources);
+    this.guide = new TourGuide({ root: () => this.activeRoot(), log: line => this.log.appendLine(line) });
     this.ai = new AiService({
       log: this.log,
       root: () => this.activeRoot(),
@@ -87,6 +93,7 @@ export class DetectiveController implements vscode.Disposable {
       this.sources,
       this.highlights,
       this.ai,
+      this.guide,
     );
     this.disposables.push(
       this.repository.onDidChange(() => { void this.onMapsChanged(); }),
@@ -106,6 +113,10 @@ export class DetectiveController implements vscode.Disposable {
       vscode.commands.registerCommand('codeDetective.nextStep', () => this.step(1)),
       vscode.commands.registerCommand('codeDetective.previousStep', () => this.step(-1)),
       vscode.commands.registerCommand('codeDetective.stopWalkthrough', () => this.stopWalkthrough()),
+      vscode.commands.registerCommand('codeDetective.tourBranch', (stepId?: unknown) =>
+        typeof stepId === 'string' ? this.gotoStep(stepId) : undefined),
+      vscode.commands.registerCommand('codeDetective.tourReply', (reply?: vscode.CommentReply) =>
+        reply && typeof reply.text === 'string' ? this.guide.ask(reply) : undefined),
       vscode.commands.registerCommand('codeDetective.clearHighlights', () => this.clearHighlights()),
       vscode.commands.registerCommand('codeDetective.toggleHighlights', () => this.toggleHighlights()),
       // 标题栏按 `codeDetective.highlightEnabled` 上下文在两个图标间切换，两个命令执行同一动作。
@@ -193,6 +204,8 @@ export class DetectiveController implements vscode.Disposable {
     if (this.panel) this.panel.description = this.current?.map.title;
     void vscode.commands.executeCommand('setContext', 'codeDetective.hasMap', this.current !== undefined);
     void vscode.commands.executeCommand('setContext', 'codeDetective.highlightEnabled', this.ui?.highlightEnabled === true);
+    void vscode.commands.executeCommand('setContext', 'codeDetective.hasTour', Boolean(this.current && mainline(this.current.map).length));
+    void vscode.commands.executeCommand('setContext', 'codeDetective.touring', this.guide.active);
   }
 
   private async openMap(key?: string): Promise<void> {
@@ -238,6 +251,10 @@ export class DetectiveController implements vscode.Disposable {
     const previous = this.current;
     if (previous && previous.key !== record.key) await this.persist();
     this.current = record;
+    if (previous?.key !== record.key) {
+      this.tour = undefined;
+      this.guide.reset();
+    }
     const stored = this.session.get(record.key);
     this.ui = sanitizeViewState(record.map, stored ?? DEFAULT_VIEW_STATE);
     if (options.reuse !== true) this.session.setCurrent(record.key);
@@ -256,6 +273,14 @@ export class DetectiveController implements vscode.Disposable {
         this.sources.reset(refreshed);
         this.ui = sanitizeViewState(refreshed.map, this.ui);
         this.highlights.update(refreshed, this.ui);
+        // 地图改了：当前步骤还在就原地刷新讲解，不在了就结束导读。
+        if (this.guide.active) {
+          if (this.ui.stepId) void this.showStep(this.tourPosition()!).catch(() => undefined);
+          else {
+            this.tour = undefined;
+            this.guide.close();
+          }
+        }
         this.pushSnapshot();
       }
     } else {
@@ -283,6 +308,8 @@ export class DetectiveController implements vscode.Disposable {
         this.ui = undefined;
         this.sources.reset();
         this.highlights.clear();
+        this.tour = undefined;
+        this.guide.reset();
         this.updateTitle();
         this.notify(t('host.mapRemoved', { title }), 'warning');
       }
@@ -376,8 +403,7 @@ export class DetectiveController implements vscode.Disposable {
         await this.gotoStep(String(message.payload.stepId));
         return;
       case 'tour.stop':
-        this.ui = this.ui ? { ...this.ui, stepId: undefined, selection: this.ui.selection?.kind === 'step' ? undefined : this.ui.selection } : this.ui;
-        await this.commitUi();
+        await this.stopWalkthrough();
         return;
       case 'highlight.setEnabled':
         await this.setHighlightEnabled(message.payload.enabled === true);
@@ -429,6 +455,12 @@ export class DetectiveController implements vscode.Disposable {
     }
     const merged = sanitizeViewState(this.current.map, next);
     this.ui = merged;
+    if (!merged.stepId && this.guide.active) {
+      // 点空白清空了选择：导读也一起结束，编辑器里的讲解面板收起。
+      this.tour = undefined;
+      this.guide.close();
+      this.updateTitle();
+    }
     this.session.save(this.current.key, merged);
     // Pan / zoom only: the webview already shows it, so don't echo a full snapshot.
     const keys = Object.keys(patch);
@@ -481,34 +513,66 @@ export class DetectiveController implements vscode.Disposable {
     await this.gotoStep(walkthrough.steps[0]!.id);
   }
 
-  private async step(delta: number): Promise<void> {
-    const walkthrough = this.walkthrough();
-    if (!walkthrough) {
+  private async step(delta: 1 | -1): Promise<void> {
+    const map = this.current?.map;
+    if (!map || mainline(map).length === 0) {
       void vscode.window.showInformationMessage(t('host.noWalkthrough'));
       return;
     }
-    const target = walkthrough.index < 0
-      ? (delta > 0 ? 0 : walkthrough.steps.length - 1)
-      : Math.min(walkthrough.steps.length - 1, Math.max(0, walkthrough.index + delta));
-    await this.gotoStep(walkthrough.steps[target]!.id);
+    const position = this.tourPosition();
+    const next = stepBy(map, position, delta);
+    if (!next || (position && next.stepId === position.stepId && this.guide.active)) return;
+    await this.showStep(next);
+  }
+
+  /** 当前导读位置：优先用本次会话里的（带岔路栈），否则从保存的 stepId 恢复。 */
+  private tourPosition(): TourPosition | undefined {
+    const stepId = this.ui?.stepId;
+    if (!stepId) return undefined;
+    if (this.tour?.stepId === stepId) return this.tour;
+    return { stepId, returnTo: [] };
   }
 
   private async gotoStep(stepId: string): Promise<void> {
     const map = this.current?.map;
     if (!map) throw new HostError('MAP_NOT_FOUND', t('host.openMapFirst'));
-    const step = map.walkthrough?.find(item => item.id === stepId);
+    if (!map.walkthrough?.some(item => item.id === stepId)) throw new HostError('STEP_NOT_FOUND', t('host.stepNotFound'));
+    const next = moveTo(map, this.tourPosition(), stepId);
+    if (next) await this.showStep(next);
+  }
+
+  /** 移到导读的某一步：地图高亮、打开那一段代码，并在代码下方展开讲解面板。 */
+  private async showStep(position: TourPosition): Promise<void> {
+    const current = this.current;
+    if (!current) return;
+    const map = current.map;
+    const step = map.walkthrough?.find(item => item.id === position.stepId);
     if (!step) throw new HostError('STEP_NOT_FOUND', t('host.stepNotFound'));
-    this.ui = sanitizeViewState(map, { ...this.ui, selection: { kind: 'step', id: step.id }, stepId: step.id });
-    this.highlights.update(this.current, this.ui);
-    this.session.save(this.current!.key, this.ui);
+    this.tour = position;
+    const sourceId = stepSource(map, step);
+    this.ui = sanitizeViewState(map, { ...this.ui, selection: { kind: 'step', id: step.id }, stepId: step.id, sourceId });
+    this.highlights.update(current, this.ui);
+    this.session.save(current.key, this.ui);
     this.pushSnapshot();
-    const sourceId = sourceIdsForSelection(map, { kind: 'step', id: step.id })[0];
-    if (sourceId) await this.revealSource({ targetKind: 'step', targetId: step.id, sourceId });
+    if (!sourceId) {
+      this.guide.close();
+      this.updateTitle();
+      this.notify(t('host.noLinkedSource'), 'warning');
+      return;
+    }
+    const editor = await this.openSource(sourceId, true);
+    if (editor && this.current === current && this.tour === position) {
+      this.guide.show(map, position, editor.document, this.sources.getStatus(sourceId));
+    }
+    this.updateTitle();
   }
 
   private async stopWalkthrough(): Promise<void> {
+    this.tour = undefined;
+    this.guide.close();
     this.ui = this.ui ? { ...this.ui, stepId: undefined, selection: this.ui.selection?.kind === 'step' ? undefined : this.ui.selection } : this.ui;
     await this.commitUi();
+    this.updateTitle();
   }
 
   private async revealSource(payload: RevealPayload): Promise<void> {
@@ -526,12 +590,13 @@ export class DetectiveController implements vscode.Disposable {
         placeHolder: t('host.pickSourcePlaceholder'),
       });
       if (!picked) return;
-      return this.openSource(picked.id, payload.focusEditor === true);
+      await this.openSource(picked.id, payload.focusEditor === true);
+      return;
     }
-    return this.openSource(candidates[0]!, payload.focusEditor === true);
+    await this.openSource(candidates[0]!, payload.focusEditor === true);
   }
 
-  private async openSource(sourceId: string, focusEditor: boolean): Promise<void> {
+  private async openSource(sourceId: string, focusEditor: boolean): Promise<vscode.TextEditor | undefined> {
     const map = this.current?.map;
     const ref = map?.sources[sourceId];
     if (!map || !ref || !this.current) throw new HostError('SOURCE_NOT_FOUND', t('host.sourceNotFound'));
@@ -559,6 +624,7 @@ export class DetectiveController implements vscode.Disposable {
       this.notify(t('host.sourceStateWarning', { state: sourceStateLabel(status.state), detail: status.message ?? ref.file }), 'warning');
     }
     if (selection) this.highlights.schedule();
+    return editor;
   }
 
 

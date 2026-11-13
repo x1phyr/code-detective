@@ -97,17 +97,20 @@
       {
         "command": "codeDetective.nextStep",
         "title": "%command.nextStep%",
-        "category": "%category%"
+        "category": "%category%",
+        "icon": "$(arrow-right)"
       },
       {
         "command": "codeDetective.previousStep",
         "title": "%command.previousStep%",
-        "category": "%category%"
+        "category": "%category%",
+        "icon": "$(arrow-left)"
       },
       {
         "command": "codeDetective.stopWalkthrough",
         "title": "%command.stopWalkthrough%",
-        "category": "%category%"
+        "category": "%category%",
+        "icon": "$(close)"
       },
       {
         "command": "codeDetective.clearHighlights",
@@ -164,6 +167,17 @@
         "command": "codeDetective.cancelAi",
         "title": "%command.cancelAi%",
         "category": "%category%"
+      },
+      {
+        "command": "codeDetective.tourBranch",
+        "title": "%command.tourBranch%",
+        "category": "%category%"
+      },
+      {
+        "command": "codeDetective.tourReply",
+        "title": "%command.tourReply%",
+        "category": "%category%",
+        "icon": "$(send)"
       }
     ],
     "chatParticipants": [
@@ -458,7 +472,56 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "sourceId": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.walkthrough.sourceId.description%"
+                  },
+                  "why": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.walkthrough.why.description%"
+                  },
+                  "watch": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.walkthrough.watch.description%"
+                  },
+                  "skip": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.walkthrough.skip.description%"
+                  },
+                  "example": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.walkthrough.example.description%"
+                  },
+                  "aside": {
+                    "type": "boolean",
+                    "description": "%languageModelTools.2.walkthrough.aside.description%"
+                  },
+                  "branches": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "%languageModelTools.2.walkthrough.branches.description%"
                   }
+                }
+              }
+            },
+            "tour": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "example": {
+                  "type": "string",
+                  "description": "%languageModelTools.2.tour.example.description%"
+                },
+                "recap": {
+                  "type": "string",
+                  "description": "%languageModelTools.2.tour.recap.description%"
+                },
+                "exercise": {
+                  "type": "string",
+                  "description": "%languageModelTools.2.tour.exercise.description%"
                 }
               }
             }
@@ -563,6 +626,11 @@
           "group": "navigation@2"
         },
         {
+          "command": "codeDetective.startWalkthrough",
+          "when": "view == codeDetective.mapView && codeDetective.hasTour",
+          "group": "navigation@2"
+        },
+        {
           "command": "codeDetective.fitView",
           "when": "view == codeDetective.mapView && codeDetective.hasMap",
           "group": "navigation@3"
@@ -611,9 +679,53 @@
         {
           "command": "codeDetective.highlightsOff",
           "when": "false"
+        },
+        {
+          "command": "codeDetective.tourBranch",
+          "when": "false"
+        },
+        {
+          "command": "codeDetective.tourReply",
+          "when": "false"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "codeDetective.previousStep",
+          "when": "commentController == codeDetective.tour",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeDetective.nextStep",
+          "when": "commentController == codeDetective.tour",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codeDetective.stopWalkthrough",
+          "when": "commentController == codeDetective.tour",
+          "group": "navigation@3"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "codeDetective.tourReply",
+          "when": "commentController == codeDetective.tour",
+          "group": "inline@1"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "codeDetective.nextStep",
+        "key": "alt+]",
+        "when": "codeDetective.touring"
+      },
+      {
+        "command": "codeDetective.previousStep",
+        "key": "alt+[",
+        "when": "codeDetective.touring"
+      }
+    ]
   },
   "dependencies": {
     "@vscode/codicons": "^0.0.36",

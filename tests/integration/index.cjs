@@ -18,6 +18,8 @@ const COMMANDS = [
   'codeDetective.fitView',
   'codeDetective.highlightsOn',
   'codeDetective.highlightsOff',
+  'codeDetective.tourBranch',
+  'codeDetective.tourReply',
 ];
 
 const TOOLS = ['codeDetective_searchSources', 'codeDetective_readSource', 'codeDetective_createMap'];
