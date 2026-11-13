@@ -11,7 +11,7 @@ defineProps<{ data: NodeData; selected: boolean }>();
     class="cd-node"
     :class="[
       `kind-${data.node.kind ?? 'default'}`,
-      { active: data.active, related: data.related || data.inStep },
+      { active: data.active, related: data.related, dimmed: data.dimmed },
     ]"
   >
     <Handle type="target" :position="Position.Top" />

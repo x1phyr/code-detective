@@ -34,12 +34,12 @@ const label = computed(() => props.data?.edge.label);
     :id="id"
     :path="path[0]"
     :marker-end="markerEnd"
-    :class="['cd-edge', { active: data?.active, related: data?.related }]"
+    :class="['cd-edge', { active: data?.active, related: data?.related, dimmed: data?.dimmed }]"
   />
   <EdgeLabelRenderer v-if="label">
     <div
       class="cd-edge-label"
-      :class="{ active: data?.active }"
+      :class="{ active: data?.active, dimmed: data?.dimmed }"
       :style="{ transform: `translate(-50%, -50%) translate(${path[1]}px, ${path[2]}px)` }"
     >{{ label }}</div>
   </EdgeLabelRenderer>

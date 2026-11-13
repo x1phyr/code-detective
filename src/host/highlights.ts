@@ -13,16 +13,16 @@ export class HighlightController implements vscode.Disposable {
   private readonly base = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-    light: { backgroundColor: 'rgba(45,117,183,0.07)' },
-    dark: { backgroundColor: 'rgba(77,170,248,0.075)' },
+    // 颜色取自当前主题：相关范围用“范围高亮”底色，选中范围用“查找匹配”底色 + 焦点边框。
+    backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
   });
   private readonly selected = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
     borderWidth: '0 0 0 3px',
     borderStyle: 'solid',
-    light: { backgroundColor: 'rgba(181,112,18,0.16)', borderColor: '#a96a12' },
-    dark: { backgroundColor: 'rgba(232,177,90,0.21)', borderColor: '#e8b15a' },
+    backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
+    borderColor: new vscode.ThemeColor('focusBorder'),
     overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.findMatchForeground'),
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });

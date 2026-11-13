@@ -532,19 +532,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "codeDetective.startWalkthrough",
+          "command": "codeDetective.toggleHighlights",
           "when": "view == codeDetective.mapView",
           "group": "navigation@3"
         },
         {
-          "command": "codeDetective.toggleHighlights",
-          "when": "view == codeDetective.mapView",
-          "group": "navigation@4"
-        },
-        {
           "command": "codeDetective.refreshMaps",
           "when": "view == codeDetective.mapView",
-          "group": "navigation@5"
+          "group": "navigation@4"
         },
         {
           "command": "codeDetective.copyAuthoringPrompt",

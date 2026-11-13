@@ -4,13 +4,15 @@ export interface NodeData {
   node: MapNode;
   active: boolean;
   related: boolean;
-  inStep: boolean;
+  /** 有选中对象时，与之无关的节点淡出，而不是换颜色。 */
+  dimmed: boolean;
 }
 
 export interface EdgeData {
   edge: MapEdge;
   active: boolean;
   related: boolean;
+  dimmed: boolean;
 }
 
 export const NODE_KIND_LABELS: Record<NonNullable<MapNode['kind']> | 'default', string> = {

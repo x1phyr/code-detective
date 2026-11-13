@@ -12,9 +12,6 @@
   --cd-accent: var(--vscode-textLink-foreground, #4daafc);
   --cd-focus: var(--vscode-focusBorder, var(--cd-accent));
   --cd-accent-soft: var(--vscode-inputOption-activeBackground, rgba(77, 170, 248, 0.16));
-  --cd-condition: var(--vscode-charts-purple, #b180d7);
-  --cd-current: var(--vscode-editorWarning-foreground, #cca700);
-  --cd-current-soft: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 18%, transparent);
   --cd-ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #89d185));
   --cd-warn: var(--vscode-editorWarning-foreground, #cca700);
   --cd-error: var(--vscode-editorError-foreground, #f14c4c);
@@ -46,7 +43,6 @@ body.vscode-high-contrast-light, body[data-vs-theme='high-contrast-light'],
   --cd-border: var(--vscode-contrastBorder, #6fc3df);
   --cd-canvas-dot: var(--vscode-contrastBorder, #6fc3df);
   --cd-accent-soft: transparent;
-  --cd-current-soft: transparent;
   --cd-shadow: transparent;
 }
 
@@ -257,11 +253,6 @@ body {
 .cd-dot.warn { background: var(--cd-warn); }
 .cd-dot.error { background: var(--cd-error); }
 .cd-dot.idle { background: var(--cd-muted); }
-.cd-dot.kind-step { background: var(--cd-accent); }
-.cd-dot.kind-function { background: var(--vscode-charts-blue, var(--cd-accent)); }
-.cd-dot.kind-condition { background: var(--cd-condition); }
-.cd-dot.kind-event { background: var(--cd-current); }
-.cd-dot.kind-default { background: var(--cd-muted); }
 
 .cd-rel { margin: 14px 0 0; }
 .cd-rel dt { font-size: 11px; text-transform: uppercase; color: var(--cd-muted); margin-top: 8px; }
@@ -325,23 +316,6 @@ body {
 .cd-empty code { padding: 1px 5px; background: var(--cd-panel-2); border-radius: 4px; }
 .cd-empty-actions { display: flex; gap: 8px; margin-top: 6px; }
 
-.cd-tour {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  background: var(--vscode-editorWidget-background, var(--cd-panel));
-  border: 1px solid var(--vscode-editorWidget-border, var(--cd-border));
-  border-radius: var(--cd-radius);
-  box-shadow: 0 2px 8px var(--cd-shadow);
-}
-.cd-tour.active { border-color: var(--cd-current); background: var(--cd-current-soft); }
-.cd-tour-text { max-width: min(34ch, 40cqw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cd-tour-count { color: var(--cd-muted); font-size: 11px; }
 .cd-icon-button {
   display: inline-flex;
   align-items: center;
@@ -402,20 +376,25 @@ body {
   padding: 7px 10px;
   background: var(--vscode-editorWidget-background, var(--cd-panel));
   border: 1px solid var(--vscode-editorWidget-border, var(--cd-border));
-  border-left: 3px solid var(--cd-accent);
   border-radius: var(--cd-radius);
   color: var(--vscode-editorWidget-foreground, var(--cd-text));
   box-shadow: 0 2px 6px var(--cd-shadow);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
 }
-.cd-node:hover { border-color: var(--vscode-editorWidget-border, var(--cd-focus)); }
-.cd-node.kind-condition { border-left-color: var(--cd-condition); }
-.cd-node.kind-event { border-left-color: var(--cd-current); }
-.cd-node.related { border-color: var(--cd-accent); }
+/*
+ * 配色全部取自当前 VS Code 主题，不再按节点类型着色：
+ * 悬停 = 列表悬停色，选中 = 列表选中色 + 焦点边框，其余无关节点淡出。
+ */
+.cd-node:hover { background: var(--cd-hover); }
+.cd-node.related { border-color: var(--cd-focus); }
 .cd-node.active {
+  background: var(--cd-selected);
+  color: var(--cd-selected-text);
   border-color: var(--cd-focus);
   box-shadow: 0 0 0 1px var(--cd-focus);
 }
+.cd-node.active .cd-node-kind, .cd-node.active .cd-node-desc { color: inherit; opacity: 0.8; }
+.cd-node.dimmed { opacity: 0.45; }
 .cd-node-kind { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--cd-muted); }
 .cd-node-label { margin-top: 2px; font-weight: 600; line-height: 1.35; }
 .cd-node-desc {
@@ -430,9 +409,10 @@ body {
 
 .vue-flow__handle { width: 6px; height: 6px; background: var(--cd-border); border: 0; }
 
-.cd-edge { stroke: var(--cd-border); stroke-width: 1.5; color: var(--cd-border); }
-.cd-edge.related { stroke: var(--cd-accent); color: var(--cd-accent); }
-.cd-edge.active { stroke: var(--cd-current); color: var(--cd-current); stroke-width: 2.25; }
+.cd-edge { stroke: var(--cd-muted); stroke-width: 1.25; color: var(--cd-muted); opacity: 0.7; transition: opacity 120ms ease; }
+.cd-edge.related { stroke: var(--cd-focus); color: var(--cd-focus); opacity: 1; }
+.cd-edge.active { stroke: var(--cd-focus); color: var(--cd-focus); stroke-width: 2.25; opacity: 1; }
+.cd-edge.dimmed { opacity: 0.3; }
 
 .cd-edge-label {
   position: absolute;
@@ -443,7 +423,8 @@ body {
   border-radius: 2px;
   pointer-events: none;
 }
-.cd-edge-label.active { color: var(--cd-current); }
+.cd-edge-label.active { color: var(--cd-text); }
+.cd-edge-label.dimmed { opacity: 0.45; }
 
 .vue-flow__edge-path { stroke: inherit; }
 .vue-flow__controls, .vue-flow__minimap { display: none; }

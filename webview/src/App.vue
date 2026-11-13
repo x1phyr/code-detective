@@ -115,8 +115,8 @@ const nodes = computed<Node[]>(() => {
     data: {
       node,
       active: selection.value?.kind === 'node' && selection.value.id === node.id,
-      related: related.value.nodes.has(node.id),
-      inStep: stepIds.value.has(node.id),
+      related: related.value.nodes.has(node.id) || stepIds.value.has(node.id),
+      dimmed: Boolean(selection.value) && !related.value.nodes.has(node.id) && !stepIds.value.has(node.id),
     },
   }));
 });
@@ -134,6 +134,7 @@ const edges = computed<Edge[]>(() => {
       edge,
       active: selection.value?.kind === 'edge' && selection.value.id === edge.id,
       related: related.value.edges.has(edge.id),
+      dimmed: Boolean(selection.value) && !related.value.edges.has(edge.id),
     },
   }));
 });
@@ -216,12 +217,21 @@ function select(kind: Selection['kind'], id: string): void {
   post('ui.patch', { selection: { kind, id } });
 }
 
+/** 点图上的对象 = 选中它 + 在当前编辑器组里打开第一处源码（高亮 + 行尾注释）。 */
+function selectAndReveal(kind: 'node' | 'edge', id: string): void {
+  select(kind, id);
+  const current = map.value;
+  const sourceId = current ? sourceIdsForSelection(current, { kind, id })[0] : undefined;
+  activeSourceId.value = sourceId;
+  if (sourceId) post('source.reveal', { targetKind: kind, targetId: id, sourceId });
+}
+
 function onNodeClick(event: { node: { id: string } }): void {
-  select('node', event.node.id);
+  selectAndReveal('node', event.node.id);
 }
 
 function onEdgeClick(event: { edge: { id: string } }): void {
-  select('edge', event.edge.id);
+  selectAndReveal('edge', event.edge.id);
 }
 
 function onPaneClick(): void {
@@ -286,25 +296,6 @@ function openSource(sourceId: string): void {
   const current = selection.value;
   if (!current) return;
   post('source.reveal', { targetKind: current.kind, targetId: current.id, sourceId });
-}
-
-function startTour(): void {
-  const first = map.value?.walkthrough?.[0];
-  if (first) post('tour.goto', { stepId: first.id });
-  else showNotice('当前地图没有导读步骤。', 'warning');
-}
-
-function stepBy(delta: number): void {
-  const steps = map.value?.walkthrough ?? [];
-  if (steps.length === 0) return;
-  const next = stepIndex.value < 0
-    ? (delta > 0 ? 0 : steps.length - 1)
-    : Math.min(steps.length - 1, Math.max(0, stepIndex.value + delta));
-  post('tour.goto', { stepId: steps[next]!.id });
-}
-
-function stopTour(): void {
-  post('tour.stop', {});
 }
 
 function toggleHighlights(): void {
@@ -547,21 +538,6 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="map" class="cd-tour" :class="{ active: stepIndex >= 0 }">
-          <template v-if="stepIndex >= 0">
-            <button class="cd-icon-button" title="上一步" @click="stepBy(-1)"><span class="codicon codicon-arrow-left"></span></button>
-            <span class="cd-tour-text">{{ detail?.title }}</span>
-            <span class="cd-tour-count">{{ stepIndex + 1 }}/{{ map.walkthrough?.length }}</span>
-            <button class="cd-icon-button" title="下一步" @click="stepBy(1)"><span class="codicon codicon-arrow-right"></span></button>
-            <button class="cd-icon-button" title="停止导读" @click="stopTour"><span class="codicon codicon-debug-stop"></span></button>
-          </template>
-          <template v-else-if="(map.walkthrough?.length ?? 0) > 0">
-            <button class="cd-button primary" @click="startTour">
-              <span class="codicon codicon-play"></span> 开始导读
-            </button>
-            <span class="cd-tour-count">{{ map.walkthrough?.length }} 步</span>
-          </template>
-        </div>
       </main>
 
       <aside class="cd-side" aria-label="对象目录与详情">
@@ -594,7 +570,7 @@ onMounted(() => {
             <template v-if="detail.nodeIds.length">
               <dt>相关节点</dt>
               <dd>
-                <button v-for="id in detail.nodeIds" :key="id" class="cd-link" @click="select('node', id)">
+                <button v-for="id in detail.nodeIds" :key="id" class="cd-link" @click="selectAndReveal('node', id)">
                   {{ map?.nodes.find(node => node.id === id)?.label ?? id }}
                 </button>
               </dd>
@@ -602,7 +578,7 @@ onMounted(() => {
             <template v-if="detail.edgeIds.length">
               <dt>相关连线</dt>
               <dd>
-                <button v-for="id in detail.edgeIds" :key="id" class="cd-link" @click="select('edge', id)">
+                <button v-for="id in detail.edgeIds" :key="id" class="cd-link" @click="selectAndReveal('edge', id)">
                   {{ id }}
                 </button>
               </dd>
@@ -616,15 +592,14 @@ onMounted(() => {
             <li v-for="node in map.nodes" :key="node.id">
               <button
                 :class="{ current: selection?.kind === 'node' && selection.id === node.id }"
-                @click="select('node', node.id)"
+                @click="selectAndReveal('node', node.id)"
               >
-                <span class="cd-dot" :class="`kind-${node.kind ?? 'default'}`"></span>
                 {{ node.label }}
               </button>
             </li>
           </ul>
           <template v-if="map.walkthrough?.length">
-            <h3>导读</h3>
+            <h3 title="地图作者建议的阅读顺序；点一步会高亮相关节点并打开代码">阅读顺序</h3>
             <ul class="cd-tree">
               <li v-for="(step, index) in map.walkthrough" :key="step.id">
                 <button
