@@ -7,6 +7,7 @@ import type {
   AiAgentStatus,
   AiResultPayload,
   AiStatusPayload,
+  CodeMap,
   HostMessage,
   MapSnapshot,
   MapSummary,
@@ -33,9 +34,21 @@ const props = defineProps<{ host: HostBridge }>();
 
 const maps = ref<MapSummary[]>([]);
 const snapshot = shallowRef<MapSnapshot>();
-const theme = ref<ThemeKind>('dark');
+/** 在宿主的 `theme` 消息到达前，先按 VS Code 注入的 body class 选主题，避免亮色主题下闪一下暗色。 */
+function initialTheme(): ThemeKind {
+  const classes = document.body.classList;
+  if (classes.contains('vscode-high-contrast-light')) return 'high-contrast-light';
+  if (classes.contains('vscode-high-contrast')) return 'high-contrast';
+  if (classes.contains('vscode-light')) return 'light';
+  if (classes.contains('vscode-dark')) return 'dark';
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+const theme = ref<ThemeKind>(initialTheme());
 const notice = ref<{ message: string; severity: string }>();
 const layout = ref<Record<string, Positioned>>({});
+/** 与 `layout` 对应的地图；画布只渲染已布局好的版本，避免新节点在布局完成前堆在原点。 */
+const layoutMap = shallowRef<CodeMap>();
 const ready = ref(false);
 const menuOpen = ref(false);
 const activeSourceId = ref<string>();
@@ -73,7 +86,7 @@ const related = computed(() => (map.value ? relatedSelection(map.value, selectio
 
 /** 节点位置只由 ELK 布局决定，用户不能拖动，因此不使用会话里保存的坐标。 */
 const currentPositions = computed<Record<string, { x: number; y: number }>>(() => {
-  const current = map.value;
+  const current = layoutMap.value;
   if (!current) return {};
   const output: Record<string, { x: number; y: number }> = {};
   for (const node of current.nodes) {
@@ -92,7 +105,7 @@ const stepIds = computed(() => {
 });
 
 const nodes = computed<Node[]>(() => {
-  const current = map.value;
+  const current = layoutMap.value;
   if (!current) return [];
   const positions = currentPositions.value;
   return current.nodes.map(node => ({
@@ -109,7 +122,7 @@ const nodes = computed<Node[]>(() => {
 });
 
 const edges = computed<Edge[]>(() => {
-  const current = map.value;
+  const current = layoutMap.value;
   if (!current) return [];
   return current.edges.map(edge => ({
     id: edge.id,
@@ -212,15 +225,60 @@ function onEdgeClick(event: { edge: { id: string } }): void {
 }
 
 function onPaneClick(): void {
-  post('ui.patch', { selection: undefined });
+  // JSON 会丢掉 undefined 键，必须用 null 明确表示“清除选择”。
+  post('ui.patch', { selection: null });
+}
+
+const VIEWPORT_DEBOUNCE_MS = 300;
+let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingViewport: { x: number; y: number; zoom: number } | undefined;
+/** 程序化改视口（fitView / 恢复视口）期间为 true，此时不回传视口。 */
+let applyingViewport = false;
+
+function cancelViewportPatch(): void {
+  if (viewportTimer) clearTimeout(viewportTimer);
+  viewportTimer = undefined;
+  pendingViewport = undefined;
+}
+
+function flushViewportPatch(): void {
+  const viewport = pendingViewport;
+  cancelViewportPatch();
+  // 宿主只保存纯视口补丁、不回 snapshot，所以这里发完即可，不等回声。
+  if (viewport) post('ui.patch', { viewport });
 }
 
 function onViewportChange(viewport: ViewportTransform): void {
-  post('ui.patch', { viewport: { x: Math.round(viewport.x), y: Math.round(viewport.y), zoom: Number(viewport.zoom.toFixed(3)) } });
+  if (applyingViewport) return;
+  pendingViewport = { x: Math.round(viewport.x), y: Math.round(viewport.y), zoom: Number(viewport.zoom.toFixed(3)) };
+  if (viewportTimer) clearTimeout(viewportTimer);
+  viewportTimer = setTimeout(flushViewportPatch, VIEWPORT_DEBOUNCE_MS);
+}
+
+async function applyViewport(change: () => Promise<unknown>): Promise<void> {
+  applyingViewport = true;
+  try {
+    await change();
+  } finally {
+    applyingViewport = false;
+  }
 }
 
 function fitToView(): void {
-  void flow.fitView({ padding: 0.2 });
+  void applyViewport(() => flow.fitView({ padding: 0.2 }));
+}
+
+/** 切到新地图后待执行的首次视口：有保存的视口就恢复，否则适配整张图。只执行一次。 */
+let initialView: { key: string; viewport?: { x: number; y: number; zoom: number } } | undefined;
+/** 画布挂载时的初始视口，只在换地图时更新，避免首帧先画在原点再跳。 */
+let mountViewport = { x: 0, y: 0, zoom: 1 };
+
+function onNodesInitialized(): void {
+  const pending = initialView;
+  if (!pending || pending.key !== snapshot.value?.key) return;
+  initialView = undefined;
+  const saved = pending.viewport;
+  void applyViewport(() => (saved ? flow.setViewport(saved) : flow.fitView({ padding: 0.2 })));
 }
 
 function openSource(sourceId: string): void {
@@ -254,6 +312,7 @@ function toggleHighlights(): void {
 }
 
 function openMap(key: string): void {
+  flushViewportPatch();
   post('map.open', {}, { mapKey: key });
   menuOpen.value = false;
 }
@@ -297,7 +356,10 @@ function cancelAi(): void {
 
 function openGeneratedMap(): void {
   const key = aiResult.value?.mapKey;
-  if (key) post('map.open', {}, { mapKey: key });
+  if (key) {
+    flushViewportPatch();
+    post('map.open', {}, { mapKey: key });
+  }
   aiResult.value = undefined;
   aiOpen.value = false;
 }
@@ -340,16 +402,33 @@ function handle(message: HostMessage): void {
 
 const agentList = computed<AiAgentStatus[]>(() => aiStatus.value?.providers ?? []);
 
+/** 每次请求布局递增；较慢的旧布局返回时代号对不上就丢弃，不把旧坐标套到新节点上。 */
+let layoutGeneration = 0;
+
 async function prepareLayout(current: MapSnapshot): Promise<void> {
-  layout.value = await computeLayout(current.map);
+  const generation = ++layoutGeneration;
+  const positions = await computeLayout(current.map);
+  if (generation !== layoutGeneration) return;
+  layout.value = positions;
+  layoutMap.value = current.map;
   ready.value = true;
 }
 
-/** 地图内容变化（同 key 被改写时 revision 会变）也要重算，否则新节点会堆在原点。 */
-watch(() => [snapshot.value?.key, snapshot.value?.revision] as const, async () => {
+/**
+ * 换地图（key 变化）时卸载画布并在布局完成后恢复/适配视口；
+ * 同一地图只换 revision 时保持画布挂载和当前视口，只重算布局（否则新节点会堆在原点）。
+ */
+watch(() => [snapshot.value?.key, snapshot.value?.revision] as const, async ([key], previous) => {
   const current = snapshot.value;
-  if (!current) return;
-  ready.value = false;
+  if (!current || !key) return;
+  if (key !== previous?.[0]) {
+    cancelViewportPatch();
+    ready.value = false;
+    layoutMap.value = undefined;
+    initialView = { key, viewport: current.ui.viewport };
+    mountViewport = current.ui.viewport ?? { x: 0, y: 0, zoom: 1 };
+    props.host.saveState({ mapKey: key });
+  }
   activeSourceId.value = current.ui.sourceId;
   await prepareLayout(current);
 });
@@ -361,6 +440,7 @@ watch(() => ui.value.selection, current => {
 
 onMounted(() => {
   props.host.onMessage(handle);
+  window.addEventListener('pagehide', flushViewportPatch);
   post('view.ready', {});
 });
 </script>
@@ -423,11 +503,11 @@ onMounted(() => {
     <div class="cd-body">
       <main class="cd-canvas">
         <VueFlow
-          v-if="map && ready"
+          v-if="map && layoutMap && ready"
           id="code-detective-map"
           :nodes="nodes"
           :edges="edges"
-          :default-viewport="ui.viewport ?? { x: 0, y: 0, zoom: 1 }"
+          :default-viewport="mountViewport"
           :min-zoom="0.25"
           :max-zoom="2.5"
           :nodes-draggable="false"
@@ -436,8 +516,8 @@ onMounted(() => {
           :elements-selectable="true"
           :pan-on-drag="true"
           :zoom-on-double-click="false"
-          fit-view-on-init
           class="cd-flow"
+          @nodes-initialized="onNodesInitialized"
           @node-click="onNodeClick"
           @edge-click="onEdgeClick"
           @pane-click="onPaneClick"

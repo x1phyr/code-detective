@@ -1,5 +1,5 @@
 import type { HostMessage } from '../../shared/types';
-import { envelope, type HostBridge } from './bridge';
+import { envelope, type HostBridge, type WebviewPersistedState } from './bridge';
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
@@ -28,6 +28,10 @@ class VsCodeHost implements HostBridge {
 
   onMessage(listener: (message: HostMessage) => void): void {
     window.addEventListener('message', event => listener(event.data as HostMessage));
+  }
+
+  saveState(state: WebviewPersistedState): void {
+    this.api.setState(state);
   }
 }
 

@@ -145,5 +145,8 @@ export function createPreviewHost(): HostBridge {
     onMessage(listener: (message: HostMessage) => void): void {
       listeners.push(listener);
     },
+    saveState(): void {
+      // 浏览器预览没有 Webview 持久化状态。
+    },
   };
 }
