@@ -397,3 +397,27 @@ test('超出校验器数量上限的条目会被裁掉并报告', () => {
   assert.match(describeAdjustments(filled).join('\n'), /数量上限 500/);
   assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
 });
+
+test('草稿保留 parent / branch / exit，去掉悬空或成环的 parent', () => {
+  const input = draft();
+  input.nodes.push({ id: 'block', label: '功能块', sourceIds: [] });
+  input.nodes[0]!.parent = 'block';
+  input.nodes[1]!.parent = 'ghost';
+  input.nodes[1]!.kind = 'exit';
+  input.edges[0]!.branch = '失败时';
+  const filled = fillAnchors(normalizeDraft(input), readDemo);
+  const byId = new Map(filled.map.nodes.map(node => [node.id, node]));
+  assert.equal(byId.get('click')!.parent, 'block');
+  assert.equal(byId.get('render')!.parent, undefined);
+  assert.equal(byId.get('render')!.kind, 'exit');
+  assert.equal(filled.map.edges[0]!.branch, '失败时');
+  assert.equal(filled.filteredRefs.some(ref => ref.includes('render.parent') && ref.includes('ghost')), true);
+  parseMap(JSON.stringify(filled.map));
+
+  const cyclic = draft();
+  cyclic.nodes[0]!.parent = 'render';
+  cyclic.nodes[1]!.parent = 'click';
+  const fixed = fillAnchors(normalizeDraft(cyclic), readDemo);
+  parseMap(JSON.stringify(fixed.map));
+  assert.equal(fixed.filteredRefs.some(ref => ref.includes('parent')), true);
+});

@@ -57,5 +57,8 @@
   "config.ai.cli.allowedTools.markdownDescription": "Tools Claude Code may use. Keep them read-only so the agent can't modify workspace source.",
   "config.ai.cli.agents.markdownDescription": "Custom agents: `id` / `label` / `command` / `args`. Use this to plug in CLIs other than claude and codex.",
   "config.ai.cli.agents.items.id.description": "Unique id, referenced by codeDetective.ai.agent",
-  "config.ai.timeoutMs.markdownDescription": "Timeout for one agent call (ms). Default 5 minutes; leave enough time when the agent has to read many files."
+  "config.ai.timeoutMs.markdownDescription": "Timeout for one agent call (ms). Default 5 minutes; leave enough time when the agent has to read many files.",
+  "languageModelTools.2.sources.note.description": "One sentence on what these lines do; shown at the end of the code line",
+  "languageModelTools.2.nodes.parent.description": "Feature block this node belongs to (another node id); omit for top level",
+  "languageModelTools.2.edges.branch.description": "Branch condition, e.g. \"cache miss\"; omit for the main path"
 }

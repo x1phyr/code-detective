@@ -5,6 +5,7 @@ import type { CodeMap } from '../../shared/types';
 import { t } from '../../shared/i18n';
 import { isCanonicalRelativePath } from './paths';
 import { normalizeLineEndings } from './text';
+import { findParentCycle } from './hierarchy';
 
 export const MAP_LIMITS = {
   bytes: 2 * 1024 * 1024,
@@ -157,7 +158,15 @@ export function parseMap(text: string): CodeMap {
       }
     }
   }
-  value.nodes.forEach((node, index) => checkReferences(node.sourceIds, sourceIds, `/nodes/${index}/sourceIds`));
+  value.nodes.forEach((node, index) => {
+    checkReferences(node.sourceIds, sourceIds, `/nodes/${index}/sourceIds`);
+    if (node.parent !== undefined) {
+      if (node.parent === node.id) fail(`/nodes/${index}/parent`, t('core.parentSelf'));
+      if (!nodeIds.has(node.parent)) fail(`/nodes/${index}/parent`, t('core.parentNotFound', { id: JSON.stringify(node.parent) }));
+    }
+  });
+  const cycle = findParentCycle(value);
+  if (cycle) fail('/nodes', t('core.parentCycle', { id: JSON.stringify(cycle) }));
   value.edges.forEach((edge, index) => {
     if (!nodeIds.has(edge.from)) fail(`/edges/${index}/from`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.from) }));
     if (!nodeIds.has(edge.to)) fail(`/edges/${index}/to`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.to) }));

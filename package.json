@@ -327,6 +327,10 @@
                   "endLine": {
                     "type": "integer",
                     "minimum": 1
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.sources.note.description%"
                   }
                 }
               }
@@ -357,8 +361,13 @@
                       "step",
                       "function",
                       "condition",
-                      "event"
+                      "event",
+                      "exit"
                     ]
+                  },
+                  "parent": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.nodes.parent.description%"
                   },
                   "sourceIds": {
                     "type": "array",
@@ -403,6 +412,10 @@
                       "event",
                       "related"
                     ]
+                  },
+                  "branch": {
+                    "type": "string",
+                    "description": "%languageModelTools.2.edges.branch.description%"
                   },
                   "sourceIds": {
                     "type": "array",

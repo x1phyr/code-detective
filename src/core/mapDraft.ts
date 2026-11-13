@@ -10,7 +10,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
-const NODE_KINDS = new Set(['step', 'function', 'condition', 'event']);
+const NODE_KINDS = new Set(['step', 'function', 'condition', 'event', 'exit']);
 const EDGE_KINDS = new Set(['call', 'flow', 'event', 'related']);
 const MAX_SHORT_TEXT = 200;
 const DECIMAL = /^\d+$/;
@@ -102,6 +102,8 @@ function node(value: unknown, report: NormalizeReport): Parsed<MapNode> {
   if (typeof value.kind === 'string' && NODE_KINDS.has(value.kind)) {
     output.kind = value.kind as MapNode['kind'];
   }
+  const parent = validId(value.parent);
+  if (parent && parent !== id) output.parent = parent;
   return { item: output };
 }
 
@@ -120,6 +122,8 @@ function edge(value: unknown, report: NormalizeReport): Parsed<MapEdge> {
   if (typeof value.kind === 'string' && EDGE_KINDS.has(value.kind)) {
     output.kind = value.kind as MapEdge['kind'];
   }
+  const branch = shortText(value.branch);
+  if (branch) output.branch = branch;
   return { item: output };
 }
 
@@ -277,7 +281,8 @@ export const DRAFT_MAP_SCHEMA = {
           id: { type: 'string' },
           label: { type: 'string' },
           description: { type: 'string' },
-          kind: { enum: ['step', 'function', 'condition', 'event'] },
+          kind: { enum: ['step', 'function', 'condition', 'event', 'exit'] },
+          parent: { type: 'string', description: '所属功能块（另一个节点的 id），不写在顶层' },
           sourceIds: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -295,6 +300,7 @@ export const DRAFT_MAP_SCHEMA = {
           label: { type: 'string' },
           description: { type: 'string' },
           kind: { enum: ['call', 'flow', 'event', 'related'] },
+          branch: { type: 'string', description: '分支条件，例如“未命中缓存”；不写表示主干' },
           sourceIds: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -424,6 +430,28 @@ export function fillAnchors(
     keep(node.sourceIds, sources, node.id, 'sourceIds', true);
     nodeIds.add(node.id);
     nodes.push({ ...node, sourceIds });
+  }
+
+  // parent 指向被删除的节点、或形成环时，只去掉 parent（节点回到上一层），不丢节点。
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  for (const node of nodes) {
+    if (node.parent !== undefined && !byId.has(node.parent)) {
+      filteredRefs.push(t('core.draftRefMissingTarget', { owner: node.id, field: 'parent', id: node.parent }));
+      delete node.parent;
+    }
+  }
+  for (const node of nodes) {
+    const seen = new Set<string>([node.id]);
+    let cursor = node.parent ? byId.get(node.parent) : undefined;
+    while (cursor) {
+      if (seen.has(cursor.id)) {
+        filteredRefs.push(t('core.draftParentCycle', { id: node.id }));
+        delete node.parent;
+        break;
+      }
+      seen.add(cursor.id);
+      cursor = cursor.parent ? byId.get(cursor.parent) : undefined;
+    }
   }
 
   const edges: MapEdge[] = [];

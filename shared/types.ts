@@ -12,7 +12,13 @@ export interface MapNode {
   id: string;
   label: string;
   description?: string;
-  kind?: 'step' | 'function' | 'condition' | 'event';
+  /** `exit`：提前返回 / 抛错 / 结束，画成终止节点。 */
+  kind?: 'step' | 'function' | 'condition' | 'event' | 'exit';
+  /**
+   * 所属功能块（另一个节点的 id）。有子节点的节点就是“功能块”，
+   * 画布按层显示：顶层只画没有 parent 的节点，点进功能块再看它的子流程。
+   */
+  parent?: string;
   sourceIds: string[];
 }
 export interface MapEdge {
@@ -22,6 +28,11 @@ export interface MapEdge {
   label?: string;
   description?: string;
   kind?: 'call' | 'flow' | 'event' | 'related';
+  /**
+   * 分支条件，例如“未命中缓存”“校验失败”。写了 branch 的边是支线（异常、提前返回、重试等），
+   * 默认折叠；不写的边是主干（正常路径），竖直排在中轴。
+   */
+  branch?: string;
   sourceIds: string[];
 }
 export interface WalkthroughStep {

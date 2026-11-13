@@ -87,7 +87,8 @@
         "id": { "$ref": "#/definitions/id" },
         "label": { "$ref": "#/definitions/shortText" },
         "description": { "type": "string" },
-        "kind": { "enum": ["step", "function", "condition", "event"] },
+        "kind": { "enum": ["step", "function", "condition", "event", "exit"] },
+        "parent": { "$ref": "#/definitions/id", "description": "所属功能块（另一个节点的 id）；不写则在顶层" },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
     },
@@ -102,6 +103,7 @@
         "label": { "$ref": "#/definitions/nonEmptyText" },
         "description": { "type": "string" },
         "kind": { "enum": ["call", "flow", "event", "related"] },
+        "branch": { "$ref": "#/definitions/shortText", "description": "分支条件；写了即为支线（默认折叠），不写为主干" },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
     },

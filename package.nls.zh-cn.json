@@ -57,5 +57,8 @@
   "config.ai.cli.allowedTools.markdownDescription": "Claude Code 允许使用的工具列表。保持只读，避免 agent 修改工作区源码。",
   "config.ai.cli.agents.markdownDescription": "自定义 agent：`id` / `label` / `command` / `args`。用于接入 claude、codex 之外的其他 CLI。",
   "config.ai.cli.agents.items.id.description": "唯一标识，用于 codeDetective.ai.agent",
-  "config.ai.timeoutMs.markdownDescription": "单轮 agent 调用的超时时间（毫秒）。默认 5 分钟，agent 需要读多个文件时请留足时间。"
+  "config.ai.timeoutMs.markdownDescription": "单轮 agent 调用的超时时间（毫秒）。默认 5 分钟，agent 需要读多个文件时请留足时间。",
+  "languageModelTools.2.sources.note.description": "一句话说明这几行做了什么，会显示在代码行尾",
+  "languageModelTools.2.nodes.parent.description": "所属功能块（另一个节点的 id）；顶层节点不写",
+  "languageModelTools.2.edges.branch.description": "分支条件，例如“未命中缓存”；主干不写"
 }

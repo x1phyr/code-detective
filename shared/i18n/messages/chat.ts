@@ -61,6 +61,10 @@ export const chat = {
     en: '3. Order the walkthrough by execution; each step contains one node and its incoming and outgoing edges.',
   },
   'chat.planRule4': { 'zh-CN': '4. 只写有源码依据的节点与连线，不要编造。', en: '4. Only include nodes and edges backed by source; do not invent anything.' },
+  'chat.planRule5': {
+    'zh-CN': '5. 流程复杂时分层：顶层 3–8 个功能块，内部步骤用 parent 指向所属功能块；正常路径的边不写 branch，异常 / 提前返回 / 重试等分支的边写 branch（分支条件），分叉点 kind 用 condition，提前结束用 exit。',
+    en: '5. For complex flows use layers: 3–8 feature blocks at the top, inner steps set parent to their block. Main-path edges have no branch; edges for errors / early returns / retries set branch (the condition). Use kind condition at decision points and exit for early termination.',
+  },
 
   // 工具描述 / justification
   'chat.toolSearchDesc': {

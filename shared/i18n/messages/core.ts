@@ -154,4 +154,8 @@ export const core = {
     en: 'must contain every full line from startLine to endLine, not just part of the text',
   },
   'core.edgeNodeNotFound': { 'zh-CN': '找不到节点 {id}', en: 'node {id} not found' },
+  'core.parentSelf': { 'zh-CN': 'parent 不能指向节点自己。', en: 'parent cannot point to the node itself.' },
+  'core.parentNotFound': { 'zh-CN': 'parent 引用了不存在的节点 {id}。', en: 'parent references a missing node {id}.' },
+  'core.parentCycle': { 'zh-CN': '节点 {id} 的 parent 链形成了环。', en: 'The parent chain of node {id} forms a cycle.' },
+  'core.draftParentCycle': { 'zh-CN': '{id}.parent 形成环，已移到上一层', en: '{id}.parent formed a cycle; moved up a level' },
 } satisfies Record<`core.${string}`, Message>;

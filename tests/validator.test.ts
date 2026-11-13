@@ -149,3 +149,20 @@ test('anchorText 中的单独 CR 按换行计算行数', () => {
   });
   assert.doesNotThrow(() => parseMap(text));
 });
+
+test('parent 必须指向存在的其他节点且不能成环；branch / exit 是合法字段', () => {
+  const ok = parseMap(withChange(map => {
+    map.nodes[1]!.parent = map.nodes[0]!.id;
+    map.nodes[1]!.kind = 'exit';
+    map.edges[0]!.branch = '失败';
+  }));
+  assert.equal(ok.nodes[1]!.parent, ok.nodes[0]!.id);
+  assert.equal(ok.edges[0]!.branch, '失败');
+
+  assert.match(codeOf(() => parseMap(withChange(map => { map.nodes[0]!.parent = map.nodes[0]!.id; }))), /parent 不能指向节点自己/);
+  assert.match(codeOf(() => parseMap(withChange(map => { map.nodes[0]!.parent = 'ghost'; }))), /parent 引用了不存在的节点 "?ghost"?/);
+  assert.match(codeOf(() => parseMap(withChange(map => {
+    map.nodes[0]!.parent = map.nodes[1]!.id;
+    map.nodes[1]!.parent = map.nodes[0]!.id;
+  }))), /parent 链形成了环/);
+});
