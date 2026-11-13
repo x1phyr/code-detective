@@ -6,7 +6,7 @@ export interface Positioned {
   y: number;
 }
 
-export const NODE_WIDTH = 220;
+export const NODE_WIDTH = 200;
 export const NODE_HEIGHT = 76;
 
 interface ElkNode {
@@ -62,13 +62,14 @@ export function fallbackLayout(map: CodeMap): Record<string, Positioned> {
     }
     if (!changed) break;
   }
-  const rows = new Map<number, number>();
+  // 竖向排列：依赖深度决定行（y），同一深度的节点横向并排（x）。
+  const slots = new Map<number, number>();
   const output: Record<string, Positioned> = {};
   for (const node of map.nodes) {
-    const column = columns.get(node.id) ?? 0;
-    const row = rows.get(column) ?? 0;
-    rows.set(column, row + 1);
-    output[node.id] = { id: node.id, x: column * (NODE_WIDTH + 90), y: row * (NODE_HEIGHT + 40) };
+    const depth = columns.get(node.id) ?? 0;
+    const slot = slots.get(depth) ?? 0;
+    slots.set(depth, slot + 1);
+    output[node.id] = { id: node.id, x: slot * (NODE_WIDTH + 28), y: depth * (NODE_HEIGHT + 56) };
   }
   return output;
 }
@@ -84,9 +85,9 @@ export async function computeLayout(map: CodeMap): Promise<Record<string, Positi
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
-      'elk.spacing.nodeNode': '40',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '90',
+      'elk.direction': 'DOWN',
+      'elk.spacing.nodeNode': '28',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '56',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     },
     children: map.nodes.map((node: MapNode) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
