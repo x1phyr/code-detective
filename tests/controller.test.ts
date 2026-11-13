@@ -64,14 +64,6 @@ class FakeController {
       case 'tour.stop':
         this.ui = sanitizeViewState(this.map, { ...this.ui, stepId: undefined, selection: undefined });
         return;
-      case 'ai.generate': {
-        const files = (message.payload as { files?: string[] }).files ?? [];
-        for (const file of files) {
-          assert.equal(isCanonicalRelativePath(file), true, `非法文件路径混入：${file}`);
-          assert.doesNotThrow(() => readFileSync(path.join(exampleRoot, file), 'utf8'), `文件不存在：${file}`);
-        }
-        return;
-      }
       default:
         return;
     }
@@ -154,18 +146,3 @@ test('拒绝伪造的消息与越界视图数据', () => {
   assert.throws(() => controller.receive(envelope('view.ready', { extra: true })));
 });
 
-test('生成请求里带上当前节点的来源时，路径都能在工作区真实读到', () => {
-  const controller = loadDemo();
-  controller.receive(envelope('ui.patch', { selection: { kind: 'node', id: 'open' } }));
-  const sourceIds = controller.map.nodes.find(node => node.id === 'open')?.sourceIds ?? [];
-  const files = [...new Set(sourceIds.map(id => controller.map.sources[id]!.file))];
-  assert.ok(files.length > 0, '示例节点应带源码');
-  controller.receive(envelope('ai.generate', { topic: '背包打开流程', agent: 'claude', files }));
-});
-
-test('ai 消息的类型与负载都会被校验', () => {
-  assert.throws(() => parseBridgeMessage(envelope('ai.generate', { topic: '' })), /话题/);
-  assert.throws(() => parseBridgeMessage(envelope('ai.select', { agent: '../evil' })), /agent/);
-  assert.doesNotThrow(() => parseBridgeMessage(envelope('ai.cancel')));
-  assert.doesNotThrow(() => parseBridgeMessage(envelope('ai.status')));
-});

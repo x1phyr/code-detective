@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { readWorkspaceText } from './workspaceText';
 import * as path from 'node:path';
-import type { AiPhase, AiAgentStatus, AiResultPayload, CodeMap } from '../../shared/types';
+import type { AiPhase, CodeMap } from '../../shared/types';
 import { readAiConfig, type AiConfig } from '../ai/config';
 import { agentCatalog, createSession } from '../ai/index';
 import { generateMap } from '../ai/mapGenerator';
@@ -17,9 +17,8 @@ export interface AiHostHooks {
   refresh(): Promise<void>;
   /** True when a map with this id already exists in the given root. */
   hasMap(id: string): boolean;
-  notify(message: string, severity?: 'info' | 'warning' | 'error'): void;
-  progress(phase: AiPhase, message?: string, chars?: number): void;
-  result(payload: AiResultPayload): void;
+  /** 生成成功后打开地图。 */
+  open(mapKey: string): Promise<void>;
 }
 
 const PROGRESS_INTERVAL_MS = 250;
@@ -45,27 +44,14 @@ export class AiService implements vscode.Disposable {
     if (!phaseChanged && now - this.lastProgress < PROGRESS_INTERVAL_MS) return;
     this.lastProgress = now;
     this.lastPhase = phase;
-    this.hooks.progress(phase, message, chars);
+    const text = chars && chars > 0 ? `${message ?? ''} · ${chars}` : message;
+    this.progress?.report({ message: text });
   }
+  private progress?: vscode.Progress<{ message?: string }>;
 
   constructor(private readonly hooks: AiHostHooks) {}
 
   get busy(): boolean { return this.starting || this.running !== undefined; }
-
-  /** Which agent CLIs are configured, for the webview picker. */
-  status(): { providers: AiAgentStatus[]; config: AiConfig } {
-    const config = readAiConfig();
-    const providers = agentCatalog(config).map(item => ({
-      id: item.id,
-      label: item.label,
-      available: true,
-      detail: item.id === config.agent
-        ? `${config.command || item.id} · 工作区 ${config.allowedTools}`
-        : `切换到 ${config.command || item.id}`,
-      current: item.id === config.agent,
-    }));
-    return { providers, config };
-  }
 
   async setAgent(agent: string): Promise<void> {
     const config = vscode.workspace.getConfiguration('codeDetective.ai');
@@ -73,7 +59,7 @@ export class AiService implements vscode.Disposable {
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
     await config.update('agent', agent, section);
-    this.hooks.notify(`已切换到 ${agent}。`);
+    void vscode.window.showInformationMessage(`已切换到 ${agent}。`);
   }
 
   /** Quick pick over the built-in agents plus any configured custom ones. */
@@ -101,11 +87,11 @@ export class AiService implements vscode.Disposable {
   async generate(topic: string, agentId?: string, files?: string[]): Promise<void> {
     const root = this.hooks.root();
     if (!root) {
-      this.hooks.notify('请先打开一个工作区文件夹。', 'warning');
+      void vscode.window.showWarningMessage('请先打开一个工作区文件夹。');
       return;
     }
     if (this.busy) {
-      this.hooks.notify('已有 AI 任务在运行，请先取消。', 'warning');
+      void vscode.window.showWarningMessage('已有 AI 任务在运行，请先取消。');
       return;
     }
     this.starting = true;
@@ -138,6 +124,29 @@ export class AiService implements vscode.Disposable {
     this.lastPhase = '';
     this.lastProgress = 0;
 
+    await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `代码侦探 · ${topic}`,
+      cancellable: true,
+    }, async (progress, token) => {
+      this.progress = progress;
+      const stop = token.onCancellationRequested(() => source.cancel());
+      try {
+        await this.run(task, root, topic, files, source, cancel, started);
+      } finally {
+        stop.dispose();
+        this.progress = undefined;
+        task.dispose();
+        if (this.running === task) this.running = undefined;
+        source.dispose();
+      }
+    });
+  }
+
+  private async run(
+    task: Task, root: vscode.WorkspaceFolder, topic: string, files: string[] | undefined,
+    source: vscode.CancellationTokenSource, cancel: AgentCancel, started: number,
+  ): Promise<void> {
     try {
       const config = readAiConfig();
       this.report('preparing', `正在启动 ${config.agent}`);
@@ -160,7 +169,7 @@ export class AiService implements vscode.Disposable {
       task.sessionId = result.sessionId;
 
       if (source.token.isCancellationRequested) {
-        this.hooks.result({ ok: false, phase: 'cancelled', message: '已取消。' });
+        void vscode.window.showInformationMessage('已取消 AI 生成。');
         return;
       }
       this.lastPhase = '';
@@ -172,28 +181,21 @@ export class AiService implements vscode.Disposable {
       if (result.adjustments.length > 0) {
         this.hooks.log.appendLine(`地图《${result.map.title}》已自动修正：\n${result.adjustments.join('\n')}`);
       }
-      this.hooks.result({
-        ok: true,
-        phase: 'done',
-        mapKey: written.key,
-        title: result.map.title,
-        fileName: written.relativePath,
-        provider: session.label,
-        message: `${session.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 轮`
-          + (result.adjustments.length > 0 ? ` · 自动修正 ${result.adjustments.length} 处（详见输出面板）` : ''),
-      });
+      const summary = `${session.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 轮`
+        + (result.adjustments.length > 0 ? ` · 自动修正 ${result.adjustments.length} 处（详见输出面板）` : '');
+      void this.hooks.open(written.key);
+      void vscode.window.showInformationMessage(`已生成地图《${result.map.title}》：${summary}`);
     } catch (error) {
       const cancelled = source.token.isCancellationRequested
         || (error instanceof AiError && error.code === 'AI_CANCELLED');
       const message = cancelled ? '已取消 AI 生成。' : errorMessage(error);
       if (!cancelled) this.hooks.log.appendLine(`AI 生成失败：${message}`);
       this.lastPhase = '';
-      this.report(cancelled ? 'cancelled' : 'error', message);
-      this.hooks.result({ ok: false, phase: cancelled ? 'cancelled' : 'error', message });
-    } finally {
-      task.dispose();
-      if (this.running === task) this.running = undefined;
-      source.dispose();
+      if (cancelled) void vscode.window.showInformationMessage(message);
+      else {
+        void vscode.window.showErrorMessage(`AI 生成失败：${message}`, '查看日志')
+          .then(choice => { if (choice) this.hooks.log.show(true); });
+      }
     }
   }
 

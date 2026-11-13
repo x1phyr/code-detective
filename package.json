@@ -80,7 +80,7 @@
         "command": "codeDetective.openMap",
         "title": "打开地图",
         "category": "代码侦探",
-        "icon": "$(list-selection)"
+        "icon": "$(folder-opened)"
       },
       {
         "command": "codeDetective.refreshMaps",
@@ -119,6 +119,24 @@
         "title": "切换相关代码高亮",
         "category": "代码侦探",
         "icon": "$(eye)"
+      },
+      {
+        "command": "codeDetective.highlightsOn",
+        "title": "关闭代码高亮",
+        "category": "代码侦探",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "codeDetective.highlightsOff",
+        "title": "打开代码高亮",
+        "category": "代码侦探",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "codeDetective.fitView",
+        "title": "适应窗口",
+        "category": "代码侦探",
+        "icon": "$(screen-full)"
       },
       {
         "command": "codeDetective.copyAuthoringPrompt",
@@ -532,29 +550,54 @@
           "group": "navigation@2"
         },
         {
-          "command": "codeDetective.toggleHighlights",
-          "when": "view == codeDetective.mapView",
+          "command": "codeDetective.fitView",
+          "when": "view == codeDetective.mapView && codeDetective.hasMap",
           "group": "navigation@3"
+        },
+        {
+          "command": "codeDetective.highlightsOn",
+          "when": "view == codeDetective.mapView && codeDetective.hasMap && codeDetective.highlightEnabled",
+          "group": "navigation@4"
+        },
+        {
+          "command": "codeDetective.highlightsOff",
+          "when": "view == codeDetective.mapView && codeDetective.hasMap && !codeDetective.highlightEnabled",
+          "group": "navigation@4"
         },
         {
           "command": "codeDetective.refreshMaps",
           "when": "view == codeDetective.mapView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "codeDetective.copyAuthoringPrompt",
-          "when": "view == codeDetective.mapView",
-          "group": "more@1"
+          "group": "1_maps@1"
         },
         {
           "command": "codeDetective.chooseAiProvider",
           "when": "view == codeDetective.mapView",
-          "group": "more@2"
+          "group": "2_ai@1"
+        },
+        {
+          "command": "codeDetective.copyAuthoringPrompt",
+          "when": "view == codeDetective.mapView",
+          "group": "2_ai@2"
+        },
+        {
+          "command": "codeDetective.cancelAi",
+          "when": "view == codeDetective.mapView",
+          "group": "2_ai@3"
         },
         {
           "command": "codeDetective.openHelp",
           "when": "view == codeDetective.mapView",
-          "group": "more@3"
+          "group": "3_help@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "codeDetective.highlightsOn",
+          "when": "false"
+        },
+        {
+          "command": "codeDetective.highlightsOff",
+          "when": "false"
         }
       ]
     }

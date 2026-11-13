@@ -1,9 +1,8 @@
 import type { BridgeMessage, RevealPayload, Selection, ViewState } from '../../shared/types';
 import { HostError } from '../core/errors';
-import { isCanonicalRelativePath } from '../core/paths';
 
-const GLOBAL_MESSAGES = new Set(['view.ready', 'maps.refresh', 'prompt.copy', 'help.open', 'ai.status', 'ai.cancel']);
-const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.setEnabled', 'ui.patch', 'ai.generate', 'ai.select']);
+const GLOBAL_MESSAGES = new Set(['view.ready', 'maps.refresh', 'prompt.copy', 'help.open', 'ai.open']);
+const TYPES = new Set([...GLOBAL_MESSAGES, 'map.open', 'source.reveal', 'tour.goto', 'tour.stop', 'highlight.setEnabled', 'ui.patch']);
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -47,25 +46,6 @@ const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 const MAX_FILE_PATH_LENGTH = 1024;
 
-export function validateGeneratePayload(value: Record<string, unknown>): void {
-  exactKeys(value, ['topic', 'agent', 'files']);
-  if (typeof value.topic !== 'string' || value.topic.trim().length === 0 || value.topic.length > 4000) {
-    fail('请填写要分析的话题（1–4000 字）。');
-  }
-  if (value.agent !== undefined && (typeof value.agent !== 'string' || !AGENT_ID.test(value.agent))) {
-    fail('agent 标识无效。');
-  }
-  if (value.files !== undefined) {
-    if (!Array.isArray(value.files) || value.files.length > 40) fail('文件列表格式无效。');
-    for (const file of value.files) {
-      // 允许中文、空格等真实文件名；越界与规范化规则统一由 core/paths 判定。
-      if (typeof file !== 'string' || file.length > MAX_FILE_PATH_LENGTH || !isCanonicalRelativePath(file)) {
-        fail('文件路径必须是工作区相对路径。');
-      }
-    }
-  }
-}
-
 export function parseBridgeMessage(value: unknown): BridgeMessage<Record<string, unknown>> {
   if (!isObject(value)) fail('消息必须是普通对象。');
   exactKeys(value, ['protocolVersion', 'requestId', 'type', 'mapKey', 'mapRevision', 'payload']);
@@ -91,11 +71,6 @@ export function parseBridgeMessage(value: unknown): BridgeMessage<Record<string,
     if (typeof payload.enabled !== 'boolean') fail('高亮开关必须是布尔值。');
   } else if (value.type === 'ui.patch') {
     validateUiPatch(payload);
-  } else if (value.type === 'ai.generate') {
-    validateGeneratePayload(payload);
-  } else if (value.type === 'ai.select') {
-    exactKeys(payload, ['agent']);
-    if (typeof payload.agent !== 'string' || !AGENT_ID.test(payload.agent)) fail('agent 标识无效。');
   } else {
     exactKeys(payload, []);
   }

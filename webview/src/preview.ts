@@ -104,28 +104,8 @@ export function createPreviewHost(): HostBridge {
       case 'highlight.clear':
         patch({ highlightEnabled: false });
         return;
-      case 'ai.status':
-        emit({
-          protocolVersion: 1,
-          type: 'ai.status',
-          payload: {
-            providers: [
-              { id: 'claude', label: 'Claude Code', available: true, detail: '预览模式无真实 agent', current: true },
-              { id: 'codex', label: 'Codex CLI', available: true, detail: '预览模式无真实 agent', current: false },
-            ],
-            agent: 'claude',
-            command: '',
-            allowedTools: 'Read,Grep,Glob,LS',
-          },
-        });
-        return;
-      case 'ai.generate':
-        emit({ protocolVersion: 1, type: 'ai.progress', payload: { phase: 'running', message: '预览模式：不会真正调用 AI' } });
-        emit({ protocolVersion: 1, type: 'ai.result', payload: { ok: false, phase: 'error', message: '浏览器预览模式无法调用本地 AI，请在 VS Code 中运行。' } });
-        return;
-      case 'ai.cancel':
-      case 'ai.select':
-        notice('浏览器预览模式下该操作不可用。');
+      case 'ai.open':
+        notice('浏览器预览模式无法调用本地 AI，请在 VS Code 中运行。');
         return;
       case 'prompt.copy':
       case 'help.open':

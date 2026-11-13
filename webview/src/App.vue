@@ -3,14 +3,9 @@ import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { VueFlow, useVueFlow, type Edge, type Node, type ViewportTransform } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import type {
-  AiPhase,
-  AiAgentStatus,
-  AiResultPayload,
-  AiStatusPayload,
   CodeMap,
   HostMessage,
   MapSnapshot,
-  MapSummary,
   Selection,
   SourceState,
   SourceStatus,
@@ -32,7 +27,6 @@ import {
 
 const props = defineProps<{ host: HostBridge }>();
 
-const maps = ref<MapSummary[]>([]);
 const snapshot = shallowRef<MapSnapshot>();
 /** 在宿主的 `theme` 消息到达前，先按 VS Code 注入的 body class 选主题，避免亮色主题下闪一下暗色。 */
 function initialTheme(): ThemeKind {
@@ -50,32 +44,9 @@ const layout = ref<Record<string, Positioned>>({});
 /** 与 `layout` 对应的地图；画布只渲染已布局好的版本，避免新节点在布局完成前堆在原点。 */
 const layoutMap = shallowRef<CodeMap>();
 const ready = ref(false);
-const menuOpen = ref(false);
 const activeSourceId = ref<string>();
 const flow = useVueFlow('code-detective-map');
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-const aiOpen = ref(false);
-const aiTopic = ref('');
-const aiStatus = ref<AiStatusPayload>();
-const aiAgent = ref('claude');
-const aiPhase = ref<AiPhase>();
-const aiMessage = ref('');
-const aiChars = ref(0);
-const aiResult = ref<AiResultPayload>();
-const aiBusy = computed(() => aiPhase.value === 'preparing' || aiPhase.value === 'running'
-  || aiPhase.value === 'validating' || aiPhase.value === 'retry');
-const aiProgressLabel = computed(() => {
-  switch (aiPhase.value) {
-    case 'preparing': return '正在准备上下文…';
-    case 'running': return aiChars.value > 0 ? `正在生成… ${aiChars.value} 字符` : '正在生成…';
-    case 'validating': return '正在校验结果…';
-    case 'retry': return '校验未通过，正在重试…';
-    case 'done': return '已生成地图';
-    case 'cancelled': return '已取消';
-    case 'error': return '生成失败';
-    default: return '空闲';
-  }
-});
 
 const map = computed(() => snapshot.value?.map);
 const ui = computed<ViewState>(() => snapshot.value?.ui ?? DEFAULT_VIEW_STATE);
@@ -298,71 +269,15 @@ function openSource(sourceId: string): void {
   post('source.reveal', { targetKind: current.kind, targetId: current.id, sourceId });
 }
 
-function toggleHighlights(): void {
-  post('highlight.setEnabled', { enabled: !ui.value.highlightEnabled });
-}
-
-function openMap(key: string): void {
-  flushViewportPatch();
-  post('map.open', {}, { mapKey: key });
-  menuOpen.value = false;
-}
-
-function openAi(): void {
-  aiOpen.value = !aiOpen.value;
-  if (aiOpen.value) post('ai.status', {});
-}
-
-function onAiAgentChange(): void {
-  post('ai.select', { agent: aiAgent.value });
-}
-
-function generateWithAi(): void {
-  if (aiBusy.value) return;
-  const topic = aiTopic.value.trim();
-  if (!topic) {
-    showNotice('请先描述你想了解的功能。', 'warning');
-    return;
-  }
-  const files: string[] = [];
-  const current = map.value;
-  if (current) {
-    const chosen = selection.value;
-    const ids = chosen && chosen.kind === 'node'
-      ? current.nodes.find(node => node.id === chosen.id)?.sourceIds ?? []
-      : [];
-    for (const id of ids) {
-      const file = current.sources[id]?.file;
-      if (file && !files.includes(file)) files.push(file);
-    }
-  }
-  aiResult.value = undefined;
-  aiChars.value = 0;
-  post('ai.generate', { topic, agent: aiAgent.value, files });
-}
-
-function cancelAi(): void {
-  post('ai.cancel', {});
-}
-
-function openGeneratedMap(): void {
-  const key = aiResult.value?.mapKey;
-  if (key) {
-    flushViewportPatch();
-    post('map.open', {}, { mapKey: key });
-  }
-  aiResult.value = undefined;
-  aiOpen.value = false;
-}
-
 function handle(message: HostMessage): void {
   switch (message.type) {
     case 'initialize':
-      maps.value = message.payload.maps;
       if (message.payload.current) snapshot.value = message.payload.current;
       break;
     case 'maps':
-      maps.value = message.payload.maps;
+      break;
+    case 'view.fit':
+      fitToView();
       break;
     case 'snapshot':
       snapshot.value = message.payload.snapshot;
@@ -373,25 +288,9 @@ function handle(message: HostMessage): void {
     case 'theme':
       theme.value = message.payload.kind;
       break;
-    case 'ai.status':
-      aiStatus.value = message.payload;
-      aiAgent.value = message.payload.agent;
-      break;
-    case 'ai.progress':
-      aiPhase.value = message.payload.phase;
-      aiMessage.value = message.payload.message ?? '';
-      if (typeof message.payload.chars === 'number') aiChars.value = message.payload.chars;
-      break;
-    case 'ai.result':
-      aiPhase.value = message.payload.phase;
-      aiResult.value = message.payload;
-      if (message.payload.ok && message.payload.title) showNotice(`已生成地图：${message.payload.title}`, 'info');
-      else if (message.payload.phase === 'error') showNotice(message.payload.message ?? '生成失败', 'error');
-      break;
   }
 }
 
-const agentList = computed<AiAgentStatus[]>(() => aiStatus.value?.providers ?? []);
 
 /** 每次请求布局递增；较慢的旧布局返回时代号对不上就丢弃，不把旧坐标套到新节点上。 */
 let layoutGeneration = 0;
@@ -438,46 +337,6 @@ onMounted(() => {
 
 <template>
   <div class="cd-root" :data-theme="theme">
-    <header class="cd-toolbar">
-      <div class="cd-brand">
-        <span class="codicon codicon-map" aria-hidden="true"></span>
-        <span class="cd-brand-title">{{ map?.title ?? '代码侦探' }}</span>
-        <span v-if="map?.description" class="cd-brand-sub">{{ map.description }}</span>
-      </div>
-      <div class="cd-actions">
-        <div class="cd-select">
-          <button class="cd-button" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
-            <span class="codicon codicon-list-selection" aria-hidden="true"></span>
-            <span class="cd-button-label">地图</span>
-            <span v-if="maps.length" class="cd-badge">{{ maps.length }}</span>
-          </button>
-          <ul v-if="menuOpen" class="cd-menu" role="menu">
-            <li v-if="maps.length === 0" class="cd-menu-empty">没有发现地图</li>
-            <li v-for="item in maps" :key="item.key" role="none">
-              <button role="menuitem" :class="{ current: item.key === snapshot?.key }" @click="openMap(item.key)">
-                <span class="codicon" :class="item.error ? 'codicon-error' : 'codicon-file-code'" aria-hidden="true"></span>
-                <span class="cd-menu-text">
-                  <strong>{{ item.title }}</strong>
-                  <small>{{ item.rootName }} · {{ item.fileName }}</small>
-                </span>
-              </button>
-            </li>
-          </ul>
-        </div>
-        <button class="cd-button" title="缩放到能看到整张地图" @click="fitToView">
-          <span class="codicon codicon-screen-full" aria-hidden="true"></span>
-          <span class="cd-button-label">适应</span>
-        </button>
-        <button class="cd-button" title="在编辑器中高亮相关代码" :class="{ on: ui.highlightEnabled }" @click="toggleHighlights">
-          <span class="codicon codicon-symbol-color" aria-hidden="true"></span>
-          <span class="cd-button-label">高亮</span>
-        </button>
-        <button class="cd-button" title="用 AI 生成地图" :class="{ on: aiOpen }" @click="openAi">
-          <span class="codicon codicon-sparkle" aria-hidden="true"></span>
-          <span class="cd-button-label">AI</span>
-        </button>
-      </div>
-    </header>
 
     <div class="cd-body">
       <main class="cd-canvas">
@@ -532,7 +391,7 @@ onMounted(() => {
           <h2>还没有打开地图</h2>
           <p>在 <code>.code-detective/maps/</code> 下创建地图 JSON，或选择一张已有地图。</p>
           <div class="cd-empty-actions">
-            <button class="cd-button primary" @click="openAi">用 AI 生成地图</button>
+            <button class="cd-button primary" @click="post('ai.open', {})">用 AI 生成地图</button>
             <button class="cd-button" @click="post('prompt.copy', {})">复制 AI 生成提示词</button>
             <button class="cd-button" @click="post('maps.refresh', {})">重新扫描</button>
           </div>
@@ -616,62 +475,6 @@ onMounted(() => {
       </aside>
     </div>
 
-    <aside v-if="aiOpen" class="cd-ai" aria-label="AI 生成地图">
-      <header class="cd-ai-head">
-        <span class="codicon codicon-sparkle" aria-hidden="true"></span>
-        <h2>用 AI 生成地图</h2>
-        <button class="cd-icon-button" title="关闭" @click="aiOpen = false">
-          <span class="codicon codicon-close"></span>
-        </button>
-      </header>
-
-      <label class="cd-ai-field">
-        <span>Agent</span>
-        <select :value="aiAgent" :disabled="aiBusy" @change="onAiAgentChange">
-          <option v-for="item in agentList" :key="item.id" :value="item.id">
-            {{ item.label }}{{ item.available ? '' : '（不可用）' }}
-          </option>
-          <option v-if="agentList.length === 0" value="claude">Claude Code</option>
-        </select>
-      </label>
-      <p v-if="agentList.find(item => item.id === aiAgent)?.detail" class="cd-ai-hint">
-        {{ agentList.find(item => item.id === aiAgent)?.detail }}
-      </p>
-
-      <label class="cd-ai-field">
-        <span>想了解什么</span>
-        <textarea
-          v-model="aiTopic"
-          rows="4"
-          :disabled="aiBusy"
-          placeholder="例如：从点击背包按钮到刷新物品列表的完整流程"
-        ></textarea>
-      </label>
-
-      <p class="cd-ai-hint">agent 会在当前工作区里自己阅读源码，结果先通过 JSON 校验再写入 .code-detective/maps/。</p>
-
-      <div class="cd-ai-actions">
-        <button class="cd-button primary" :disabled="aiBusy" @click="generateWithAi">
-          <span class="codicon codicon-sparkle" aria-hidden="true"></span>
-          生成地图
-        </button>
-        <button v-if="aiBusy" class="cd-button" @click="cancelAi">取消</button>
-        <button class="cd-button" @click="post('ai.status', {})" :disabled="aiBusy">
-          <span class="codicon codicon-refresh" aria-hidden="true"></span>
-        </button>
-      </div>
-
-      <div v-if="aiPhase" class="cd-ai-progress" :class="aiPhase">
-        <span class="codicon" :class="aiBusy ? 'codicon-loading codicon-modifier-spin' : aiPhase === 'done' ? 'codicon-check' : aiPhase === 'error' ? 'codicon-error' : 'codicon-circle-slash'" aria-hidden="true"></span>
-        <span>{{ aiProgressLabel }}</span>
-      </div>
-      <p v-if="aiMessage" class="cd-ai-hint">{{ aiMessage }}</p>
-      <div v-if="aiResult?.ok && aiResult.mapKey" class="cd-ai-result">
-        <span class="codicon codicon-check" aria-hidden="true"></span>
-        <span>{{ aiResult.title }} · {{ aiResult.message }}</span>
-        <button class="cd-button" @click="openGeneratedMap">打开地图</button>
-      </div>
-    </aside>
 
     <footer v-if="activeSource" class="cd-statusbar">
       <span class="cd-dot" :class="statusTone(activeSource.state)"></span>

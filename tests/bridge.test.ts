@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBridgeMessage, validateUiPatch, asRevealPayload, isCancellation, validateGeneratePayload } from '../src/host/bridge';
+import { parseBridgeMessage, validateUiPatch, asRevealPayload, isCancellation } from '../src/host/bridge';
 import { isCanonicalRelativePath, isWithin, resolveWithinRoot } from '../src/core/paths';
 import { HostError } from '../src/core/errors';
 
@@ -102,46 +102,12 @@ test('工作区边界判定不会把前缀相同的兄弟目录当作内部', ()
   assert.equal(resolveWithinRoot('/root/project', 'src/a.ts'), '/root/project/src/a.ts');
 });
 
-test('ai.generate 只接受合法话题与工作区相对文件', () => {
-  assert.equal(parseBridgeMessage(message({
-    type: 'ai.generate',
-    payload: { topic: '背包加载流程', agent: 'codex', files: ['src/bag-button.ts', 'src/bag-panel.ts'] },
-  })).type, 'ai.generate');
-
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: '   ' } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'x'.repeat(4001) } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', agent: '../evil' } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['../secret.ts'] } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['/etc/passwd'] } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['src/./a.ts'] } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['C:\\a.ts'] } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: ['src/a\u0000.ts'] } }))), 'INVALID_MESSAGE');
-  // 真实项目里的中文目录、空格与 @scope 文件名必须能通过。
-  for (const file of ['src/背包/打开面板.ts', 'src/my file.ts', '@types/shared.d.ts', 'src/a+b.ts']) {
-    assert.equal(parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', files: [file] } })).type, 'ai.generate');
+test('ai.* 生成消息已移除，只保留全局的 ai.open', () => {
+  assert.equal(parseBridgeMessage(message({ type: 'ai.open' })).type, 'ai.open');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.open', mapKey: 'k' }))), 'INVALID_MESSAGE');
+  for (const type of ['ai.generate', 'ai.select', 'ai.status', 'ai.cancel']) {
+    assert.equal(codeOf(() => parseBridgeMessage(message({ type, payload: {} }))), 'INVALID_MESSAGE');
   }
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.generate', payload: { topic: 'a', extra: 1 } }))), 'INVALID_MESSAGE');
-});
-
-test('ai.generate 拒绝非法文件数量与类型', () => {
-  assert.equal(codeOf(() => validateGeneratePayload({ topic: 'a', files: new Array(41).fill('a.ts') })), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => validateGeneratePayload({ topic: 'a', files: [1] })), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => validateGeneratePayload({ topic: 'a', files: 'src/a.ts' })), 'INVALID_MESSAGE');
-});
-
-test('ai.select 只接受合法的 agent 标识', () => {
-  assert.equal(parseBridgeMessage(message({ type: 'ai.select', payload: { agent: 'claude' } })).type, 'ai.select');
-  assert.equal(parseBridgeMessage(message({ type: 'ai.select', payload: { agent: 'my-agent_2' } })).type, 'ai.select');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { agent: '' } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { agent: '../evil' } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: { agent: 'claude', model: 'x' } }))), 'INVALID_MESSAGE');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.select', payload: {} }))), 'INVALID_MESSAGE');
-});
-
-test('ai.status 与 ai.cancel 是全局消息，不能携带地图字段', () => {
-  assert.equal(parseBridgeMessage(message({ type: 'ai.status' })).type, 'ai.status');
-  assert.equal(parseBridgeMessage(message({ type: 'ai.cancel' })).type, 'ai.cancel');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.status', mapKey: 'k' }))), 'INVALID_MESSAGE');
 });
 
 test('ui.patch 用 selection: null 表示清空选中（JSON 会丢掉 undefined）', () => {

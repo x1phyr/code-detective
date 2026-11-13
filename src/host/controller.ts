@@ -67,13 +67,13 @@ export class DetectiveController implements vscode.Disposable {
       root: () => this.activeRoot(),
       refresh: () => this.repository.refresh(),
       hasMap: key => this.repository.get(key) !== undefined,
-      notify: (message, severity = 'info') => this.notify(message, severity),
-      progress: (phase, message, chars) => this.post({
-        protocolVersion: 1,
-        type: 'ai.progress',
-        payload: { phase, message, chars },
-      }),
-      result: payload => this.post({ protocolVersion: 1, type: 'ai.result', payload }),
+      open: async key => {
+        const record = this.repository.get(key);
+        if (isAccepted(record)) {
+          await this.ensurePanel();
+          await this.select(record);
+        }
+      },
     });
   }
 
@@ -107,6 +107,10 @@ export class DetectiveController implements vscode.Disposable {
       vscode.commands.registerCommand('codeDetective.stopWalkthrough', () => this.stopWalkthrough()),
       vscode.commands.registerCommand('codeDetective.clearHighlights', () => this.clearHighlights()),
       vscode.commands.registerCommand('codeDetective.toggleHighlights', () => this.toggleHighlights()),
+      // 标题栏按 `codeDetective.highlightEnabled` 上下文在两个图标间切换，两个命令执行同一动作。
+      vscode.commands.registerCommand('codeDetective.highlightsOn', () => this.toggleHighlights()),
+      vscode.commands.registerCommand('codeDetective.highlightsOff', () => this.toggleHighlights()),
+      vscode.commands.registerCommand('codeDetective.fitView', () => this.post({ protocolVersion: 1, type: 'view.fit', payload: {} })),
       vscode.commands.registerCommand('codeDetective.copyAuthoringPrompt', () => this.copyAuthoringPrompt()),
       vscode.commands.registerCommand('codeDetective.generateMap', () => this.generateMapCommand()),
       vscode.commands.registerCommand('codeDetective.chooseAiProvider', () => this.chooseAiProviderCommand()),
@@ -186,6 +190,8 @@ export class DetectiveController implements vscode.Disposable {
 
   private updateTitle(): void {
     if (this.panel) this.panel.description = this.current?.map.title;
+    void vscode.commands.executeCommand('setContext', 'codeDetective.hasMap', this.current !== undefined);
+    void vscode.commands.executeCommand('setContext', 'codeDetective.highlightEnabled', this.ui?.highlightEnabled === true);
   }
 
   private async openMap(key?: string): Promise<void> {
@@ -343,36 +349,18 @@ export class DetectiveController implements vscode.Disposable {
       case 'view.ready':
         this.post({ protocolVersion: 1, type: 'initialize', payload: this.initializePayload() });
         this.post({ protocolVersion: 1, type: 'theme', payload: { kind: themeKind() } });
-        void this.pushAiStatus();
         return;
       case 'maps.refresh':
         await this.refreshMaps();
+        return;
+      case 'ai.open':
+        await this.generateMapCommand();
         return;
       case 'prompt.copy':
         await this.copyAuthoringPrompt();
         return;
       case 'help.open':
         await this.openHelp();
-        return;
-      case 'ai.status':
-        await this.pushAiStatus();
-        return;
-      case 'ai.select':
-        await this.ai.setAgent(String(message.payload.agent));
-        await this.pushAiStatus();
-        return;
-      case 'ai.generate': {
-        const files = Array.isArray(message.payload.files) ? message.payload.files as string[] : undefined;
-        await this.ai.generate(
-          String(message.payload.topic),
-          message.payload.agent === undefined ? undefined : String(message.payload.agent),
-          files,
-        );
-        await this.pushAiStatus();
-        return;
-      }
-      case 'ai.cancel':
-        this.ai.cancel();
         return;
       case 'map.open': {
         const record = this.repository.get(message.mapKey ?? '');
@@ -422,20 +410,6 @@ export class DetectiveController implements vscode.Disposable {
     return folders[0];
   }
 
-  private async pushAiStatus(): Promise<void> {
-    const { providers, config } = this.ai.status();
-    this.post({
-      protocolVersion: 1,
-      type: 'ai.status',
-      payload: {
-        providers,
-        agent: config.agent,
-        command: config.command,
-        allowedTools: config.allowedTools,
-      },
-    });
-  }
-
   private initializePayload(): InitializePayload {
     return { maps: this.summaries(), current: this.snapshot() };
   }
@@ -459,6 +433,7 @@ export class DetectiveController implements vscode.Disposable {
     const keys = Object.keys(patch);
     if (keys.length === 1 && keys[0] === 'viewport') return;
     this.highlights.update(this.current, merged);
+    this.updateTitle();
     this.pushSnapshot();
   }
 
@@ -596,11 +571,10 @@ export class DetectiveController implements vscode.Disposable {
     });
     if (!topic || topic.trim().length === 0) return;
     await this.ai.generate(topic.trim());
-    this.pushAiStatus();
   }
 
   private async chooseAiProviderCommand(): Promise<void> {
-    if (await this.ai.chooseInteractive()) this.pushAiStatus();
+    await this.ai.chooseInteractive();
   }
 
   private async copyAuthoringPrompt(): Promise<void> {

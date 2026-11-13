@@ -105,58 +105,14 @@ export type ThemeKind = 'dark' | 'light' | 'high-contrast' | 'high-contrast-ligh
 
 export type AiPhase = 'preparing' | 'running' | 'validating' | 'retry' | 'done' | 'error' | 'cancelled';
 
-/** Status of one selectable agent CLI, shown in the webview picker. */
-export interface AiAgentStatus {
-  id: string;
-  label: string;
-  available: boolean;
-  detail: string;
-  current: boolean;
-}
-
-export interface AiStatusPayload {
-  providers: AiAgentStatus[];
-  /** Agent CLI currently selected, e.g. `claude` / `codex`. */
-  agent: string;
-  /** Executable path or bare command. */
-  command: string;
-  /** Read-only tool list the agent is allowed to use. */
-  allowedTools: string;
-}
-
-export interface AiGeneratePayload {
-  topic: string;
-  /** Optional explicit agent id; falls back to the configured one. */
-  agent?: string;
-  /** Workspace-relative files the user is looking at, used as a starting hint. */
-  files?: string[];
-}
-
-export interface AiProgressPayload {
-  phase: AiPhase;
-  message?: string;
-  chars?: number;
-}
-
-export interface AiResultPayload {
-  ok: boolean;
-  phase: AiPhase;
-  mapKey?: string;
-  title?: string;
-  fileName?: string;
-  provider?: string;
-  message?: string;
-}
-
 export type HostMessage =
   | { protocolVersion: 1; type: 'initialize'; payload: InitializePayload }
   | { protocolVersion: 1; type: 'maps'; payload: { maps: MapSummary[] } }
   | { protocolVersion: 1; type: 'snapshot'; payload: { snapshot?: MapSnapshot; error?: string } }
   | { protocolVersion: 1; type: 'notice'; payload: NoticePayload }
   | { protocolVersion: 1; type: 'theme'; payload: { kind: ThemeKind } }
-  | { protocolVersion: 1; type: 'ai.status'; payload: AiStatusPayload }
-  | { protocolVersion: 1; type: 'ai.progress'; payload: AiProgressPayload }
-  | { protocolVersion: 1; type: 'ai.result'; payload: AiResultPayload };
+  /** 标题栏「适应窗口」按钮：让画布缩放到能看到整张图。 */
+  | { protocolVersion: 1; type: 'view.fit'; payload: Record<string, never> };
 
 export const DEFAULT_VIEW_STATE: ViewState = {
   highlightEnabled: true,

@@ -15,6 +15,9 @@ const COMMANDS = [
   'codeDetective.generateMap',
   'codeDetective.chooseAiProvider',
   'codeDetective.cancelAi',
+  'codeDetective.fitView',
+  'codeDetective.highlightsOn',
+  'codeDetective.highlightsOff',
 ];
 
 const TOOLS = ['codeDetective_searchSources', 'codeDetective_readSource', 'codeDetective_createMap'];
