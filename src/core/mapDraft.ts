@@ -1,4 +1,5 @@
 import type { CodeMap, MapEdge, MapNode, SourceRef, WalkthroughStep } from '../../shared/types';
+import { t } from '../../shared/i18n';
 import { sanitizeMapId } from '../ai/mapNaming';
 import { isCanonicalRelativePath } from './paths';
 import { splitLines } from './text';
@@ -65,13 +66,13 @@ const drafts = new WeakMap<CodeMap, NormalizeReport>();
 type Parsed<T> = { item: T } | { reason: string };
 
 function sourceRef(value: unknown): Parsed<SourceRef> {
-  if (!isRecord(value)) return { reason: '不是对象' };
-  if (typeof value.file !== 'string' || value.file.length === 0) return { reason: '缺少 file' };
-  if (!isCanonicalRelativePath(value.file)) return { reason: `file ${display(value.file)} 不是规范的工作区相对路径` };
+  if (!isRecord(value)) return { reason: t('core.draftNotObject') };
+  if (typeof value.file !== 'string' || value.file.length === 0) return { reason: t('core.draftMissingFile') };
+  if (!isCanonicalRelativePath(value.file)) return { reason: t('core.draftFileNotCanonical', { file: display(value.file) }) };
   const startLine = line(value.startLine);
   const endLine = line(value.endLine);
-  if (startLine === undefined || endLine === undefined) return { reason: '行号必须是正整数' };
-  if (endLine < startLine) return { reason: 'endLine 小于 startLine' };
+  if (startLine === undefined || endLine === undefined) return { reason: t('core.draftLinesNotPositive') };
+  if (endLine < startLine) return { reason: t('core.draftEndBeforeStart') };
   // anchorText is always regenerated from the real file, never trusted from the model.
   const note = shortText(value.note);
   return { item: note ? { file: value.file, startLine, endLine, note } : { file: value.file, startLine, endLine } };
@@ -84,17 +85,17 @@ function idList(input: unknown, owner: string, field: string, report: NormalizeR
   for (const item of input) {
     const id = validId(item);
     if (id) output.add(id);
-    else report.filteredRefs.push(`${owner}.${field} 中的 ${display(item)}（ID 格式无效）`);
+    else report.filteredRefs.push(t('core.draftRefInvalidId', { owner, field, id: display(item) }));
   }
   return [...output];
 }
 
 function node(value: unknown, report: NormalizeReport): Parsed<MapNode> {
-  if (!isRecord(value)) return { reason: '不是对象' };
+  if (!isRecord(value)) return { reason: t('core.draftNotObject') };
   const id = validId(value.id);
-  if (!id) return { reason: 'id 缺失或格式无效' };
+  if (!id) return { reason: t('core.draftIdInvalid') };
   const label = shortText(value.label);
-  if (!label) return { reason: '缺少 label' };
+  if (!label) return { reason: t('core.draftMissingLabel') };
   const sourceIds = idList(value.sourceIds, id, 'sourceIds', report);
   const output: MapNode = { id, label, sourceIds };
   if (typeof value.description === 'string') output.description = value.description;
@@ -105,12 +106,12 @@ function node(value: unknown, report: NormalizeReport): Parsed<MapNode> {
 }
 
 function edge(value: unknown, report: NormalizeReport): Parsed<MapEdge> {
-  if (!isRecord(value)) return { reason: '不是对象' };
+  if (!isRecord(value)) return { reason: t('core.draftNotObject') };
   const id = validId(value.id);
-  if (!id) return { reason: 'id 缺失或格式无效' };
+  if (!id) return { reason: t('core.draftIdInvalid') };
   const from = validId(value.from);
   const to = validId(value.to);
-  if (!from || !to) return { reason: 'from / to 缺失或格式无效' };
+  if (!from || !to) return { reason: t('core.draftEndpointsInvalid') };
   const sourceIds = idList(value.sourceIds, id, 'sourceIds', report);
   const output: MapEdge = { id, from, to, sourceIds };
   const label = shortText(value.label);
@@ -123,11 +124,11 @@ function edge(value: unknown, report: NormalizeReport): Parsed<MapEdge> {
 }
 
 function step(value: unknown, report: NormalizeReport): Parsed<WalkthroughStep> {
-  if (!isRecord(value)) return { reason: '不是对象' };
+  if (!isRecord(value)) return { reason: t('core.draftNotObject') };
   const id = validId(value.id);
-  if (!id) return { reason: 'id 缺失或格式无效' };
+  if (!id) return { reason: t('core.draftIdInvalid') };
   const title = shortText(value.title);
-  if (!title) return { reason: '缺少 title' };
+  if (!title) return { reason: t('core.draftMissingTitle') };
   const output: WalkthroughStep = {
     id,
     title,
@@ -158,9 +159,9 @@ function list<T extends { id: string }>(
     if ('reason' in parsed) {
       dropped.push({ id: label, reason: parsed.reason });
     } else if (seen.has(parsed.item.id)) {
-      dropped.push({ id: label, reason: `与前面的 ${name} 重复使用同一 id` });
+      dropped.push({ id: label, reason: t('core.draftDuplicateId', { name }) });
     } else if (output.length >= limit) {
-      dropped.push({ id: label, reason: `超出 ${name} 数量上限 ${limit}` });
+      dropped.push({ id: label, reason: t('core.draftOverLimit', { name, limit }) });
     } else {
       seen.add(parsed.item.id);
       output.push(parsed.item);
@@ -177,12 +178,12 @@ function list<T extends { id: string }>(
  * remembered and surfaces later through `fillAnchors` / `describeAdjustments`.
  */
 export function normalizeDraft(input: unknown): CodeMap {
-  if (!isRecord(input)) throw new Error('地图必须是 JSON 对象。');
+  if (!isRecord(input)) throw new Error(t('core.draftMapNotObject'));
   const draft = structuredClone(input) as Record<string, unknown>;
   const title = shortText(draft.title);
-  if (!title) throw new Error('地图需要一个非空的 title（不超过 200 字）。');
+  if (!title) throw new Error(t('core.draftMapNeedsTitle'));
   if (!isRecord(draft.sources)) {
-    throw new Error('sources 必须是对象：键为 sourceId，值为 file / startLine / endLine。');
+    throw new Error(t('core.draftSourcesNotObject'));
   }
 
   const report: NormalizeReport = {
@@ -199,14 +200,14 @@ export function normalizeDraft(input: unknown): CodeMap {
   for (const [key, value] of Object.entries(draft.sources)) {
     const id = validId(key);
     if (!id) {
-      report.droppedSources.push({ id: display(key), reason: 'sourceId 格式无效' });
+      report.droppedSources.push({ id: display(key), reason: t('core.draftSourceIdInvalid') });
       continue;
     }
     const parsed = sourceRef(value);
     if ('reason' in parsed) {
       report.droppedSources.push({ id, reason: parsed.reason });
     } else if (sources.size >= MAP_LIMITS.sources) {
-      report.droppedSources.push({ id, reason: `超出 sources 数量上限 ${MAP_LIMITS.sources}` });
+      report.droppedSources.push({ id, reason: t('core.draftSourcesOverLimit', { limit: MAP_LIMITS.sources }) });
     } else {
       sources.set(id, parsed.item);
     }
@@ -359,22 +360,22 @@ export function fillAnchors(
       fullText.set(ref.file, lines);
     }
     if (lines === undefined) {
-      droppedSources.push({ id, reason: `无法读取 ${ref.file}` });
+      droppedSources.push({ id, reason: t('core.draftFileUnreadable', { file: ref.file }) });
       continue;
     }
     if (lines.every(line => line.trim().length === 0)) {
-      droppedSources.push({ id, reason: `${ref.file} 为空文件` });
+      droppedSources.push({ id, reason: t('core.draftFileEmpty', { file: ref.file }) });
       continue;
     }
     if (!Number.isSafeInteger(ref.startLine) || !Number.isSafeInteger(ref.endLine)
       || ref.startLine < 1 || ref.endLine < ref.startLine) {
-      droppedSources.push({ id, reason: `${ref.file} 的行号无效` });
+      droppedSources.push({ id, reason: t('core.draftFileLinesInvalid', { file: ref.file }) });
       continue;
     }
     // splitLines already drops the empty element after a trailing newline.
     const last = lines.length;
     if (ref.startLine > last) {
-      droppedSources.push({ id, reason: `${ref.file} 只有 ${last} 行，起始行 ${ref.startLine} 超出文件范围` });
+      droppedSources.push({ id, reason: t('core.draftStartBeyondFile', { file: ref.file, last, startLine: ref.startLine }) });
       continue;
     }
     const from = ref.startLine;
@@ -402,7 +403,7 @@ export function fillAnchors(
     const output: string[] = [];
     for (const id of new Set(ids ?? [])) {
       if (known.has(id)) output.push(id);
-      else if (report) filteredRefs.push(`${owner}.${field} 中的 ${id}（目标不存在或已被移除）`);
+      else if (report) filteredRefs.push(t('core.draftRefMissingTarget', { owner, field, id }));
     }
     return output;
   };
@@ -411,13 +412,13 @@ export function fillAnchors(
   const nodeIds = new Set<string>();
   for (const node of input.nodes ?? []) {
     if (nodeIds.has(node.id)) {
-      droppedNodes.push({ id: node.id, reason: '与前面的 nodes 重复使用同一 id' });
+      droppedNodes.push({ id: node.id, reason: t('core.draftDuplicateId', { name: 'nodes' }) });
       continue;
     }
     const anchored = (node.sourceIds?.length ?? 0) > 0 || prior?.anchoredNodes.has(node.id) === true;
     const sourceIds = keep(node.sourceIds, sources, node.id, 'sourceIds', false);
     if (anchored && sourceIds.length === 0) {
-      droppedNodes.push({ id: node.id, reason: '引用的源码位置都不可用' });
+      droppedNodes.push({ id: node.id, reason: t('core.draftNodeSourcesUnavailable') });
       continue;
     }
     keep(node.sourceIds, sources, node.id, 'sourceIds', true);
@@ -429,11 +430,11 @@ export function fillAnchors(
   const edgeIds = new Set<string>();
   for (const edge of input.edges ?? []) {
     if (edgeIds.has(edge.id)) {
-      droppedEdges.push({ id: edge.id, reason: '与前面的 edges 重复使用同一 id' });
+      droppedEdges.push({ id: edge.id, reason: t('core.draftDuplicateId', { name: 'edges' }) });
       continue;
     }
     if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
-      droppedEdges.push({ id: edge.id, reason: `端点 ${edge.from} → ${edge.to} 已被移除或不存在` });
+      droppedEdges.push({ id: edge.id, reason: t('core.draftEdgeEndpointRemoved', { from: edge.from, to: edge.to }) });
       continue;
     }
     edgeIds.add(edge.id);
@@ -444,13 +445,13 @@ export function fillAnchors(
   const walkthrough: WalkthroughStep[] = [];
   for (const step of input.walkthrough ?? []) {
     if (stepIds.has(step.id)) {
-      droppedSteps.push({ id: step.id, reason: '与前面的 walkthrough 重复使用同一 id' });
+      droppedSteps.push({ id: step.id, reason: t('core.draftDuplicateId', { name: 'walkthrough' }) });
       continue;
     }
     const nodeRefs = keep(step.nodeIds, nodeIds, step.id, 'nodeIds', false);
     const edgeRefs = keep(step.edgeIds, edgeIds, step.id, 'edgeIds', false);
     if (nodeRefs.length === 0 && edgeRefs.length === 0) {
-      droppedSteps.push({ id: step.id, reason: '引用的节点与连线都被移除了' });
+      droppedSteps.push({ id: step.id, reason: t('core.draftStepRefsRemoved') });
       continue;
     }
     keep(step.nodeIds, nodeIds, step.id, 'nodeIds', true);
@@ -460,7 +461,7 @@ export function fillAnchors(
   }
 
   if (nodes.length === 0) {
-    throw new Error('没有任何节点能对应到可读的源码位置；请先读取文件确认行号后再提交。');
+    throw new Error(t('core.draftNoUsableNodes'));
   }
 
   const map: CodeMap = {
@@ -481,13 +482,14 @@ export function describeAdjustments(result: AnchorFillResult): string[] {
   const lines: string[] = [];
   const group = (label: string, items: readonly { id: string; reason: string }[]): void => {
     if (items.length === 0) return;
-    lines.push(`${label}：${items.map(item => `${item.id}（${item.reason}）`).join('、')}`);
+    const sep = t('core.listSeparator');
+    lines.push(t('core.adjustGroup', { label, items: items.map(item => t('core.adjustItem', item)).join(sep) }));
   };
-  group('已丢弃的来源', result.droppedSources);
-  group('已丢弃的节点', result.droppedNodes);
-  group('已丢弃的连线', result.droppedEdges);
-  group('已丢弃的导读步骤', result.droppedSteps);
-  if (result.filteredRefs?.length) lines.push(`已移除的引用：${result.filteredRefs.join('、')}`);
-  if (result.clamped.length > 0) lines.push(`已按文件长度裁剪行号：${result.clamped.join('、')}`);
+  group(t('core.adjustDroppedSources'), result.droppedSources);
+  group(t('core.adjustDroppedNodes'), result.droppedNodes);
+  group(t('core.adjustDroppedEdges'), result.droppedEdges);
+  group(t('core.adjustDroppedSteps'), result.droppedSteps);
+  if (result.filteredRefs?.length) lines.push(t('core.adjustRemovedRefs', { items: result.filteredRefs.join(t('core.listSeparator')) }));
+  if (result.clamped.length > 0) lines.push(t('core.adjustClamped', { items: result.clamped.join(t('core.listSeparator')) }));
   return lines;
 }

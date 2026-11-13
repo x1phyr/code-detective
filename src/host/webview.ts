@@ -1,3 +1,4 @@
+import { getLocale } from '../../shared/i18n';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 
@@ -25,7 +26,7 @@ export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): 
     "connect-src 'none'",
   ].join('; ');
   return `<!DOCTYPE html>
-<html lang="zh-CN"><head>
+<html lang="${getLocale()}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="${attribute(csp)}">
 <title>代码侦探 · Code Detective</title>

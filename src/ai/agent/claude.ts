@@ -1,4 +1,5 @@
 import type { AgentCli, AgentReply } from './types';
+import { t } from '../../../shared/i18n';
 
 /** Read-only tools a map author needs; the agent must never edit the workspace. */
 const READ_ONLY_TOOLS = 'Read,Grep,Glob,LS';
@@ -55,10 +56,10 @@ export class ClaudeCli implements AgentCli {
     const envelope = parseEnvelope(stdout);
     if (!envelope) {
       const detail = (stderr.trim() || stdout.trim()).slice(0, 600);
-      throw new Error(`无法解析 ${this.label} 的输出。${detail}`);
+      throw new Error(t('ai.unparsableOutput', { agent: this.label, detail }));
     }
     if (envelope.is_error === true) {
-      throw new Error(`${this.label} 返回错误：${String(envelope.result ?? '未知原因')}`);
+      throw new Error(t('ai.agentReturnedError', { agent: this.label, error: String(envelope.result ?? t('ai.unknownReason')) }));
     }
     const text = typeof envelope.result === 'string' ? envelope.result : '';
     const sessionId = typeof envelope.session_id === 'string' ? envelope.session_id : undefined;

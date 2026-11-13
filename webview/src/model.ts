@@ -1,4 +1,5 @@
 import type { CodeMap, MapEdge, MapNode, Selection, SourceState } from '../../shared/types';
+import { t, type MessageKey } from '../../shared/i18n';
 
 export interface NodeData {
   node: MapNode;
@@ -15,13 +16,18 @@ export interface EdgeData {
   dimmed: boolean;
 }
 
-export const NODE_KIND_LABELS: Record<NonNullable<MapNode['kind']> | 'default', string> = {
-  step: '步骤',
-  function: '函数',
-  condition: '条件',
-  event: '事件',
-  default: '节点',
-};
+const NODE_KIND_KEYS = {
+  step: 'webview.nodeKindStep',
+  function: 'webview.nodeKindFunction',
+  condition: 'webview.nodeKindCondition',
+  event: 'webview.nodeKindEvent',
+  default: 'webview.nodeKindDefault',
+} as const satisfies Record<NonNullable<MapNode['kind']> | 'default', MessageKey>;
+
+/** 节点类型的显示名；按调用时的语言取文案，因此不能做成模块级常量。 */
+export function nodeKindLabel(kind: MapNode['kind']): string {
+  return t(NODE_KIND_KEYS[kind ?? 'default']);
+}
 
 export function relatedSelection(map: CodeMap, selection?: Selection): { nodes: Set<string>; edges: Set<string> } {
   const nodes = new Set<string>();
@@ -69,10 +75,10 @@ export function statusTone(state: SourceState | undefined): 'ok' | 'warn' | 'err
 
 export function edgeKindLabel(edge: MapEdge): string {
   switch (edge.kind) {
-    case 'call': return '调用';
-    case 'flow': return '流程';
-    case 'event': return '事件';
-    case 'related': return '相关';
+    case 'call': return t('webview.edgeKindCall');
+    case 'flow': return t('webview.edgeKindFlow');
+    case 'event': return t('webview.edgeKindEvent');
+    case 'related': return t('webview.edgeKindRelated');
     default: return '';
   }
 }

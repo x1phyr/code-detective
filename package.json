@@ -1,7 +1,7 @@
 {
   "name": "code-detective",
-  "displayName": "代码侦探 🕵️",
-  "description": "把 AI 生成的功能地图变成可点击的源码导读：调用关系、源码跳转与相关代码高亮。",
+  "displayName": "%displayName%",
+  "description": "%description%",
   "version": "0.2.0",
   "publisher": "code-detective-dev",
   "private": true,
@@ -59,7 +59,7 @@
       "activitybar": [
         {
           "id": "codeDetective",
-          "title": "代码侦探",
+          "title": "%viewsContainers.activitybar.0.title%",
           "icon": "$(type-hierarchy)"
         }
       ]
@@ -69,127 +69,127 @@
         {
           "type": "webview",
           "id": "codeDetective.mapView",
-          "name": "代码地图",
+          "name": "%views.codeDetective.0.name%",
           "icon": "$(type-hierarchy)",
-          "contextualTitle": "代码侦探"
+          "contextualTitle": "%views.codeDetective.0.contextualTitle%"
         }
       ]
     },
     "commands": [
       {
         "command": "codeDetective.openMap",
-        "title": "打开地图",
-        "category": "代码侦探",
+        "title": "%command.openMap%",
+        "category": "%category%",
         "icon": "$(folder-opened)"
       },
       {
         "command": "codeDetective.refreshMaps",
-        "title": "重新扫描地图",
-        "category": "代码侦探",
+        "title": "%command.refreshMaps%",
+        "category": "%category%",
         "icon": "$(refresh)"
       },
       {
         "command": "codeDetective.startWalkthrough",
-        "title": "开始导读",
-        "category": "代码侦探",
+        "title": "%command.startWalkthrough%",
+        "category": "%category%",
         "icon": "$(play)"
       },
       {
         "command": "codeDetective.nextStep",
-        "title": "下一步",
-        "category": "代码侦探"
+        "title": "%command.nextStep%",
+        "category": "%category%"
       },
       {
         "command": "codeDetective.previousStep",
-        "title": "上一步",
-        "category": "代码侦探"
+        "title": "%command.previousStep%",
+        "category": "%category%"
       },
       {
         "command": "codeDetective.stopWalkthrough",
-        "title": "停止导读",
-        "category": "代码侦探"
+        "title": "%command.stopWalkthrough%",
+        "category": "%category%"
       },
       {
         "command": "codeDetective.clearHighlights",
-        "title": "清除高亮",
-        "category": "代码侦探"
+        "title": "%command.clearHighlights%",
+        "category": "%category%"
       },
       {
         "command": "codeDetective.toggleHighlights",
-        "title": "切换相关代码高亮",
-        "category": "代码侦探",
+        "title": "%command.toggleHighlights%",
+        "category": "%category%",
         "icon": "$(eye)"
       },
       {
         "command": "codeDetective.highlightsOn",
-        "title": "关闭代码高亮",
-        "category": "代码侦探",
+        "title": "%command.highlightsOn%",
+        "category": "%category%",
         "icon": "$(eye)"
       },
       {
         "command": "codeDetective.highlightsOff",
-        "title": "打开代码高亮",
-        "category": "代码侦探",
+        "title": "%command.highlightsOff%",
+        "category": "%category%",
         "icon": "$(eye-closed)"
       },
       {
         "command": "codeDetective.fitView",
-        "title": "适应窗口",
-        "category": "代码侦探",
+        "title": "%command.fitView%",
+        "category": "%category%",
         "icon": "$(screen-full)"
       },
       {
         "command": "codeDetective.copyAuthoringPrompt",
-        "title": "复制 AI 地图生成提示词",
-        "category": "代码侦探"
+        "title": "%command.copyAuthoringPrompt%",
+        "category": "%category%"
       },
       {
         "command": "codeDetective.openHelp",
-        "title": "查看地图格式与使用说明",
-        "category": "代码侦探",
+        "title": "%command.openHelp%",
+        "category": "%category%",
         "icon": "$(question)"
       },
       {
         "command": "codeDetective.generateMap",
-        "title": "用 AI 生成地图",
-        "category": "代码侦探",
+        "title": "%command.generateMap%",
+        "category": "%category%",
         "icon": "$(sparkle)"
       },
       {
         "command": "codeDetective.chooseAiProvider",
-        "title": "选择本地 Agent CLI",
-        "category": "代码侦探"
+        "title": "%command.chooseAiProvider%",
+        "category": "%category%"
       },
       {
         "command": "codeDetective.cancelAi",
-        "title": "取消 AI 任务",
-        "category": "代码侦探"
+        "title": "%command.cancelAi%",
+        "category": "%category%"
       }
     ],
     "chatParticipants": [
       {
         "id": "code-detective.detective",
         "name": "detective",
-        "fullName": "代码侦探",
-        "description": "读源码追踪调用链，生成并打开可点击的代码地图",
+        "fullName": "%chatParticipants.0.fullName%",
+        "description": "%chatParticipants.0.description%",
         "isSticky": true,
         "commands": [
           {
             "name": "map",
-            "description": "分析调用流程并生成代码地图",
-            "sampleRequest": "从点击背包按钮到刷新物品列表的完整流程"
+            "description": "%chatParticipants.0.commands.0.description%",
+            "sampleRequest": "%chatParticipants.0.commands.0.sampleRequest%"
           },
           {
             "name": "open",
-            "description": "打开已生成的代码地图"
+            "description": "%chatParticipants.0.commands.1.description%"
           },
           {
             "name": "next",
-            "description": "导读下一步"
+            "description": "%chatParticipants.0.commands.2.description%"
           },
           {
             "name": "help",
-            "description": "查看用法"
+            "description": "%chatParticipants.0.commands.3.description%"
           }
         ]
       }
@@ -201,9 +201,9 @@
           "code-detective",
           "search"
         ],
-        "displayName": "代码侦探：搜索源码",
-        "userDescription": "在工作区源码中按关键字搜索并返回文件与行号",
-        "modelDescription": "在工作区源码中按关键字或正则搜索，返回 file、line 与整行文本。用于定位入口函数与调用点。",
+        "displayName": "%languageModelTools.0.displayName%",
+        "userDescription": "%languageModelTools.0.userDescription%",
+        "modelDescription": "%languageModelTools.0.modelDescription%",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "codeDetectiveSearch",
         "inputSchema": {
@@ -211,25 +211,25 @@
           "properties": {
             "query": {
               "type": "string",
-              "description": "要查找的文本，默认按子串匹配"
+              "description": "%languageModelTools.0.query.description%"
             },
             "regex": {
               "type": "boolean",
-              "description": "是否按正则匹配"
+              "description": "%languageModelTools.0.regex.description%"
             },
             "caseSensitive": {
               "type": "boolean",
-              "description": "是否区分大小写"
+              "description": "%languageModelTools.0.caseSensitive.description%"
             },
             "glob": {
               "type": "string",
-              "description": "可选的额外文件过滤，例如 src/**/*.ts"
+              "description": "%languageModelTools.0.glob.description%"
             },
             "maxResults": {
               "type": "integer",
               "minimum": 1,
               "maximum": 40,
-              "description": "最多返回多少条匹配"
+              "description": "%languageModelTools.0.maxResults.description%"
             }
           },
           "required": [
@@ -243,9 +243,9 @@
           "code-detective",
           "read"
         ],
-        "displayName": "代码侦探：读取源码片段",
-        "userDescription": "读取工作区文件指定行范围，输出带行号的文本",
-        "modelDescription": "读取工作区文件的指定行范围，输出带行号的文本。行号必须以此处的编号为准。",
+        "displayName": "%languageModelTools.1.displayName%",
+        "userDescription": "%languageModelTools.1.userDescription%",
+        "modelDescription": "%languageModelTools.1.modelDescription%",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "codeDetectiveRead",
         "inputSchema": {
@@ -253,17 +253,17 @@
           "properties": {
             "file": {
               "type": "string",
-              "description": "工作区相对路径，使用 / 分隔"
+              "description": "%languageModelTools.1.file.description%"
             },
             "startLine": {
               "type": "integer",
               "minimum": 1,
-              "description": "起始行，默认 1"
+              "description": "%languageModelTools.1.startLine.description%"
             },
             "endLine": {
               "type": "integer",
               "minimum": 1,
-              "description": "结束行（含），默认 startLine + 199"
+              "description": "%languageModelTools.1.endLine.description%"
             }
           },
           "required": [
@@ -277,9 +277,9 @@
           "code-detective",
           "map"
         ],
-        "displayName": "代码侦探：生成代码地图",
-        "userDescription": "把结构化调用流程写成地图文件并在面板中打开",
-        "modelDescription": "把探索得到的调用流程写成代码地图。只需给出 sources 的 file/startLine/endLine，插件会按真实文件补全 anchorText、校验并打开地图。节点与连线必须引用真实源码位置。",
+        "displayName": "%languageModelTools.2.displayName%",
+        "userDescription": "%languageModelTools.2.userDescription%",
+        "modelDescription": "%languageModelTools.2.modelDescription%",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "codeDetectiveCreateMap",
         "inputSchema": {
@@ -294,19 +294,19 @@
           "properties": {
             "id": {
               "type": "string",
-              "description": "kebab-case 地图 id，可省略"
+              "description": "%languageModelTools.2.id.description%"
             },
             "title": {
               "type": "string",
-              "description": "地图标题，不超过 200 字"
+              "description": "%languageModelTools.2.title.description%"
             },
             "description": {
               "type": "string",
-              "description": "可选说明"
+              "description": "%languageModelTools.2.description.description%"
             },
             "sources": {
               "type": "object",
-              "description": "源码位置表，键为 sourceId",
+              "description": "%languageModelTools.2.sources.description%",
               "additionalProperties": {
                 "type": "object",
                 "additionalProperties": false,
@@ -318,7 +318,7 @@
                 "properties": {
                   "file": {
                     "type": "string",
-                    "description": "工作区相对路径，使用 / 分隔"
+                    "description": "%languageModelTools.2.sources.additionalProperties.file.description%"
                   },
                   "startLine": {
                     "type": "integer",
@@ -463,7 +463,7 @@
     ],
     "configuration": [
       {
-        "title": "代码侦探",
+        "title": "%configuration.0.title%",
         "properties": {
           "codeDetective.ai.agent": {
             "type": "string",
@@ -476,12 +476,12 @@
               "Claude Code（claude -p）",
               "Codex CLI（codex exec）"
             ],
-            "markdownDescription": "用哪个本机 agent CLI 生成地图。agent 会在当前工作区里用只读工具自己阅读源码，插件不发送任何源码文本。新增 agent 见 `codeDetective.ai.cli.agents`。"
+            "markdownDescription": "%config.ai.agent.markdownDescription%"
           },
           "codeDetective.ai.cli.command": {
             "type": "string",
             "default": "",
-            "markdownDescription": "agent 可执行文件路径，留空则用 agent id（`claude` / `codex`）。提示词通过 stdin 传入，不经过 shell。"
+            "markdownDescription": "%config.ai.cli.command.markdownDescription%"
           },
           "codeDetective.ai.cli.extraArgs": {
             "type": "array",
@@ -489,16 +489,16 @@
               "type": "string"
             },
             "default": [],
-            "markdownDescription": "追加到内置参数之后的自定义参数，用于透传 `--model` 等 CLI 选项。"
+            "markdownDescription": "%config.ai.cli.extraArgs.markdownDescription%"
           },
           "codeDetective.ai.cli.allowedTools": {
             "type": "string",
             "default": "Read,Grep,Glob,LS",
-            "markdownDescription": "Claude Code 允许使用的工具列表。保持只读，避免 agent 修改工作区源码。"
+            "markdownDescription": "%config.ai.cli.allowedTools.markdownDescription%"
           },
           "codeDetective.ai.cli.agents": {
             "type": "array",
-            "markdownDescription": "自定义 agent：`id` / `label` / `command` / `args`。用于接入 claude、codex 之外的其他 CLI。",
+            "markdownDescription": "%config.ai.cli.agents.markdownDescription%",
             "items": {
               "type": "object",
               "required": [
@@ -509,7 +509,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "唯一标识，用于 codeDetective.ai.agent"
+                  "description": "%config.ai.cli.agents.items.id.description%"
                 },
                 "label": {
                   "type": "string"
@@ -532,7 +532,7 @@
             "default": 300000,
             "minimum": 10000,
             "maximum": 1800000,
-            "markdownDescription": "单轮 agent 调用的超时时间（毫秒）。默认 5 分钟，agent 需要读多个文件时请留足时间。"
+            "markdownDescription": "%config.ai.timeoutMs.markdownDescription%"
           }
         }
       }

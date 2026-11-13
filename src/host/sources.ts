@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import type { CodeMap, SourceStatus } from '../../shared/types';
 import { resolveSourceText } from '../core/source';
-import { SOURCE_STATE_LABELS } from '../../shared/types';
+import { sourceStateLabel } from '../../shared/types';
 import { HostError, errorMessage } from '../core/errors';
 import { checkedSourceUri, uriKey } from './paths';
 import type { MapRecord } from './repository';
+import { t } from '../../shared/i18n';
 
 export type AcceptedMap = MapRecord & { map: CodeMap; revision: string };
 
@@ -59,7 +60,7 @@ export class SourceService implements vscode.Disposable {
     for (const id of Object.keys(record.map.sources)) {
       const ref = record.map.sources[id]!;
       this.resolved.set(id, {
-        status: { file: ref.file, startLine: ref.startLine, endLine: ref.endLine, state: 'pending', message: '正在检查源码位置…' },
+        status: { file: ref.file, startLine: ref.startLine, endLine: ref.endLine, state: 'pending', message: t('host.checkingSource') },
       });
     }
     void this.run();
@@ -82,7 +83,7 @@ export class SourceService implements vscode.Disposable {
       const ref = record.map.sources[id]!;
       this.resolved.set(id, {
         ...previous,
-        status: { file: ref.file, startLine: ref.startLine, endLine: ref.endLine, state: 'pending', message: '正在检查源码位置…' },
+        status: { file: ref.file, startLine: ref.startLine, endLine: ref.endLine, state: 'pending', message: t('host.checkingSource') },
       });
       marked = true;
     }
@@ -118,7 +119,7 @@ export class SourceService implements vscode.Disposable {
       if (error instanceof HostError && error.code === 'SOURCE_NOT_FOUND') {
         return [id, { status: { ...original, state: 'missing', message: error.message } }];
       }
-      this.log.appendLine(`来源 ${id} 检查失败：${errorMessage(error)}`);
+      this.log.appendLine(t('host.sourceCheckFailed', { id, error: errorMessage(error) }));
       return [id, { status: { ...original, state: 'stale', message: errorMessage(error) } }];
     }
   }
@@ -154,8 +155,8 @@ export class SourceService implements vscode.Disposable {
 
   describe(id: string): string {
     const status = this.getStatus(id);
-    if (!status) return '未知来源';
-    const label = SOURCE_STATE_LABELS[status.state];
+    if (!status) return t('host.unknownSource');
+    const label = sourceStateLabel(status.state);
     return `${status.file}:${status.startLine}${status.endLine > status.startLine ? `-${status.endLine}` : ''} · ${label}`;
   }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core';
 import type { NodeData } from '../model';
-import { NODE_KIND_LABELS } from '../model';
+import { nodeKindLabel } from '../model';
 
 defineProps<{ data: NodeData; selected: boolean }>();
 </script>
@@ -15,7 +15,7 @@ defineProps<{ data: NodeData; selected: boolean }>();
     ]"
   >
     <Handle type="target" :position="Position.Top" />
-    <div class="cd-node-kind">{{ NODE_KIND_LABELS[data.node.kind ?? 'default'] }}</div>
+    <div class="cd-node-kind">{{ nodeKindLabel(data.node.kind) }}</div>
     <div class="cd-node-label">{{ data.node.label }}</div>
     <div v-if="data.node.description" class="cd-node-desc">{{ data.node.description }}</div>
     <Handle type="source" :position="Position.Bottom" />

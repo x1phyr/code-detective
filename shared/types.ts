@@ -1,3 +1,5 @@
+import { t, type MessageKey } from './i18n';
+
 export interface SourceRef {
   file: string;
   startLine: number;
@@ -117,13 +119,18 @@ export type HostMessage =
 export const DEFAULT_VIEW_STATE: ViewState = {
   highlightEnabled: true,
 };
-export const SOURCE_STATE_LABELS: Record<SourceState, string> = {
-  pending: '检查位置中',
-  'range-only': '按行号定位',
-  matched: '位置匹配',
-  relocated: '位置已恢复，需复核',
-  stale: '源码已变更',
-  missing: '文件不存在',
-  'out-of-range': '行号越界',
-  'outside-root': '超出工作区',
-};
+const SOURCE_STATE_LABEL_KEYS = {
+  pending: 'core.state.pending',
+  'range-only': 'core.state.rangeOnly',
+  matched: 'core.state.matched',
+  relocated: 'core.state.relocated',
+  stale: 'core.state.stale',
+  missing: 'core.state.missing',
+  'out-of-range': 'core.state.outOfRange',
+  'outside-root': 'core.state.outsideRoot',
+} as const satisfies Record<SourceState, MessageKey>;
+
+/** 来源状态的显示文案；按调用时的语言取值（语言在模块加载后才设置）。 */
+export function sourceStateLabel(state: SourceState): string {
+  return t(SOURCE_STATE_LABEL_KEYS[state]);
+}

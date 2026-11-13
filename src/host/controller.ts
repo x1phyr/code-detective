@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import {
   DEFAULT_VIEW_STATE,
-  SOURCE_STATE_LABELS,
+  sourceStateLabel,
   type BridgeMessage,
   type HostMessage,
   type InitializePayload,
@@ -23,6 +23,7 @@ import { SourceService, isUsableSource, type AcceptedMap } from './sources';
 import { AiService } from './ai';
 import { registerChatIntegration } from './chat';
 import { webviewHtml, webviewRoot } from './webview';
+import { t } from '../../shared/i18n';
 
 const VIEW_TYPE = 'codeDetective.mapView';
 const HELP_URL = 'https://github.com/x1phyr/code-detective#地图格式';
@@ -57,7 +58,7 @@ export class DetectiveController implements vscode.Disposable {
   private readonly scanned = new Promise<void>(resolve => { this.markScanned = resolve; });
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    this.log = vscode.window.createOutputChannel('代码侦探');
+    this.log = vscode.window.createOutputChannel(t('host.outputChannel'));
     this.repository = new MapRepository(this.log);
     this.session = new SessionStore(context.workspaceState);
     this.sources = new SourceService(this.log);
@@ -118,7 +119,7 @@ export class DetectiveController implements vscode.Disposable {
       vscode.commands.registerCommand('codeDetective.openHelp', () => this.openHelp()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         this.repository.installWatchers();
-        void this.repository.refresh().catch(error => this.log.appendLine(`地图扫描失败：${errorMessage(error)}`));
+        void this.repository.refresh().catch(error => this.log.appendLine(t('host.mapScanFailed', { error: errorMessage(error) })));
       }),
     );
     this.disposables.push(...registerChatIntegration({
@@ -129,7 +130,7 @@ export class DetectiveController implements vscode.Disposable {
       notify: (message, severity = 'info') => this.notify(message, severity),
     }));
     if ((vscode.workspace.workspaceFolders ?? []).length === 0) {
-      this.log.appendLine('没有打开的工作区；添加文件夹后会自动扫描地图。');
+      this.log.appendLine(t('host.noWorkspace'));
     }
     this.repository.installWatchers();
     try {
@@ -201,7 +202,7 @@ export class DetectiveController implements vscode.Disposable {
     if (records.length === 0) {
       this.reveal();
       this.post({ protocolVersion: 1, type: 'initialize', payload: { maps: [] } });
-      void vscode.window.showWarningMessage('没有找到地图。请在 .code-detective/maps/ 下创建地图 JSON。');
+      void vscode.window.showWarningMessage(t('host.noMaps'));
       return;
     }
 
@@ -209,11 +210,11 @@ export class DetectiveController implements vscode.Disposable {
     if (!chosen) return;
     const record = this.repository.get(chosen);
     if (!record) {
-      void vscode.window.showWarningMessage(`没有找到地图：${chosen}`);
+      void vscode.window.showWarningMessage(t('host.mapNotFoundNamed', { name: chosen }));
       return;
     }
     if (!isAccepted(record)) {
-      void vscode.window.showErrorMessage(`地图无法打开：${record.error ?? '内容无效'}`);
+      void vscode.window.showErrorMessage(t('host.mapCannotOpen', { reason: record.error ?? t('host.invalidContent') }));
       this.pushSnapshot();
       return;
     }
@@ -229,7 +230,7 @@ export class DetectiveController implements vscode.Disposable {
       detail: record.error,
       key: record.key,
     }));
-    const picked = await vscode.window.showQuickPick(items, { title: '选择要打开的地图', matchOnDescription: true });
+    const picked = await vscode.window.showQuickPick(items, { title: t('host.pickMapTitle'), matchOnDescription: true });
     return picked?.key;
   }
 
@@ -270,9 +271,9 @@ export class DetectiveController implements vscode.Disposable {
         this.sources.reset(refreshed);
         this.ui = sanitizeViewState(refreshed.map, this.ui);
         this.highlights.update(refreshed, this.ui);
-        this.notify('地图已更新，阅读位置已保留。');
+        this.notify(t('host.mapUpdated'));
       } else if (!isAccepted(refreshed) && refreshed?.error) {
-        this.notify(`地图无效，已保留上次有效版本：${refreshed.error}`, 'error');
+        this.notify(t('host.mapInvalidKept', { error: refreshed.error ?? '' }), 'error');
         return this.pushSnapshot();
       } else if (!refreshed) {
         // Deleted, its `id` changed, or its workspace folder was removed.
@@ -283,7 +284,7 @@ export class DetectiveController implements vscode.Disposable {
         this.sources.reset();
         this.highlights.clear();
         this.updateTitle();
-        this.notify(`地图「${title}」已被删除或改名，请从列表重新选择。`, 'warning');
+        this.notify(t('host.mapRemoved', { title }), 'warning');
       }
     }
     this.pushSnapshot();
@@ -339,7 +340,7 @@ export class DetectiveController implements vscode.Disposable {
       await this.dispatch(message);
     } catch (error) {
       const text = errorMessage(error);
-      this.log.appendLine(`消息 ${message.type} 处理失败：${text}`);
+      this.log.appendLine(t('host.messageFailed', { type: message.type, error: text }));
       this.notify(text, error instanceof HostError ? 'warning' : 'error');
     }
   }
@@ -364,7 +365,7 @@ export class DetectiveController implements vscode.Disposable {
         return;
       case 'map.open': {
         const record = this.repository.get(message.mapKey ?? '');
-        if (!isAccepted(record)) throw new HostError('MAP_NOT_FOUND', '地图不存在或当前无效。');
+        if (!isAccepted(record)) throw new HostError('MAP_NOT_FOUND', t('host.mapNotFound'));
         await this.select(record);
         return;
       }
@@ -387,7 +388,7 @@ export class DetectiveController implements vscode.Disposable {
         return;
       }
       default:
-        throw new HostError('INVALID_MESSAGE', `不支持的消息类型：${message.type}`);
+        throw new HostError('INVALID_MESSAGE', t('host.unsupportedMessage', { type: message.type }));
     }
   }
 
@@ -457,7 +458,7 @@ export class DetectiveController implements vscode.Disposable {
 
   private async toggleHighlights(): Promise<void> {
     if (!this.current || !this.ui) {
-      void vscode.window.showInformationMessage('请先打开一张地图。');
+      void vscode.window.showInformationMessage(t('host.openMapFirst'));
       return;
     }
     await this.setHighlightEnabled(!this.ui.highlightEnabled);
@@ -473,7 +474,7 @@ export class DetectiveController implements vscode.Disposable {
   private async startWalkthrough(): Promise<void> {
     const walkthrough = this.walkthrough();
     if (!walkthrough) {
-      void vscode.window.showInformationMessage('当前地图没有导读步骤。');
+      void vscode.window.showInformationMessage(t('host.noWalkthrough'));
       return;
     }
     if (!this.panel) await this.ensurePanel();
@@ -483,7 +484,7 @@ export class DetectiveController implements vscode.Disposable {
   private async step(delta: number): Promise<void> {
     const walkthrough = this.walkthrough();
     if (!walkthrough) {
-      void vscode.window.showInformationMessage('当前地图没有导读步骤。');
+      void vscode.window.showInformationMessage(t('host.noWalkthrough'));
       return;
     }
     const target = walkthrough.index < 0
@@ -494,9 +495,9 @@ export class DetectiveController implements vscode.Disposable {
 
   private async gotoStep(stepId: string): Promise<void> {
     const map = this.current?.map;
-    if (!map) throw new HostError('MAP_NOT_FOUND', '请先打开一张地图。');
+    if (!map) throw new HostError('MAP_NOT_FOUND', t('host.openMapFirst'));
     const step = map.walkthrough?.find(item => item.id === stepId);
-    if (!step) throw new HostError('STEP_NOT_FOUND', '导读步骤不存在。');
+    if (!step) throw new HostError('STEP_NOT_FOUND', t('host.stepNotFound'));
     this.ui = sanitizeViewState(map, { ...this.ui, selection: { kind: 'step', id: step.id }, stepId: step.id });
     this.highlights.update(this.current, this.ui);
     this.session.save(this.current!.key, this.ui);
@@ -511,18 +512,18 @@ export class DetectiveController implements vscode.Disposable {
   }
 
   private async revealSource(payload: RevealPayload): Promise<void> {
-    if (!this.current) throw new HostError('MAP_NOT_FOUND', '请先打开一张地图。');
+    if (!this.current) throw new HostError('MAP_NOT_FOUND', t('host.openMapFirst'));
     const map = this.current.map;
     const available = sourceIdsForSelection(map, { kind: payload.targetKind, id: payload.targetId });
     const sourceId = payload.sourceId && available.includes(payload.sourceId) ? payload.sourceId : undefined;
     const candidates = sourceId ? [sourceId] : available;
-    if (candidates.length === 0) throw new HostError('SOURCE_NOT_FOUND', '这个对象没有关联源码。');
+    if (candidates.length === 0) throw new HostError('SOURCE_NOT_FOUND', t('host.noLinkedSource'));
 
     if (candidates.length > 1) {
       const items = candidates.map(id => ({ label: this.sources.describe(id), id }));
       const picked = await vscode.window.showQuickPick(items, {
-        title: '选择要跳转的源码位置',
-        placeHolder: '这个对象有多个来源',
+        title: t('host.pickSourceTitle'),
+        placeHolder: t('host.pickSourcePlaceholder'),
       });
       if (!picked) return;
       return this.openSource(picked.id, payload.focusEditor === true);
@@ -533,7 +534,7 @@ export class DetectiveController implements vscode.Disposable {
   private async openSource(sourceId: string, focusEditor: boolean): Promise<void> {
     const map = this.current?.map;
     const ref = map?.sources[sourceId];
-    if (!map || !ref || !this.current) throw new HostError('SOURCE_NOT_FOUND', '来源不存在。');
+    if (!map || !ref || !this.current) throw new HostError('SOURCE_NOT_FOUND', t('host.sourceNotFound'));
     const { uri } = await checkedSourceUri(this.current.root.uri, ref.file);
     const status = this.sources.getStatus(sourceId) ?? { ...ref, state: 'pending' as const };
     const selection: Selection | undefined = this.ui?.selection;
@@ -555,7 +556,7 @@ export class DetectiveController implements vscode.Disposable {
       editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     }
     if (!isUsableSource(status) && status.state !== 'pending') {
-      this.notify(`${SOURCE_STATE_LABELS[status.state]}：${status.message ?? ref.file}`, 'warning');
+      this.notify(t('host.sourceStateWarning', { state: sourceStateLabel(status.state), detail: status.message ?? ref.file }), 'warning');
     }
     if (selection) this.highlights.schedule();
   }
@@ -565,9 +566,9 @@ export class DetectiveController implements vscode.Disposable {
     await this.ensurePanel();
     this.reveal();
     const topic = await vscode.window.showInputBox({
-      title: '用 AI 生成代码地图',
-      prompt: '描述你想了解的功能或流程；当前打开的文件会一起交给 AI 分析。',
-      placeHolder: '例如：从点击背包按钮到刷新物品列表的完整流程',
+      title: t('host.generateTitle'),
+      prompt: t('host.generatePrompt'),
+      placeHolder: t('host.generatePlaceholder'),
     });
     if (!topic || topic.trim().length === 0) return;
     await this.ai.generate(topic.trim());
@@ -580,8 +581,8 @@ export class DetectiveController implements vscode.Disposable {
   private async copyAuthoringPrompt(): Promise<void> {
     const text = authoringPrompt();
     await vscode.env.clipboard.writeText(text);
-    this.notify('已复制 AI 地图生成提示词。');
-    void vscode.window.showInformationMessage('已复制 AI 地图生成提示词到剪贴板。');
+    this.notify(t('host.promptCopied'));
+    void vscode.window.showInformationMessage(t('host.promptCopiedToClipboard'));
   }
 
   private async openHelp(): Promise<void> {
@@ -599,18 +600,7 @@ export class DetectiveController implements vscode.Disposable {
 }
 
 function authoringPrompt(): string {
-  return [
-    '请为下面的功能生成一张“代码侦探”地图，并把 JSON 保存到工作区根目录的 .code-detective/maps/<id>.json。',
-    '',
-    '要求：',
-    '1. 严格使用 schemaVersion 1，字段名与 JSON Schema 一致（见 schemas/code-map-v1.schema.json）。',
-    '2. id 使用小写字母、数字和连字符；节点与连线 id 使用 [A-Za-z0-9_.:-]。',
-    '3. sources 中每个来源必须给出 workspace 相对路径、startLine、endLine；能提供时请附 anchorText（完整的整行文本）。',
-    '4. 只写有源码依据的节点和连线，不要推测调用关系；不确定就不要写。',
-    '5. 可选地提供 walkthrough 步骤，nodeIds / edgeIds 必须引用已存在的 id。',
-    '',
-    '我想了解的话题：<在这里填写>',
-  ].join('\n');
+  return t('host.authoringPrompt');
 }
 
 /**

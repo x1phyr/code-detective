@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { HostError } from './errors';
+import { t } from '../../shared/i18n';
 
 export function isWithin(root: string, target: string): boolean {
   const relative = path.relative(root, target);
@@ -23,14 +24,14 @@ export function isCanonicalRelativePath(file: string): boolean {
   return !file.split('/').some(part => part === '..' || part === '.' || part.trim().length === 0);
 }
 
-export function assertRelativeSourcePath(file: string, message = '来源必须是所属工作区内的规范相对路径。'): void {
+export function assertRelativeSourcePath(file: string, message = t('core.sourcePathNotCanonical')): void {
   if (!isCanonicalRelativePath(file)) throw new HostError('SOURCE_OUTSIDE_ROOT', message);
 }
 
 export function resolveWithinRoot(root: string, file: string): string {
   const target = path.resolve(root, ...file.split('/'));
   if (!isWithin(root, target)) {
-    throw new HostError('SOURCE_OUTSIDE_ROOT', '来源位置超出所属工作区。');
+    throw new HostError('SOURCE_OUTSIDE_ROOT', t('core.sourceOutsideRoot'));
   }
   return target;
 }

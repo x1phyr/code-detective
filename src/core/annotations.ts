@@ -1,4 +1,5 @@
 import type { CodeMap, Selection } from '../../shared/types';
+import { t } from '../../shared/i18n';
 
 /** End-of-line text is kept short so it never pushes the code off-screen. */
 export const INLINE_NOTE_MAX = 60;
@@ -45,8 +46,8 @@ export function annotateSource(map: CodeMap, sourceId: string, selection?: Selec
 
   const stepIndex = step && map.walkthrough ? map.walkthrough.indexOf(step) : -1;
   const heading = step
-    ? `**步骤 ${stepIndex + 1}/${map.walkthrough!.length} · ${escapeMarkdown(step.title)}**`
-    : ownerLabel ? `**${escapeMarkdown(ownerLabel)}**` : '**代码侦探**';
+    ? `**${t('core.annotationStepHeading', { index: stepIndex + 1, total: map.walkthrough!.length, title: escapeMarkdown(step.title) })}**`
+    : ownerLabel ? `**${escapeMarkdown(ownerLabel)}**` : `**${t('core.annotationDefaultHeading')}**`;
   const body = [note, ownerText, step?.description?.trim()]
     .filter((text, index, all): text is string => Boolean(text) && all.indexOf(text) === index)
     .map(escapeMarkdown);

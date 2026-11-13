@@ -1,4 +1,5 @@
 const MAP_ID = /^[a-z0-9][a-z0-9-]*$/;
+import { t } from '../../shared/i18n';
 
 /** Highest `<base>-N` suffix tried before giving up. */
 const MAX_SUFFIX = 100;
@@ -26,5 +27,5 @@ export async function freeMapName(
     id = `${base}-${index}`;
   }
   // Never fall back to an occupied name: surface the conflict instead of overwriting.
-  throw new Error(`地图文件名冲突过多：${base} 到 ${id} 都已存在，请先清理 .code-detective/maps/。`);
+  throw new Error(t('ai.fileNameConflict', { base, id }));
 }

@@ -1,4 +1,5 @@
 import type { HostMessage } from '../../shared/types';
+import { t } from '../../shared/i18n';
 import { envelope, type HostBridge, type WebviewPersistedState } from './bridge';
 
 interface VsCodeApi {
@@ -37,6 +38,6 @@ class VsCodeHost implements HostBridge {
 
 export function createVsCodeHost(): HostBridge {
   const api = window.acquireVsCodeApi?.();
-  if (!api) throw new Error('缺少 VS Code Webview API。');
+  if (!api) throw new Error(t('webview.missingVsCodeApi'));
   return new VsCodeHost(api);
 }

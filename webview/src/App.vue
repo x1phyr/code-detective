@@ -12,14 +12,15 @@ import type {
   ThemeKind,
   ViewState,
 } from '../../shared/types';
-import { DEFAULT_VIEW_STATE, SOURCE_STATE_LABELS } from '../../shared/types';
+import { DEFAULT_VIEW_STATE, sourceStateLabel } from '../../shared/types';
 import { sourceIdsForSelection } from '../../src/core/selection';
+import { t } from '../../shared/i18n';
 import type { HostBridge } from './host';
 import MapNode from './components/MapNode.vue';
 import MapEdge from './components/MapEdge.vue';
 import { computeLayout, type Positioned } from './layout';
 import {
-  NODE_KIND_LABELS,
+  nodeKindLabel,
   edgeKindLabel,
   relatedSelection,
   statusTone,
@@ -118,9 +119,9 @@ const detail = computed(() => {
     const node = current.nodes.find(item => item.id === active.id);
     if (node) {
       return {
-        kind: '节点' as const,
+        kind: t('webview.detailKindNode'),
         title: node.label,
-        subtitle: NODE_KIND_LABELS[node.kind ?? 'default'],
+        subtitle: nodeKindLabel(node.kind),
         description: node.description,
         sourceIds: node.sourceIds,
         nodeIds: [node.id] as string[],
@@ -132,7 +133,7 @@ const detail = computed(() => {
     const edge = current.edges.find(item => item.id === active.id);
     if (edge) {
       return {
-        kind: '连线' as const,
+        kind: t('webview.detailKindEdge'),
         title: edge.label ?? `${edge.from} → ${edge.to}`,
         subtitle: edgeKindLabel(edge),
         description: edge.description,
@@ -145,9 +146,9 @@ const detail = computed(() => {
   const step = current.walkthrough?.find(item => item.id === active.id);
   if (step) {
     return {
-      kind: '导读' as const,
+      kind: t('webview.detailKindStep'),
       title: step.title,
-      subtitle: `步骤 ${stepIndex.value + 1} / ${current.walkthrough?.length ?? 0}`,
+      subtitle: t('webview.stepProgress', { index: stepIndex.value + 1, total: current.walkthrough?.length ?? 0 }),
       description: step.description,
       sourceIds: sourceIdsForSelection(current, active),
       nodeIds: step.nodeIds,
@@ -170,8 +171,8 @@ const activeSource = computed<SourceStatus | undefined>(() => {
 });
 
 function labelFor(status: SourceStatus | undefined): string {
-  if (!status) return '未检查';
-  return SOURCE_STATE_LABELS[status.state as SourceState];
+  if (!status) return t('webview.sourceUnchecked');
+  return sourceStateLabel(status.state as SourceState);
 }
 
 function post<T>(type: string, payload: T, extra?: { mapKey?: string; mapRevision?: string }): void {
@@ -382,24 +383,24 @@ onMounted(() => {
 
         <div v-else-if="map" class="cd-empty">
           <span class="codicon codicon-loading codicon-modifier-spin" aria-hidden="true"></span>
-          <h2>正在准备地图…</h2>
-          <p>正在计算布局并检查源码位置。</p>
+          <h2>{{ t('webview.preparingTitle') }}</h2>
+          <p>{{ t('webview.preparingBody') }}</p>
         </div>
 
         <div v-else class="cd-empty">
           <span class="codicon codicon-map" aria-hidden="true"></span>
-          <h2>还没有打开地图</h2>
-          <p>在 <code>.code-detective/maps/</code> 下创建地图 JSON，或选择一张已有地图。</p>
+          <h2>{{ t('webview.emptyTitle') }}</h2>
+          <p>{{ t('webview.emptyBodyBefore') }}<code>.code-detective/maps/</code>{{ t('webview.emptyBodyAfter') }}</p>
           <div class="cd-empty-actions">
-            <button class="cd-button primary" @click="post('ai.open', {})">用 AI 生成地图</button>
-            <button class="cd-button" @click="post('prompt.copy', {})">复制 AI 生成提示词</button>
-            <button class="cd-button" @click="post('maps.refresh', {})">重新扫描</button>
+            <button class="cd-button primary" @click="post('ai.open', {})">{{ t('webview.generateWithAi') }}</button>
+            <button class="cd-button" @click="post('prompt.copy', {})">{{ t('webview.copyPrompt') }}</button>
+            <button class="cd-button" @click="post('maps.refresh', {})">{{ t('webview.rescan') }}</button>
           </div>
         </div>
 
       </main>
 
-      <aside class="cd-side" aria-label="对象目录与详情">
+      <aside class="cd-side" :aria-label="t('webview.sideLabel')">
         <section v-if="detail" class="cd-detail">
           <div class="cd-detail-head">
             <span class="cd-chip">{{ detail.kind }}</span>
@@ -408,7 +409,7 @@ onMounted(() => {
           </div>
           <p v-if="detail.description" class="cd-detail-desc">{{ detail.description }}</p>
           <div class="cd-detail-group">
-            <h3>源码位置 <span class="cd-count">{{ detail.sourceIds.length }}</span></h3>
+            <h3>{{ t('webview.sourceLocations') }} <span class="cd-count">{{ detail.sourceIds.length }}</span></h3>
             <ul class="cd-sources">
               <li v-for="id in detail.sourceIds" :key="id" :class="{ chosen: activeSourceId === id }">
                 <button class="cd-source" @click="openSource(id)">
@@ -416,18 +417,18 @@ onMounted(() => {
                   <span class="cd-source-text">
                     <strong>{{ statuses[id]?.file ?? map?.sources[id]?.file ?? id }}</strong>
                     <small v-if="statuses[id]">
-                      第 {{ statuses[id]!.startLine }}–{{ statuses[id]!.endLine }} 行 · {{ labelFor(statuses[id]) }}
+                      {{ t('webview.sourceLineRange', { start: statuses[id]!.startLine, end: statuses[id]!.endLine }) }} · {{ labelFor(statuses[id]) }}
                     </small>
                   </span>
                   <span class="codicon codicon-go-to-file" aria-hidden="true"></span>
                 </button>
               </li>
-              <li v-if="detail.sourceIds.length === 0" class="cd-muted">这个对象没有关联源码。</li>
+              <li v-if="detail.sourceIds.length === 0" class="cd-muted">{{ t('webview.noLinkedSource') }}</li>
             </ul>
           </div>
           <dl v-if="detail.nodeIds.length || detail.edgeIds.length" class="cd-rel">
             <template v-if="detail.nodeIds.length">
-              <dt>相关节点</dt>
+              <dt>{{ t('webview.relatedNodes') }}</dt>
               <dd>
                 <button v-for="id in detail.nodeIds" :key="id" class="cd-link" @click="selectAndReveal('node', id)">
                   {{ map?.nodes.find(node => node.id === id)?.label ?? id }}
@@ -435,7 +436,7 @@ onMounted(() => {
               </dd>
             </template>
             <template v-if="detail.edgeIds.length">
-              <dt>相关连线</dt>
+              <dt>{{ t('webview.relatedEdges') }}</dt>
               <dd>
                 <button v-for="id in detail.edgeIds" :key="id" class="cd-link" @click="selectAndReveal('edge', id)">
                   {{ id }}
@@ -446,7 +447,7 @@ onMounted(() => {
         </section>
 
         <section v-if="map" class="cd-outline">
-          <h3>对象目录</h3>
+          <h3>{{ t('webview.outline') }}</h3>
           <ul class="cd-tree">
             <li v-for="node in map.nodes" :key="node.id">
               <button
@@ -458,7 +459,7 @@ onMounted(() => {
             </li>
           </ul>
           <template v-if="map.walkthrough?.length">
-            <h3 title="地图作者建议的阅读顺序；点一步会高亮相关节点并打开代码">阅读顺序</h3>
+            <h3 :title="t('webview.readingOrderHint')">{{ t('webview.readingOrder') }}</h3>
             <ul class="cd-tree">
               <li v-for="(step, index) in map.walkthrough" :key="step.id">
                 <button

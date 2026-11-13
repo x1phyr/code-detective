@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { AgentError, type AgentCli, type AgentReply, type AgentTurn } from './types';
+import { t } from '../../../shared/i18n';
 
 const DEFAULT_MAX_OUTPUT = 16 * 1024 * 1024;
 const MAX_STDERR = 32 * 1024;
@@ -68,19 +69,19 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
       });
     } catch (error) {
       reject(new AgentError('AI_CLI_START',
-        `无法启动 ${args[0]}：${(error as Error).message}。请确认已安装并在 PATH 中。`));
+        t('ai.cliStartFailed', { command: String(args[0]), error: (error as Error).message })));
       return;
     }
 
     const timer = setTimeout(() => {
       kill();
       finish(new AgentError('AI_TIMEOUT',
-        `${args[0]} 超过 ${Math.round(timeoutMs / 1000)} 秒未完成，已终止。`));
+        t('ai.cliTimeout', { command: String(args[0]), seconds: Math.round(timeoutMs / 1000) })));
     }, timeoutMs);
 
     const subscription = cancel.onCancellationRequested(() => {
       kill();
-      finish(new AgentError('AI_CANCELLED', 'agent 请求已取消。'));
+      finish(new AgentError('AI_CANCELLED', t('ai.cancelled')));
     });
 
     child.stdout?.setEncoding('utf8');
@@ -102,14 +103,14 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
       const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
       finish(new AgentError(missing ? 'AI_CLI_MISSING' : 'AI_CLI_START',
         missing
-          ? `没有找到 ${args[0]}，请先安装 ${cli.label} 或修改 codeDetective.ai.cli.command。`
-          : `无法运行 ${args[0]}：${error.message}`));
+          ? t('ai.cliMissing', { command: String(args[0]), agent: cli.label })
+          : t('ai.cliRunFailed', { command: String(args[0]), error: error.message })));
     });
     child.on('close', code => {
       if (settled) return;
       if (code === 0) finish();
       else finish(new AgentError('AI_CLI_FAILED',
-        `${args[0]} 退出码 ${code ?? 'null'}。${stderr.trim().slice(0, 600)}`));
+        t('ai.cliExitCode', { command: String(args[0]), code: code ?? 'null', stderr: stderr.trim().slice(0, 600) })));
     });
 
     // The process may exit before reading stdin; that is not an error we surface.

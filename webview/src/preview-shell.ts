@@ -2,6 +2,7 @@ import type { HostMessage, MapSnapshot } from '../../shared/types';
 import type { HostBridge } from './bridge';
 import { demoSourceText } from './preview-data';
 import { THEME_LABELS, currentPreviewTheme } from './preview-theme';
+import { t } from '../../shared/i18n';
 import './preview-shell.css';
 
 interface SourceView {
@@ -10,12 +11,13 @@ interface SourceView {
   endLine: number;
 }
 
-const ACTIVITY_ITEMS = [
-  { icon: 'files', title: '资源管理器', active: true },
-  { icon: 'search', title: '搜索' },
-  { icon: 'source-control', title: '源代码管理' },
-  { icon: 'debug-alt', title: '运行和调试' },
-  { icon: 'extensions', title: '扩展' },
+// 按调用时的语言取文案，因此做成函数而非模块级常量。
+const activityItems = (): { icon: string; title: string; active?: boolean }[] => [
+  { icon: 'files', title: t('webview.shellExplorer'), active: true },
+  { icon: 'search', title: t('webview.shellSearch') },
+  { icon: 'source-control', title: t('webview.shellSourceControl') },
+  { icon: 'debug-alt', title: t('webview.shellRunDebug') },
+  { icon: 'extensions', title: t('webview.shellExtensions') },
 ];
 
 function escapeHtml(value: string): string {
@@ -27,19 +29,19 @@ function escapeHtml(value: string): string {
 }
 
 function shellHtml(): string {
-  const activity = ACTIVITY_ITEMS.map(item => `
+  const activity = activityItems().map(item => `
         <button class="vs-activity-item${item.active ? ' active' : ''}" title="${escapeHtml(item.title)}" aria-label="${escapeHtml(item.title)}">
           <span class="codicon codicon-${item.icon}" aria-hidden="true"></span>
         </button>`).join('');
   return `
   <div class="vs-workbench">
-    <nav class="vs-activitybar" aria-label="活动栏">
+    <nav class="vs-activitybar" aria-label="${escapeHtml(t('webview.shellActivityBar'))}">
       <div class="vs-activity-list">${activity}</div>
       <div class="vs-activity-list vs-activity-bottom">
-        <button class="vs-activity-item" title="帐户" aria-label="帐户">
+        <button class="vs-activity-item" title="${escapeHtml(t('webview.shellAccounts'))}" aria-label="${escapeHtml(t('webview.shellAccounts'))}">
           <span class="codicon codicon-account" aria-hidden="true"></span>
         </button>
-        <button class="vs-activity-item" title="管理" aria-label="管理">
+        <button class="vs-activity-item" title="${escapeHtml(t('webview.shellManage'))}" aria-label="${escapeHtml(t('webview.shellManage'))}">
           <span class="codicon codicon-settings-gear" aria-hidden="true"></span>
         </button>
       </div>
@@ -56,10 +58,10 @@ function shellHtml(): string {
           <span>examples/bag-demo</span>
         </div>
         <div class="vs-titlebar-right">
-          <button class="vs-title-button" title="切换预览主题" data-action="theme">
+          <button class="vs-title-button" title="${escapeHtml(t('webview.shellToggleTheme'))}" data-action="theme">
             <span class="codicon codicon-color-mode" aria-hidden="true"></span>
           </button>
-          <button class="vs-title-button" title="拆分编辑器">
+          <button class="vs-title-button" title="${escapeHtml(t('webview.shellSplitEditor'))}">
             <span class="codicon codicon-split-horizontal" aria-hidden="true"></span>
           </button>
         </div>
@@ -70,7 +72,7 @@ function shellHtml(): string {
           <div class="vs-tabs">
             <div class="vs-tab active">
               <span class="codicon codicon-map" aria-hidden="true"></span>
-              <span class="vs-tab-label" data-role="map-tab">代码侦探</span>
+              <span class="vs-tab-label" data-role="map-tab">${escapeHtml(t('webview.shellAppName'))}</span>
               <span class="codicon codicon-close vs-tab-close" aria-hidden="true"></span>
             </div>
             <div class="vs-tabs-actions">
@@ -81,7 +83,7 @@ function shellHtml(): string {
           <div class="vs-breadcrumbs">
             <span>examples</span><span class="vs-sep">›</span>
             <span>bag-demo</span><span class="vs-sep">›</span>
-            <span class="vs-crumb-current">代码侦探</span>
+            <span class="vs-crumb-current">${escapeHtml(t('webview.shellAppName'))}</span>
           </div>
           <div class="vs-map-slot" data-role="map-slot"></div>
         </section>
@@ -90,7 +92,7 @@ function shellHtml(): string {
           <div class="vs-tabs">
             <div class="vs-tab active">
               <span class="codicon codicon-file-code" aria-hidden="true"></span>
-              <span class="vs-tab-label" data-role="source-tab-label">选择源码</span>
+              <span class="vs-tab-label" data-role="source-tab-label">${escapeHtml(t('webview.shellPickSource'))}</span>
               <span class="codicon codicon-close vs-tab-close" aria-hidden="true"></span>
             </div>
             <div class="vs-tabs-actions">
@@ -100,7 +102,7 @@ function shellHtml(): string {
           </div>
           <div class="vs-breadcrumbs" data-role="source-breadcrumbs"></div>
           <div class="vs-code" data-role="source-code" tabindex="0">
-            <p class="vs-code-empty">点击地图中的节点或源码条目，这里会显示对应的源码。</p>
+            <p class="vs-code-empty">${escapeHtml(t('webview.shellCodeEmpty'))}</p>
           </div>
         </section>
       </div>
@@ -109,7 +111,7 @@ function shellHtml(): string {
         <div class="vs-statusbar-left">
           <span class="vs-status-item">
             <span class="codicon codicon-remote" aria-hidden="true"></span>
-            浏览器预览
+            ${escapeHtml(t('webview.shellBrowserPreview'))}
           </span>
           <span class="vs-status-item" data-role="status-file"></span>
         </div>
@@ -117,7 +119,7 @@ function shellHtml(): string {
           <span class="vs-status-item" data-role="status-lines"></span>
           <span class="vs-status-item">UTF-8</span>
           <span class="vs-status-item">TypeScript</span>
-          <button class="vs-status-item vs-status-button" data-action="theme" title="切换预览主题">
+          <button class="vs-status-item vs-status-button" data-action="theme" title="${escapeHtml(t('webview.shellToggleTheme'))}">
             <span class="codicon codicon-color-mode" aria-hidden="true"></span>
             <span data-role="status-theme">${THEME_LABELS[currentPreviewTheme()]}</span>
           </button>
@@ -146,7 +148,7 @@ function sourceView(snapshot: MapSnapshot | undefined): SourceView | undefined {
 
 function renderCode(container: HTMLElement, view: SourceView | undefined): void {
   if (!view) {
-    container.innerHTML = '<p class="vs-code-empty">点击地图中的节点或源码条目，这里会显示对应的源码。</p>';
+    container.innerHTML = `<p class="vs-code-empty">${escapeHtml(t('webview.shellCodeEmpty'))}</p>`;
     return;
   }
   const text = demoSourceText[view.file] ?? '';
@@ -195,7 +197,7 @@ export function createPreviewShell(root: HTMLElement, host: HostBridge): Preview
   root.innerHTML = shellHtml();
   const query = (selector: string): HTMLElement | null => root.querySelector<HTMLElement>(selector);
   const mount = query('[data-role="map-slot"]');
-  if (!mount) throw new Error('预览外壳缺少地图挂载点。');
+  if (!mount) throw new Error(t('webview.shellMountMissing'));
 
   const code = query('[data-role="source-code"]');
   const statusFile = query('[data-role="status-file"]');
@@ -212,14 +214,14 @@ export function createPreviewShell(root: HTMLElement, host: HostBridge): Preview
   const applySnapshot = (snapshot: MapSnapshot | undefined): void => {
     if (snapshot) {
       if (mapTabLabel) mapTabLabel.textContent = snapshot.map.title;
-      document.title = `${snapshot.map.title} · 代码侦探`;
+      document.title = t('webview.shellDocTitle', { title: snapshot.map.title });
     }
     const view = sourceView(snapshot);
     if (code) renderCode(code, view);
     renderBreadcrumbs(sourceBreadcrumbs, view?.file);
-    if (sourceTabLabel) sourceTabLabel.textContent = view?.file.split('/').pop() ?? '选择源码';
+    if (sourceTabLabel) sourceTabLabel.textContent = view?.file.split('/').pop() ?? t('webview.shellPickSource');
     if (statusFile) statusFile.textContent = view ? view.file : '';
-    if (statusLines) statusLines.textContent = view ? `行 ${view.startLine}–${view.endLine}` : '';
+    if (statusLines) statusLines.textContent = view ? t('webview.shellLines', { start: view.startLine, end: view.endLine }) : '';
   };
 
   host.onMessage((message: HostMessage) => {

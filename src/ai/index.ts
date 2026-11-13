@@ -4,6 +4,7 @@ import { CodexCli } from './agent/codex';
 import { runAgent } from './agent/runner';
 import type { AgentCli } from './agent/types';
 import { AiError, type AgentSession, type AgentTurnRequest, type AgentTurnResponse } from './types';
+import { t } from '../../shared/i18n';
 
 export type { AgentCli } from './agent/types';
 export { AgentError } from './agent/types';
@@ -47,7 +48,7 @@ export function agentCli(config: AiConfig): AgentCli {
     const custom = customAgent(config);
     if (custom) return custom;
     throw new AiError('AI_NOT_CONFIGURED',
-      `未知的 agent：${config.agent}。可选：${AGENTS.map(item => item.id).join('、')}。`);
+      t('ai.unknownAgent', { agent: config.agent, options: AGENTS.map(item => item.id).join(t('ai.listSeparator')) }));
   }
   const command = config.command || descriptor.id;
   return descriptor.create(command, config);

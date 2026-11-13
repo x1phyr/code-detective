@@ -1,5 +1,6 @@
 import type { HostMessage, InitializePayload, MapSnapshot, MapSummary, SourceStatus, ViewState } from '../../shared/types';
 import { DEFAULT_VIEW_STATE } from '../../shared/types';
+import { t } from '../../shared/i18n';
 import { sanitizeViewState, sourceIdsForSelection } from '../../src/core/selection';
 import type { HostBridge } from './bridge';
 import { demoMap } from './preview-data';
@@ -60,12 +61,12 @@ export function createPreviewHost(): HostBridge {
     const available = sourceIdsForSelection(demoMap, { kind: targetKind, id: targetId });
     const chosen = sourceId && available.includes(sourceId) ? sourceId : available[0];
     if (!chosen) {
-      notice('这个对象没有关联源码。', 'warning');
+      notice(t('webview.noLinkedSource'), 'warning');
       return;
     }
     patch({ sourceId: chosen });
     const ref = demoMap.sources[chosen]!;
-    notice(`预览：跳转到 ${ref.file}:${ref.startLine}`);
+    notice(t('webview.previewNavigate', { file: ref.file, line: ref.startLine }));
   };
 
   const handle = (type: string, payload: Record<string, unknown>): void => {
@@ -105,12 +106,12 @@ export function createPreviewHost(): HostBridge {
         patch({ highlightEnabled: false });
         return;
       case 'ai.open':
-        notice('浏览器预览模式无法调用本地 AI，请在 VS Code 中运行。');
+        notice(t('webview.previewNoAi'));
         return;
       case 'prompt.copy':
       case 'help.open':
       case 'map.openFile':
-        notice('浏览器预览模式下该操作不可用。');
+        notice(t('webview.previewUnavailable'));
         return;
       default:
         return;

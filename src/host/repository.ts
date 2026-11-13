@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { parseMap } from '../core/validator';
 import type { CodeMap, MapSummary } from '../../shared/types';
 import { checkedSourceUri, errorMessage } from './paths';
+import { t } from '../../shared/i18n';
 
 const MAX_MAP_BYTES = 2 * 1024 * 1024;
 
@@ -53,7 +54,7 @@ export class MapRepository implements vscode.Disposable {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.refresh().catch(error => this.log.appendLine(`地图扫描失败：${errorMessage(error)}`));
+      void this.refresh().catch(error => this.log.appendLine(t('host.mapScanFailed', { error: errorMessage(error) })));
     }, 200);
   }
 
@@ -86,10 +87,10 @@ export class MapRepository implements vscode.Disposable {
       try {
         uris = await vscode.workspace.findFiles(new vscode.RelativePattern(root, '.code-detective/maps/*.json'), null);
       } catch (error) {
-        this.log.appendLine(`无法扫描 ${root.name}：${errorMessage(error)}`);
+        this.log.appendLine(t('host.rootScanFailed', { root: root.name, error: errorMessage(error) }));
         for (const [key, record] of oldFiles) {
           if (record.root.uri.toString() === root.uri.toString()) {
-            nextFiles.set(key, { ...record, error: '地图目录扫描失败，保留上次有效结果。' });
+            nextFiles.set(key, { ...record, error: t('host.mapDirScanFailed') });
           }
         }
         continue;
@@ -114,7 +115,7 @@ export class MapRepository implements vscode.Disposable {
         nextRecords.set(key, group[0]);
       } else {
         const previous = this.records.get(key);
-        const error = `地图 id 冲突：${group.map(item => item.relativePath).join('、')}。请为同一工作区内的地图设置不同 id。`;
+        const error = t('host.mapIdConflict', { paths: group.map(item => item.relativePath).join(t('host.listSeparator')) });
         nextRecords.set(key, previous?.map
           ? { ...previous, error }
           : { ...group[0], map: undefined, revision: undefined, error });
@@ -134,9 +135,9 @@ export class MapRepository implements vscode.Disposable {
       const localPath = uri.path.slice(root.uri.path.replace(/\/$/, '').length + 1);
       await checkedSourceUri(root.uri, localPath);
       const stat = await vscode.workspace.fs.stat(uri);
-      if (stat.size > MAX_MAP_BYTES) throw new Error('地图文件超过 2 MiB，请拆分成较小的话题地图。');
+      if (stat.size > MAX_MAP_BYTES) throw new Error(t('host.mapFileTooLarge'));
       const bytes = await vscode.workspace.fs.readFile(uri);
-      if (bytes.byteLength > MAX_MAP_BYTES) throw new Error('地图文件超过 2 MiB，请拆分成较小的话题地图。');
+      if (bytes.byteLength > MAX_MAP_BYTES) throw new Error(t('host.mapFileTooLarge'));
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
       const map = parseMap(text);
       const revision = createHash('sha256').update(bytes).digest('hex');
@@ -151,7 +152,7 @@ export class MapRepository implements vscode.Disposable {
   summaries(): MapSummary[] {
     return [...this.records.values()].map(record => ({
       key: record.key,
-      title: record.map?.title ?? record.relativePath.split('/').at(-1) ?? '无效地图',
+      title: record.map?.title ?? record.relativePath.split('/').at(-1) ?? t('host.invalidMapTitle'),
       rootName: record.root.name,
       fileName: record.relativePath,
       revision: record.revision,

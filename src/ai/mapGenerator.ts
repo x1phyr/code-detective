@@ -1,9 +1,10 @@
 import type { CodeMap } from '../../shared/types';
 import { extractJson } from './json';
-import { explorePrompt, OUTPUT_CONTRACT, retryPrompt, type PromptContext } from './prompt';
+import { explorePrompt, outputContract, retryPrompt, type PromptContext } from './prompt';
 import { parseMap } from '../core/validator';
 import { describeAdjustments, fillAnchors, normalizeDraft } from '../core/mapDraft';
 import { AiError, type AgentSession } from './types';
+import { t } from '../../shared/i18n';
 
 export interface MapRequest {
   topic: string;
@@ -61,10 +62,10 @@ export async function generateMap(
     onChunk: (chunk: string) => request.onProgress?.(chunk.length),
   };
 
-  request.onPhase?.('running', 'agent 正在阅读源码');
+  request.onPhase?.('running', t('ai.agentReading'));
   let reply = await session.send({
     ...base,
-    prompt: `${explorePrompt(contextOf(request))}\n\n${OUTPUT_CONTRACT}`,
+    prompt: `${explorePrompt(contextOf(request))}\n\n${outputContract()}`,
   });
   let attempts = 1;
   let lastIssues: string[] = [];
@@ -78,7 +79,7 @@ export async function generateMap(
       lastIssues = [(error as Error).message];
       if (attempts > retries) {
         throw new AiError('AI_INVALID_MAP',
-          `agent 给出的地图未通过校验：${lastIssues[0] ?? '未知原因'}`);
+          t('ai.invalidMap', { issue: lastIssues[0] ?? t('ai.unknownReason') }));
       }
       attempts += 1;
       request.onPhase?.('retry', lastIssues[0]);
@@ -96,7 +97,7 @@ async function buildMap(
 ): Promise<{ map: CodeMap; adjustments: string[] }> {
   if (!readFile) return { map: mapFromReply(text), adjustments: [] };
   const json = extractJson(text);
-  if (!json) throw new AiError('AI_NO_JSON', '没有在 agent 的回复中找到合法的 JSON 对象。');
+  if (!json) throw new AiError('AI_NO_JSON', t('ai.noJsonInReply'));
   const draft = normalizeDraft(JSON.parse(json));
   const files = [...new Set(Object.values(draft.sources).map(ref => ref.file))].slice(0, MAX_ANCHOR_FILES);
   const cache = new Map<string, string | undefined>();
@@ -110,6 +111,6 @@ async function buildMap(
 
 export function mapFromReply(text: string): CodeMap {
   const json = extractJson(text);
-  if (!json) throw new AiError('AI_NO_JSON', '没有在 agent 的回复中找到合法的 JSON 对象。');
+  if (!json) throw new AiError('AI_NO_JSON', t('ai.noJsonInReply'));
   return parseMap(json);
 }

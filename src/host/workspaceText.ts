@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { checkedSourceUri } from './paths';
+import { t } from '../../shared/i18n';
 
 /** Upper bound for files read whole (readSource tool, anchor filling). */
 export const MAX_READ_BYTES = 2 * 1024 * 1024;
@@ -12,7 +13,7 @@ export async function readWorkspaceText(root: vscode.WorkspaceFolder, file: stri
   const { realUri } = await checkedSourceUri(root.uri, file);
   const stat = await vscode.workspace.fs.stat(realUri);
   if (stat.size > MAX_READ_BYTES) {
-    throw new Error(`${file} 超过 ${MAX_READ_BYTES / 1024 / 1024} MiB，不读取。`);
+    throw new Error(t('host.fileTooLarge', { file, size: MAX_READ_BYTES / 1024 / 1024 }));
   }
   const bytes = await vscode.workspace.fs.readFile(realUri);
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);

@@ -1,4 +1,5 @@
 import type { HostMessage } from '../../shared/types';
+import { t } from '../../shared/i18n';
 import { envelope, type HostBridge } from './bridge';
 import { createVsCodeHost, hasVsCodeApi } from './vscode-host';
 
@@ -12,7 +13,7 @@ export async function createHost(): Promise<HostBridge> {
     const { createPreviewHost } = await import('./preview');
     return createPreviewHost();
   }
-  throw new Error('缺少 VS Code Webview API。');
+  throw new Error(t('webview.missingVsCodeApi'));
 }
 
 export { envelope, hasVsCodeApi };

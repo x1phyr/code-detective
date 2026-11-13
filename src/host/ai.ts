@@ -10,6 +10,7 @@ import { errorMessage } from '../core/errors';
 import { assertRelativeSourcePath } from '../core/paths';
 import { checkedSourceUri } from './paths';
 import { writeMapFile, type WrittenMap } from './mapWriter';
+import { t } from '../../shared/i18n';
 
 export interface AiHostHooks {
   log: vscode.OutputChannel;
@@ -59,7 +60,7 @@ export class AiService implements vscode.Disposable {
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;
     await config.update('agent', agent, section);
-    void vscode.window.showInformationMessage(`已切换到 ${agent}。`);
+    void vscode.window.showInformationMessage(t('host.agentSwitched', { agent }));
   }
 
   /** Quick pick over the built-in agents plus any configured custom ones. */
@@ -69,11 +70,11 @@ export class AiService implements vscode.Disposable {
     const picked = await vscode.window.showQuickPick(
       known.map(item => ({
         label: item.label,
-        description: item.id === config.agent ? '当前' : undefined,
+        description: item.id === config.agent ? t('host.agentCurrent') : undefined,
         detail: item.id === config.agent ? `${config.command || item.id}` : undefined,
         id: item.id,
       })),
-      { title: '选择运行地图生成的 agent CLI', placeHolder: 'agent 会在当前工作区里自己阅读源码' },
+      { title: t('host.agentPickTitle'), placeHolder: t('host.agentPickPlaceholder') },
     );
     if (!picked) return false;
     await this.setAgent(picked.id);
@@ -87,11 +88,11 @@ export class AiService implements vscode.Disposable {
   async generate(topic: string, agentId?: string, files?: string[]): Promise<void> {
     const root = this.hooks.root();
     if (!root) {
-      void vscode.window.showWarningMessage('请先打开一个工作区文件夹。');
+      void vscode.window.showWarningMessage(t('host.openWorkspaceFirst'));
       return;
     }
     if (this.busy) {
-      void vscode.window.showWarningMessage('已有 AI 任务在运行，请先取消。');
+      void vscode.window.showWarningMessage(t('host.aiTaskRunning'));
       return;
     }
     this.starting = true;
@@ -126,7 +127,7 @@ export class AiService implements vscode.Disposable {
 
     await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
-      title: `代码侦探 · ${topic}`,
+      title: t('host.aiProgressTitle', { topic }),
       cancellable: true,
     }, async (progress, token) => {
       this.progress = progress;
@@ -149,7 +150,7 @@ export class AiService implements vscode.Disposable {
   ): Promise<void> {
     try {
       const config = readAiConfig();
-      this.report('preparing', `正在启动 ${config.agent}`);
+      this.report('preparing', t('host.aiStarting', { agent: config.agent }));
       const session = createSession(config);
       const result = await generateMap(session, {
         topic,
@@ -159,41 +160,41 @@ export class AiService implements vscode.Disposable {
         timeoutMs: config.timeoutMs,
         cancel,
         onPhase: (phase, detail) => {
-          this.report(phase, phase === 'validating' ? '正在校验地图'
-            : phase === 'retry' ? `校验失败，正在让 ${session.label} 修正` : `${session.label} 正在阅读源码`,
+          this.report(phase, phase === 'validating' ? t('host.aiValidating')
+            : phase === 'retry' ? t('host.aiRetrying', { agent: session.label }) : t('host.aiReading', { agent: session.label }),
           detail === undefined ? undefined : detail.length);
         },
-        onProgress: chars => this.report('running', `${session.label} 正在阅读源码`, chars),
+        onProgress: chars => this.report('running', t('host.aiReading', { agent: session.label }), chars),
         readFile: file => readWorkspaceText(root, file),
       }, { retries: 1 });
       task.sessionId = result.sessionId;
 
       if (source.token.isCancellationRequested) {
-        void vscode.window.showInformationMessage('已取消 AI 生成。');
+        void vscode.window.showInformationMessage(t('host.aiCancelled'));
         return;
       }
       this.lastPhase = '';
-      this.report('validating', '正在写入地图');
+      this.report('validating', t('host.aiWriting'));
       const written = await this.writeMap(root, result.map);
       await this.hooks.refresh();
       this.lastPhase = '';
-      this.report('done', `已生成 ${path.posix.basename(written.relativePath)}`);
+      this.report('done', t('host.aiGenerated', { file: path.posix.basename(written.relativePath) }));
       if (result.adjustments.length > 0) {
-        this.hooks.log.appendLine(`地图《${result.map.title}》已自动修正：\n${result.adjustments.join('\n')}`);
+        this.hooks.log.appendLine(t('host.aiAdjustedLog', { title: result.map.title, adjustments: result.adjustments.join('\n') }));
       }
-      const summary = `${session.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 轮`
-        + (result.adjustments.length > 0 ? ` · 自动修正 ${result.adjustments.length} 处（详见输出面板）` : '');
+      const summary = t('host.aiSummary', { agent: session.label, seconds: Math.round((Date.now() - started) / 1000), attempts: result.attempts })
+        + (result.adjustments.length > 0 ? t('host.aiSummaryAdjusted', { count: result.adjustments.length }) : '');
       void this.hooks.open(written.key);
-      void vscode.window.showInformationMessage(`已生成地图《${result.map.title}》：${summary}`);
+      void vscode.window.showInformationMessage(t('host.aiGeneratedMap', { title: result.map.title, summary }));
     } catch (error) {
       const cancelled = source.token.isCancellationRequested
         || (error instanceof AiError && error.code === 'AI_CANCELLED');
-      const message = cancelled ? '已取消 AI 生成。' : errorMessage(error);
-      if (!cancelled) this.hooks.log.appendLine(`AI 生成失败：${message}`);
+      const message = cancelled ? t('host.aiCancelled') : errorMessage(error);
+      if (!cancelled) this.hooks.log.appendLine(t('host.aiFailedLog', { message }));
       this.lastPhase = '';
       if (cancelled) void vscode.window.showInformationMessage(message);
       else {
-        void vscode.window.showErrorMessage(`AI 生成失败：${message}`, '查看日志')
+        void vscode.window.showErrorMessage(t('host.aiFailedLog', { message }), t('host.viewLog'))
           .then(choice => { if (choice) this.hooks.log.show(true); });
       }
     }
