@@ -47,7 +47,7 @@
     "build": "node scripts/build.mjs",
     "watch:ext": "node scripts/watch.mjs ext",
     "watch:webview": "node scripts/watch.mjs webview",
-    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p examples/bag-demo/tsconfig.json",
+    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p examples/bag-demo/tsconfig.json && tsc --noEmit -p examples/login-demo/tsconfig.json",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:integration": "npm run build && node tests/integration/run.cjs",
     "check": "npm run typecheck && npm test && npm run build",

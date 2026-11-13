@@ -18,11 +18,13 @@ AI 负责分析功能、产出地图 JSON；插件负责严格校验、渲染地
 
 ## 能做什么
 
-- **侧边栏视图**：常驻左侧活动栏，可以像资源管理器一样拖到其它侧栏或面板；流程图自上而下竖向排列，详情列在图的下方。
+- **侧边栏视图**：常驻左侧活动栏，可以像资源管理器一样拖到其它侧栏或面板；流程图自上而下竖向排列，整个视图都留给地图。
 - **地图浏览**：配色直接取当前 VS Code 主题（悬停/选中与列表一致），选中后无关节点淡出；支持缩放、平移、适应窗口、分支、循环、自环与平行边。
-- **源码定位**：点击节点跳到实现，点击连线跳到调用或关系所在位置；源码在当前聚焦的编辑器组里以新页签打开（已在某个分栏可见则复用），不会新建分栏。点空白处取消选择。
+- **分层浏览**：节点可以归属到功能块（`parent`），画布一次只画一层；点功能块底部的层级按钮（带子节点数）进入下一层，顶部面包屑返回上层。跨层连线会提升到当前层并合并（标注「N 条调用」）。
+- **支线折叠**：标了 `branch` 的连线是支线（提前返回、异常、重试等），默认折叠成节点上的「+N」，主干保持一条竖线；点「+N」展开，支线用虚线画在主干两侧。`exit` 节点表示提前返回或异常出口。
+- **源码定位**：点击节点跳到实现，点击连线跳到调用或关系所在位置；节点关联多段代码时（节点上显示文件数）在点击处弹出列表选择；源码在当前聚焦的编辑器组里以新页签打开（已在某个分栏可见则复用），不会新建分栏。点空白处取消选择。
 - **两层高亮 + 注释**：相关范围与当前选择分别高亮，同文件多个可见编辑器会各自应用；选中范围首行末尾用灰字显示这段代码的注释（来自 source 的 `note`，没有时用节点说明），悬停查看完整说明与导读步骤。
-- **阅读顺序**：地图里的 `walkthrough` 列在详情区的「阅读顺序」下，点一步即高亮该步涉及的节点并打开代码；也可用命令 `下一步` / `上一步` 逐步阅读。
+- **阅读顺序**：地图里的 `walkthrough` 显示为顶部的步骤条，点一步即切到相应的层、展开需要的支线、高亮节点并打开代码；也可用命令 `下一步` / `上一步` 逐步阅读。
 - **状态恢复**：重开侧边栏回到上次打开的地图；地图内容变化时重新布局。
 - **中英双语**：界面、命令、通知、Chat 回复与 AI 提示词跟随 VS Code 显示语言（中文环境用中文，其余用英文）；英文环境下 AI 生成的地图内容也是英文。
 - **主题跟随**：配色取自 VS Code 注入的 `--vscode-*` 变量，支持深色、浅色与高对比度。
@@ -69,11 +71,13 @@ Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索
 地图是工作区根目录 `.code-detective/maps/<id>.json` 下的单个 JSON 文件，`schemaVersion` 为 `1`，主要由四部分组成：
 
 - `sources`：`file`（工作区相对路径）、`startLine`、`endLine`，可选 `anchorText`（完整整行文本，用于恢复位置）与 `note`（一句话说明这段代码做什么，≤60 字，点击时显示在代码行尾）。
-- `nodes`：id、`label`、分类 `kind`、`sourceIds`。
-- `edges`：id、`label`、起止节点、关系类型 `kind`。
+- `nodes`：id、`label`、分类 `kind`（`step` / `function` / `condition` / `event` / `exit`）、`sourceIds`，可选 `parent`（所属功能块的节点 id）。
+- `edges`：id、`label`、起止节点、关系类型 `kind`，可选 `branch`（支线条件，如「缓存未命中」「校验失败」）。
 - `walkthrough`：可选的阅读步骤，引用已存在的节点与连线 id。
 
-校验是严格的：JSON 重复键、未知字段、越界行号、越界路径、重复或悬空引用都会导致地图被拒绝，并给出具体位置。装好插件后编辑地图文件也会获得 JSON Schema 补全与提示（见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）。
+代码分支很深时，建议顶层只放 3–8 个功能块，每个功能块内部 ≤ 12 个节点，主干用普通连线、旁路用 `branch`。完整例子见 [examples/login-demo](examples/login-demo/.code-detective/maps/login-demo.json)（提前返回、token 缓存、带退避的重试、三个落地页，嵌套三层）。
+
+校验是严格的：JSON 重复键、未知字段、越界行号、越界路径、重复或悬空引用、`parent` 自指或成环都会导致地图被拒绝，并给出具体位置。装好插件后编辑地图文件也会获得 JSON Schema 补全与提示（见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）。
 
 ## 设置
 
@@ -149,7 +153,7 @@ npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 | `npm run build` | 输出 `dist/extension.cjs` 与 `dist/webview/` |
 | `npm run watch:ext` | esbuild 监听扩展宿主，改完 `src/**` 增量重建 |
 | `npm run watch:webview` | vite 监听 Webview，改完 `webview/**` 增量重建 |
-| `npm run dev` | 浏览器中的 Webview 交互预览 |
+| `npm run dev` | 浏览器中的 Webview 交互预览（地址加 `?map=login` 查看分层示例） |
 
 ### 调试
 
@@ -186,9 +190,10 @@ npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
 | `src/host/` | 工作区文件、消息、源码导航、高亮、持久化与 Chat 集成 |
 | `src/ai/` | AI 通道、提示词、草稿收敛与写盘 |
 | `shared/` | 地图类型与 Webview 消息协议 |
-| `webview/src/` | Vue 地图、详情与导读界面 |
+| `webview/src/` | Vue 地图、分层导航与导读界面 |
 | `schemas/` | v1 JSON Schema（随插件注册给地图文件） |
 | `examples/bag-demo/` | 可直接运行的背包示例与示例地图 |
+| `examples/login-demo/` | 分层更深的登录示例（功能块、支线、出口） |
 | `tests/` | 单元测试与 Extension Host 集成测试 |
 
 ## 状态

@@ -1,0 +1,701 @@
+{
+  "$schema": "../../../../schemas/code-map-v1.schema.json",
+  "schemaVersion": 1,
+  "id": "login-demo",
+  "title": "登录流程",
+  "description": "带提前返回、缓存、重试与多个落地页的登录流程，演示功能块分层与支线折叠。",
+  "sources": {
+    "ctl.submit": {
+      "file": "src/login-controller.ts",
+      "startLine": 6,
+      "endLine": 14,
+      "anchorText": "export async function onSubmit(form: LoginForm): Promise<LoginResult> {\n  const problem = validateForm(form);\n  if (problem) return showError(problem);\n\n  const result = await authenticate(form.username, form.password);\n  if (!result.ok) return showError(result.reason);\n\n  return routeAfterLogin(result.user);\n}",
+      "note": "提交入口：校验 → 认证 → 跳转，任一步失败都提前返回"
+    },
+    "ctl.validate": {
+      "file": "src/login-controller.ts",
+      "startLine": 7,
+      "endLine": 8,
+      "anchorText": "  const problem = validateForm(form);\n  if (problem) return showError(problem);",
+      "note": "表单不合法时直接提示错误并返回"
+    },
+    "ctl.auth": {
+      "file": "src/login-controller.ts",
+      "startLine": 10,
+      "endLine": 11,
+      "anchorText": "  const result = await authenticate(form.username, form.password);\n  if (!result.ok) return showError(result.reason);",
+      "note": "认证失败时提示原因并返回"
+    },
+    "ctl.route": {
+      "file": "src/login-controller.ts",
+      "startLine": 13,
+      "endLine": 13,
+      "anchorText": "  return routeAfterLogin(result.user);",
+      "note": "认证成功后按用户状态决定去哪一页"
+    },
+    "ctl.error": {
+      "file": "src/login-controller.ts",
+      "startLine": 16,
+      "endLine": 19,
+      "anchorText": "function showError(message: string): LoginResult {\n  console.warn(`[login] ${message}`);\n  return { error: message };\n}",
+      "note": "统一的错误提示出口"
+    },
+    "val.username": {
+      "file": "src/validate.ts",
+      "startLine": 5,
+      "endLine": 5,
+      "anchorText": "  if (!form.username.trim()) return '请输入用户名';",
+      "note": "用户名为空"
+    },
+    "val.password": {
+      "file": "src/validate.ts",
+      "startLine": 6,
+      "endLine": 6,
+      "anchorText": "  if (form.password.length < 8) return '密码至少 8 位';",
+      "note": "密码长度不足"
+    },
+    "val.captcha": {
+      "file": "src/validate.ts",
+      "startLine": 7,
+      "endLine": 7,
+      "anchorText": "  if (needsCaptcha(form.username) && !form.captcha) return '请输入验证码';",
+      "note": "失败次数多时要求验证码"
+    },
+    "val.needs": {
+      "file": "src/validate.ts",
+      "startLine": 13,
+      "endLine": 15,
+      "anchorText": "function needsCaptcha(username: string): boolean {\n  return (failures.get(username) ?? 0) >= 3;\n}",
+      "note": "失败 3 次以上需要验证码"
+    },
+    "val.ok": {
+      "file": "src/validate.ts",
+      "startLine": 8,
+      "endLine": 8,
+      "anchorText": "  return undefined;",
+      "note": "全部通过"
+    },
+    "val.record": {
+      "file": "src/validate.ts",
+      "startLine": 17,
+      "endLine": 19,
+      "anchorText": "export function recordFailure(username: string): void {\n  failures.set(username, (failures.get(username) ?? 0) + 1);\n}",
+      "note": "记录一次失败，影响下次是否要验证码"
+    },
+    "auth.cache": {
+      "file": "src/auth-service.ts",
+      "startLine": 8,
+      "endLine": 9,
+      "anchorText": "  const cached = tokenCache.get(username);\n  if (cached) return { ok: true, user: await loadProfile(cached) };",
+      "note": "有缓存的 token 时跳过登录请求"
+    },
+    "auth.request": {
+      "file": "src/auth-service.ts",
+      "startLine": 11,
+      "endLine": 15,
+      "anchorText": "  const token = await requestToken(username, password);\n  if (typeof token !== 'string') {\n    recordFailure(username);\n    return { ok: false, reason: token.reason };\n  }",
+      "note": "请求 token，失败时记录并返回原因"
+    },
+    "auth.store": {
+      "file": "src/auth-service.ts",
+      "startLine": 16,
+      "endLine": 17,
+      "anchorText": "  tokenCache.set(username, token);\n  return { ok: true, user: await loadProfile(token) };",
+      "note": "缓存 token 并加载用户资料"
+    },
+    "auth.profile": {
+      "file": "src/auth-service.ts",
+      "startLine": 34,
+      "endLine": 37,
+      "anchorText": "async function loadProfile(token: string): Promise<User> {\n  const response = await fetch('/api/me', { headers: { authorization: `Bearer ${token}` } });\n  return (await response.json()) as User;\n}",
+      "note": "用 token 拉取用户资料"
+    },
+    "req.post": {
+      "file": "src/auth-service.ts",
+      "startLine": 21,
+      "endLine": 25,
+      "anchorText": "  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {\n    const response = await fetch('/api/login', {\n      method: 'POST',\n      body: JSON.stringify({ username, password }),\n    });",
+      "note": "最多尝试 3 次 POST /api/login"
+    },
+    "req.ok": {
+      "file": "src/auth-service.ts",
+      "startLine": 26,
+      "endLine": 26,
+      "anchorText": "    if (response.ok) return ((await response.json()) as { token: string }).token;",
+      "note": "成功拿到 token"
+    },
+    "req.denied": {
+      "file": "src/auth-service.ts",
+      "startLine": 27,
+      "endLine": 28,
+      "anchorText": "    if (response.status === 401) return { reason: '用户名或密码错误' };\n    if (response.status === 423) return { reason: '账号已锁定，请联系管理员' };",
+      "note": "401 / 423 不重试，直接返回原因"
+    },
+    "req.retry": {
+      "file": "src/auth-service.ts",
+      "startLine": 29,
+      "endLine": 29,
+      "anchorText": "    await delay(200 * 2 ** attempt);",
+      "note": "其他错误指数退避后重试"
+    },
+    "req.giveup": {
+      "file": "src/auth-service.ts",
+      "startLine": 31,
+      "endLine": 31,
+      "anchorText": "  return { reason: '服务暂时不可用，请稍后再试' };",
+      "note": "重试用尽，返回服务不可用"
+    },
+    "route.fn": {
+      "file": "src/router.ts",
+      "startLine": 3,
+      "endLine": 7,
+      "anchorText": "export function routeAfterLogin(user: User): LoginResult {\n  if (user.mustChangePassword) return { page: '/account/password' };\n  if (user.firstLogin) return { page: '/onboarding' };\n  return { page: redirectTarget() ?? '/home' };\n}",
+      "note": "按用户状态选择落地页"
+    },
+    "route.password": {
+      "file": "src/router.ts",
+      "startLine": 4,
+      "endLine": 4,
+      "anchorText": "  if (user.mustChangePassword) return { page: '/account/password' };",
+      "note": "必须改密码"
+    },
+    "route.onboarding": {
+      "file": "src/router.ts",
+      "startLine": 5,
+      "endLine": 5,
+      "anchorText": "  if (user.firstLogin) return { page: '/onboarding' };",
+      "note": "首次登录走引导"
+    },
+    "route.home": {
+      "file": "src/router.ts",
+      "startLine": 6,
+      "endLine": 6,
+      "anchorText": "  return { page: redirectTarget() ?? '/home' };",
+      "note": "默认去首页或 redirect 指定页"
+    },
+    "route.redirect": {
+      "file": "src/router.ts",
+      "startLine": 9,
+      "endLine": 12,
+      "anchorText": "function redirectTarget(): string | undefined {\n  const target = new URLSearchParams(location.search).get('redirect');\n  return target?.startsWith('/') ? target : undefined;\n}",
+      "note": "只接受站内相对路径，防止开放重定向"
+    }
+  },
+  "nodes": [
+    {
+      "id": "submit",
+      "label": "提交登录表单",
+      "kind": "event",
+      "description": "onSubmit 串起校验、认证、跳转三段。",
+      "sourceIds": [
+        "ctl.submit"
+      ]
+    },
+    {
+      "id": "validate",
+      "label": "校验表单",
+      "kind": "function",
+      "description": "三项检查，任一不过就提前返回。",
+      "sourceIds": [
+        "ctl.validate"
+      ]
+    },
+    {
+      "id": "auth",
+      "label": "认证",
+      "kind": "function",
+      "description": "先查 token 缓存，未命中再请求登录接口。",
+      "sourceIds": [
+        "ctl.auth",
+        "auth.request"
+      ]
+    },
+    {
+      "id": "route",
+      "label": "登录后跳转",
+      "kind": "function",
+      "description": "按账号状态决定落地页。",
+      "sourceIds": [
+        "ctl.route",
+        "route.fn"
+      ]
+    },
+    {
+      "id": "show-error",
+      "label": "提示错误并返回",
+      "kind": "exit",
+      "description": "所有失败路径的统一出口。",
+      "sourceIds": [
+        "ctl.error"
+      ]
+    },
+    {
+      "id": "v.username",
+      "label": "用户名为空？",
+      "kind": "condition",
+      "parent": "validate",
+      "sourceIds": [
+        "val.username"
+      ]
+    },
+    {
+      "id": "v.password",
+      "label": "密码不足 8 位？",
+      "kind": "condition",
+      "parent": "validate",
+      "sourceIds": [
+        "val.password"
+      ]
+    },
+    {
+      "id": "v.captcha",
+      "label": "需要验证码但没填？",
+      "kind": "condition",
+      "parent": "validate",
+      "sourceIds": [
+        "val.captcha",
+        "val.needs"
+      ]
+    },
+    {
+      "id": "v.ok",
+      "label": "校验通过",
+      "kind": "step",
+      "parent": "validate",
+      "sourceIds": [
+        "val.ok"
+      ]
+    },
+    {
+      "id": "a.cache",
+      "label": "有缓存 token？",
+      "kind": "condition",
+      "parent": "auth",
+      "sourceIds": [
+        "auth.cache"
+      ]
+    },
+    {
+      "id": "a.request",
+      "label": "请求登录接口",
+      "kind": "function",
+      "parent": "auth",
+      "description": "带重试的 POST /api/login。",
+      "sourceIds": [
+        "auth.request"
+      ]
+    },
+    {
+      "id": "a.store",
+      "label": "缓存 token",
+      "kind": "step",
+      "parent": "auth",
+      "sourceIds": [
+        "auth.store"
+      ]
+    },
+    {
+      "id": "a.profile",
+      "label": "加载用户资料",
+      "kind": "function",
+      "parent": "auth",
+      "sourceIds": [
+        "auth.profile"
+      ]
+    },
+    {
+      "id": "a.record",
+      "label": "记录失败次数",
+      "kind": "function",
+      "parent": "auth",
+      "description": "累计到 3 次后下次登录要求验证码。",
+      "sourceIds": [
+        "val.record",
+        "auth.request"
+      ]
+    },
+    {
+      "id": "r.post",
+      "label": "POST /api/login",
+      "kind": "step",
+      "parent": "a.request",
+      "sourceIds": [
+        "req.post"
+      ]
+    },
+    {
+      "id": "r.ok",
+      "label": "拿到 token",
+      "kind": "step",
+      "parent": "a.request",
+      "sourceIds": [
+        "req.ok"
+      ]
+    },
+    {
+      "id": "r.denied",
+      "label": "401 / 423",
+      "kind": "exit",
+      "parent": "a.request",
+      "description": "密码错误或账号锁定，不重试。",
+      "sourceIds": [
+        "req.denied"
+      ]
+    },
+    {
+      "id": "r.retry",
+      "label": "退避后重试",
+      "kind": "step",
+      "parent": "a.request",
+      "sourceIds": [
+        "req.retry"
+      ]
+    },
+    {
+      "id": "r.giveup",
+      "label": "重试用尽",
+      "kind": "exit",
+      "parent": "a.request",
+      "sourceIds": [
+        "req.giveup"
+      ]
+    },
+    {
+      "id": "t.password",
+      "label": "跳到改密码页",
+      "kind": "step",
+      "parent": "route",
+      "sourceIds": [
+        "route.password"
+      ]
+    },
+    {
+      "id": "t.onboarding",
+      "label": "跳到新手引导",
+      "kind": "step",
+      "parent": "route",
+      "sourceIds": [
+        "route.onboarding"
+      ]
+    },
+    {
+      "id": "t.home",
+      "label": "跳到首页 / redirect",
+      "kind": "step",
+      "parent": "route",
+      "description": "redirect 只接受站内相对路径。",
+      "sourceIds": [
+        "route.home",
+        "route.redirect"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e.submit-validate",
+      "from": "submit",
+      "to": "v.username",
+      "kind": "flow",
+      "label": "先校验",
+      "sourceIds": [
+        "ctl.validate"
+      ]
+    },
+    {
+      "id": "e.v1",
+      "from": "v.username",
+      "to": "v.password",
+      "kind": "flow",
+      "sourceIds": [
+        "val.username"
+      ]
+    },
+    {
+      "id": "e.v2",
+      "from": "v.password",
+      "to": "v.captcha",
+      "kind": "flow",
+      "sourceIds": [
+        "val.password"
+      ]
+    },
+    {
+      "id": "e.v3",
+      "from": "v.captcha",
+      "to": "v.ok",
+      "kind": "flow",
+      "sourceIds": [
+        "val.captcha"
+      ]
+    },
+    {
+      "id": "e.v1-err",
+      "from": "v.username",
+      "to": "show-error",
+      "kind": "flow",
+      "branch": "用户名为空",
+      "sourceIds": [
+        "val.username",
+        "ctl.validate"
+      ]
+    },
+    {
+      "id": "e.v2-err",
+      "from": "v.password",
+      "to": "show-error",
+      "kind": "flow",
+      "branch": "密码太短",
+      "sourceIds": [
+        "val.password",
+        "ctl.validate"
+      ]
+    },
+    {
+      "id": "e.v3-err",
+      "from": "v.captcha",
+      "to": "show-error",
+      "kind": "flow",
+      "branch": "缺验证码",
+      "sourceIds": [
+        "val.captcha",
+        "ctl.validate"
+      ]
+    },
+    {
+      "id": "e.ok-auth",
+      "from": "v.ok",
+      "to": "a.cache",
+      "kind": "call",
+      "label": "再认证",
+      "sourceIds": [
+        "ctl.auth"
+      ]
+    },
+    {
+      "id": "e.cache-hit",
+      "from": "a.cache",
+      "to": "a.profile",
+      "kind": "flow",
+      "branch": "缓存命中",
+      "sourceIds": [
+        "auth.cache"
+      ]
+    },
+    {
+      "id": "e.cache-miss",
+      "from": "a.cache",
+      "to": "r.post",
+      "kind": "call",
+      "label": "未命中",
+      "sourceIds": [
+        "auth.cache",
+        "auth.request"
+      ]
+    },
+    {
+      "id": "e.post-ok",
+      "from": "r.post",
+      "to": "r.ok",
+      "kind": "flow",
+      "sourceIds": [
+        "req.ok"
+      ]
+    },
+    {
+      "id": "e.post-denied",
+      "from": "r.post",
+      "to": "r.denied",
+      "kind": "flow",
+      "branch": "401 / 423",
+      "sourceIds": [
+        "req.denied"
+      ]
+    },
+    {
+      "id": "e.post-retry",
+      "from": "r.post",
+      "to": "r.retry",
+      "kind": "flow",
+      "branch": "其他错误",
+      "sourceIds": [
+        "req.retry"
+      ]
+    },
+    {
+      "id": "e.retry-post",
+      "from": "r.retry",
+      "to": "r.post",
+      "kind": "flow",
+      "branch": "再试一次",
+      "sourceIds": [
+        "req.retry"
+      ]
+    },
+    {
+      "id": "e.retry-giveup",
+      "from": "r.retry",
+      "to": "r.giveup",
+      "kind": "flow",
+      "branch": "第 3 次仍失败",
+      "sourceIds": [
+        "req.giveup"
+      ]
+    },
+    {
+      "id": "e.ok-store",
+      "from": "r.ok",
+      "to": "a.store",
+      "kind": "flow",
+      "sourceIds": [
+        "auth.store"
+      ]
+    },
+    {
+      "id": "e.store-profile",
+      "from": "a.store",
+      "to": "a.profile",
+      "kind": "call",
+      "sourceIds": [
+        "auth.store"
+      ]
+    },
+    {
+      "id": "e.denied-record",
+      "from": "r.denied",
+      "to": "a.record",
+      "kind": "flow",
+      "branch": "失败",
+      "sourceIds": [
+        "auth.request"
+      ]
+    },
+    {
+      "id": "e.giveup-record",
+      "from": "r.giveup",
+      "to": "a.record",
+      "kind": "flow",
+      "branch": "失败",
+      "sourceIds": [
+        "auth.request"
+      ]
+    },
+    {
+      "id": "e.record-error",
+      "from": "a.record",
+      "to": "show-error",
+      "kind": "flow",
+      "branch": "认证失败",
+      "sourceIds": [
+        "ctl.auth",
+        "ctl.error"
+      ]
+    },
+    {
+      "id": "e.profile-route",
+      "from": "a.profile",
+      "to": "t.home",
+      "kind": "flow",
+      "label": "跳转",
+      "sourceIds": [
+        "ctl.route",
+        "route.home"
+      ]
+    },
+    {
+      "id": "e.route-password",
+      "from": "a.profile",
+      "to": "t.password",
+      "kind": "flow",
+      "branch": "必须改密码",
+      "sourceIds": [
+        "route.password"
+      ]
+    },
+    {
+      "id": "e.route-onboarding",
+      "from": "a.profile",
+      "to": "t.onboarding",
+      "kind": "flow",
+      "branch": "首次登录",
+      "sourceIds": [
+        "route.onboarding"
+      ]
+    }
+  ],
+  "walkthrough": [
+    {
+      "id": "w.overview",
+      "title": "总入口",
+      "description": "onSubmit 依次调用校验、认证、跳转，失败都汇到错误出口。",
+      "nodeIds": [
+        "submit",
+        "validate",
+        "auth",
+        "route"
+      ],
+      "edgeIds": [
+        "e.submit-validate",
+        "e.ok-auth",
+        "e.profile-route"
+      ]
+    },
+    {
+      "id": "w.validate",
+      "title": "表单校验",
+      "description": "三项检查，任一失败提前返回。",
+      "nodeIds": [
+        "v.username",
+        "v.password",
+        "v.captcha"
+      ],
+      "edgeIds": [
+        "e.v1-err",
+        "e.v2-err",
+        "e.v3-err"
+      ]
+    },
+    {
+      "id": "w.cache",
+      "title": "token 缓存",
+      "description": "命中缓存时跳过登录请求。",
+      "nodeIds": [
+        "a.cache",
+        "a.profile"
+      ],
+      "edgeIds": [
+        "e.cache-hit"
+      ]
+    },
+    {
+      "id": "w.retry",
+      "title": "请求与重试",
+      "description": "401/423 不重试；其他错误退避重试，最多 3 次。",
+      "nodeIds": [
+        "r.post",
+        "r.denied",
+        "r.retry",
+        "r.giveup"
+      ],
+      "edgeIds": [
+        "e.post-denied",
+        "e.post-retry",
+        "e.retry-giveup"
+      ]
+    },
+    {
+      "id": "w.route",
+      "title": "落地页",
+      "description": "改密码、首次引导、首页三个去向。",
+      "nodeIds": [
+        "t.password",
+        "t.onboarding",
+        "t.home"
+      ],
+      "edgeIds": [
+        "e.route-password",
+        "e.route-onboarding",
+        "e.profile-route"
+      ]
+    }
+  ]
+}
