@@ -9,43 +9,50 @@
       "file": "src/bag-button.ts",
       "startLine": 3,
       "endLine": 7,
-      "anchorText": "export function bindBagButton(button: HTMLButtonElement): void {\n  button.addEventListener('click', () => {\n    void openBagPanel();\n  });\n}"
+      "anchorText": "export function bindBagButton(button: HTMLButtonElement): void {\n  button.addEventListener('click', () => {\n    void openBagPanel();\n  });\n}",
+      "note": "给背包按钮绑定点击事件，点击后打开面板"
     },
     "button.id": {
       "file": "src/bag-button.ts",
       "startLine": 9,
       "endLine": 9,
-      "anchorText": "export const bagButtonId = 'bag-button';"
+      "anchorText": "export const bagButtonId = 'bag-button';",
+      "note": "按钮的 DOM id，供绑定时查找"
     },
     "panel.open": {
       "file": "src/bag-panel.ts",
       "startLine": 7,
       "endLine": 11,
-      "anchorText": "  panel = document.createElement('div');\n  panel.className = 'bag-panel';\n  await ensureAssets();\n  await refreshList();\n}"
+      "anchorText": "  panel = document.createElement('div');\n  panel.className = 'bag-panel';\n  await ensureAssets();\n  await refreshList();\n}",
+      "note": "创建面板节点，先加载界面资源再刷新列表"
     },
     "panel.refresh": {
       "file": "src/bag-panel.ts",
       "startLine": 17,
       "endLine": 21,
-      "anchorText": "export async function refreshList(): Promise<void> {\n  const items = await readItems();\n  if (!panel) return;\n  panel.replaceChildren(...items.map(item => renderItem(item)));\n}"
+      "anchorText": "export async function refreshList(): Promise<void> {\n  const items = await readItems();\n  if (!panel) return;\n  panel.replaceChildren(...items.map(item => renderItem(item)));\n}",
+      "note": "读取物品后重新渲染列表"
     },
     "panel.read": {
       "file": "src/bag-panel.ts",
       "startLine": 23,
       "endLine": 27,
-      "anchorText": "async function readItems(): Promise<BagItem[]> {\n  const items = await loadBag();\n  if (items.length > 0) return items;\n  return loadFallback();\n}"
+      "anchorText": "async function readItems(): Promise<BagItem[]> {\n  const items = await loadBag();\n  if (items.length > 0) return items;\n  return loadFallback();\n}",
+      "note": "读取背包数据，没有数据时走兜底"
     },
     "repo.load": {
       "file": "src/bag-repository.ts",
       "startLine": 6,
       "endLine": 12,
-      "anchorText": "  const cached = cache.get('bag');\n  if (cached) return cached;\n  const response = await fetch('/api/bag');\n  const items = (await response.json()) as BagItem[];\n  cache.set('bag', items);\n  return items;\n}"
+      "anchorText": "  const cached = cache.get('bag');\n  if (cached) return cached;\n  const response = await fetch('/api/bag');\n  const items = (await response.json()) as BagItem[];\n  cache.set('bag', items);\n  return items;\n}",
+      "note": "先查缓存，未命中再请求接口并写回缓存"
     },
     "repo.fallback": {
       "file": "src/bag-repository.ts",
       "startLine": 14,
       "endLine": 16,
-      "anchorText": "export async function loadFallback(): Promise<BagItem[]> {\n  return [];\n}"
+      "anchorText": "export async function loadFallback(): Promise<BagItem[]> {\n  return [];\n}",
+      "note": "接口无数据时返回空列表作为兜底"
     }
   },
   "nodes": [

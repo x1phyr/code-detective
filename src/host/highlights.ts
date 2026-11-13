@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ViewState, SourceStatus } from '../../shared/types';
 import { relatedSourceIds, sourceIdsForSelection } from '../core/selection';
+import { annotateSource } from '../core/annotations';
 import { isUsableSource, type AcceptedMap, type SourceService } from './sources';
 
 export function sourceRange(document: vscode.TextDocument, status: SourceStatus): vscode.Range | undefined {
@@ -25,6 +26,15 @@ export class HighlightController implements vscode.Disposable {
     overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.findMatchForeground'),
     overviewRulerLane: vscode.OverviewRulerLane.Right,
   });
+  /** Gray end-of-line note on the first line of each selected range. */
+  private readonly note = vscode.window.createTextEditorDecorationType({
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    after: {
+      margin: '0 0 0 2.5em',
+      color: new vscode.ThemeColor('editorCodeLens.foreground'),
+      fontStyle: 'italic',
+    },
+  });
   private current?: { record: AcceptedMap; ui: ViewState };
   private touched = new Set<vscode.TextEditor>();
   private disposed = false;
@@ -48,38 +58,60 @@ export class HighlightController implements vscode.Disposable {
 
   clear(): void {
     this.current = undefined;
-    for (const editor of new Set([...this.touched, ...vscode.window.visibleTextEditors])) {
-      try { editor.setDecorations(this.base, []); editor.setDecorations(this.selected, []); } catch {}
-    }
+    for (const editor of new Set([...this.touched, ...vscode.window.visibleTextEditors])) this.reset(editor);
     this.touched.clear();
+  }
+
+  private reset(editor: vscode.TextEditor): void {
+    try {
+      editor.setDecorations(this.base, []);
+      editor.setDecorations(this.selected, []);
+      editor.setDecorations(this.note, []);
+    } catch { /* editor already closed */ }
   }
 
   private apply(): void {
     const current = this.current;
     if (!current?.ui.highlightEnabled) { this.clear(); return; }
-    const related = relatedSourceIds(current.record.map);
-    const selected = sourceIdsForSelection(current.record.map, current.ui.selection);
+    const { map } = current.record;
+    const { selection } = current.ui;
+    const related = relatedSourceIds(map);
+    const selected = sourceIdsForSelection(map, selection);
     const editors = vscode.window.visibleTextEditors;
     for (const editor of editors) {
-      const getRanges = (ids: string[]): vscode.Range[] => {
+      const located = (ids: string[]): { id: string; range: vscode.Range }[] => {
         const seen = new Set<string>();
-        const ranges: vscode.Range[] = [];
+        const out: { id: string; range: vscode.Range }[] = [];
         for (const id of ids) {
           const status = this.sources.getStatus(id);
           if (!isUsableSource(status) || !status || !this.sources.matchesEditor(id, editor.document)) continue;
           const range = sourceRange(editor.document, status);
           const key = `${status.startLine}:${status.endLine}`;
-          if (range && !seen.has(key)) { seen.add(key); ranges.push(range); }
+          if (range && !seen.has(key)) { seen.add(key); out.push({ id, range }); }
         }
-        return ranges;
+        return out;
       };
-      editor.setDecorations(this.base, getRanges(related));
-      editor.setDecorations(this.selected, getRanges(selected));
+
+      const chosen = located(selected);
+      const selectedOptions: vscode.DecorationOptions[] = [];
+      const noteOptions: vscode.DecorationOptions[] = [];
+      for (const { id, range } of chosen) {
+        const annotation = annotateSource(map, id, selection);
+        const hoverMessage = annotation ? new vscode.MarkdownString(annotation.hover) : undefined;
+        selectedOptions.push({ range, hoverMessage });
+        if (annotation) {
+          const first = editor.document.lineAt(range.start.line).range;
+          noteOptions.push({ range: new vscode.Range(first.end, first.end), renderOptions: { after: { contentText: annotation.inline } } });
+        }
+      }
+      editor.setDecorations(this.base, located(related).map(item => item.range));
+      editor.setDecorations(this.selected, selectedOptions);
+      editor.setDecorations(this.note, noteOptions);
       this.touched.add(editor);
     }
     for (const editor of [...this.touched]) {
       if (!editors.includes(editor)) {
-        try { editor.setDecorations(this.base, []); editor.setDecorations(this.selected, []); } catch {}
+        this.reset(editor);
         this.touched.delete(editor);
       }
     }
@@ -91,5 +123,6 @@ export class HighlightController implements vscode.Disposable {
     this.listener.dispose();
     this.base.dispose();
     this.selected.dispose();
+    this.note.dispose();
   }
 }

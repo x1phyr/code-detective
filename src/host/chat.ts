@@ -4,7 +4,7 @@ import { parseMap } from '../core/validator';
 import { errorMessage } from '../core/errors';
 import { extractJson } from '../ai/json';
 import { MAP_DIR, writeMapFile, type WrittenMap } from './mapWriter';
-import { checkedSourceUri } from './paths';
+import { readWorkspaceText } from './workspaceText';
 import { MAX_QUERY_LENGTH, unsafeRegex } from './regexGuard';
 
 export const PARTICIPANT_ID = 'code-detective.detective';
@@ -65,21 +65,10 @@ const READ_SCHEMA = {
   },
 } as const;
 
-/** Upper bound for files the tools read whole (readSource, anchor filling). */
-const MAX_READ_BYTES = 2 * 1024 * 1024;
 /** Only this much of each line is matched, which bounds per-line regex work. */
 const MAX_MATCH_LINE = 1_000;
 const SEARCH_BUDGET_MS = 3_000;
 
-async function readWorkspaceText(root: vscode.WorkspaceFolder, file: string): Promise<string> {
-  const { realUri } = await checkedSourceUri(root.uri, file);
-  const stat = await vscode.workspace.fs.stat(realUri);
-  if (stat.size > MAX_READ_BYTES) {
-    throw new Error(`${file} 超过 ${MAX_READ_BYTES / 1024 / 1024} MiB，不读取。`);
-  }
-  const bytes = await vscode.workspace.fs.readFile(realUri);
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-}
 
 function splitLines(text: string): string[] {
   return text.replace(/\r\n?/g, '\n').split('\n');

@@ -37,7 +37,8 @@ const SCHEMA = [
   '  "id": "kebab-case-id",',
   '  "title": "地图标题",',
   '  "description": "可选说明",',
-  '  "sources": { "<sourceId>": { "file": "src/a.ts", "startLine": 1, "endLine": 3 } },',
+  '  "sources": { "<sourceId>": { "file": "src/a.ts", "startLine": 1, "endLine": 3,',
+  '                               "note": "这段代码做了什么（一句话）" } },',
   '  "nodes": [{ "id": "step-1", "label": "短标签", "description": "可选",',
   '               "kind": "step|function|condition|event", "sourceIds": ["<sourceId>"] }],',
   '  "edges": [{ "id": "e1", "from": "step-1", "to": "step-2", "label": "调用",',
@@ -57,7 +58,8 @@ export const OUTPUT_CONTRACT = [
   '3. map.id 匹配 ^[a-z0-9][a-z0-9-]*$；node / edge / step / source 的 id 匹配 ^[A-Za-z0-9_.:-]+$。',
   '4. 每个 source 必须给出相对工作区的 file（用 / 分隔）、startLine、endLine，且 endLine >= startLine。',
   '5. 不要写 anchorText：插件会按真实文件重新生成。',
-  '6. 只写有源码依据的节点与连线，宁缺勿滥。',
+  '6. 每个 source 都要写 note：用一句话（不超过 60 字）说明这几行在流程里做了什么，它会显示在代码行尾。',
+  '7. 只写有源码依据的节点与连线，宁缺勿滥。',
 ].join('\n');
 
 export function retryPrompt(issues: readonly string[]): string {

@@ -73,7 +73,8 @@ function sourceRef(value: unknown): Parsed<SourceRef> {
   if (startLine === undefined || endLine === undefined) return { reason: '行号必须是正整数' };
   if (endLine < startLine) return { reason: 'endLine 小于 startLine' };
   // anchorText is always regenerated from the real file, never trusted from the model.
-  return { item: { file: value.file, startLine, endLine } };
+  const note = shortText(value.note);
+  return { item: note ? { file: value.file, startLine, endLine, note } : { file: value.file, startLine, endLine } };
 }
 
 /** Keeps valid, unique ids; records the rest as filtered references. */
@@ -260,6 +261,7 @@ export const DRAFT_MAP_SCHEMA = {
           file: { type: 'string', description: '工作区相对路径，使用 / 分隔' },
           startLine: { type: 'integer', minimum: 1 },
           endLine: { type: 'integer', minimum: 1 },
+          note: { type: 'string', description: '这段代码做了什么，一句话，不超过 200 字；会显示在代码行尾' },
         },
       },
     },
@@ -385,6 +387,7 @@ export function fillAnchors(
       startLine: from,
       endLine: to,
       anchorText: lines.slice(from - 1, to).join('\n'),
+      ...(ref.note ? { note: ref.note } : {}),
     });
   }
 

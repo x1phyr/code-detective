@@ -75,7 +75,8 @@
         },
         "startLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "endLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "anchorText": { "type": "string" }
+        "anchorText": { "type": "string" },
+        "note": { "$ref": "#/definitions/shortText", "description": "这段代码做了什么，一句话；点击节点时显示在代码行尾" }
       }
     },
     "node": {

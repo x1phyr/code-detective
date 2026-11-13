@@ -2,6 +2,7 @@ import type { CodeMap } from '../../shared/types';
 import { extractJson } from './json';
 import { explorePrompt, OUTPUT_CONTRACT, retryPrompt, type PromptContext } from './prompt';
 import { parseMap } from '../core/validator';
+import { describeAdjustments, fillAnchors, normalizeDraft } from '../core/mapDraft';
 import { AiError, type AgentSession } from './types';
 
 export interface MapRequest {
@@ -14,11 +15,19 @@ export interface MapRequest {
   cancel: import('./types').AgentCancel;
   onPhase?(phase: 'running' | 'validating' | 'retry', detail?: string): void;
   onProgress?(chars: number): void;
+  /**
+   * Reads a workspace file for anchor filling (undefined when unreadable).
+   * When set, the reply goes through the same tolerant pipeline as chat:
+   * bad items are dropped and reported, anchors come from the real file.
+   */
+  readFile?(file: string): Promise<string | undefined>;
 }
 
 export interface MapResult {
   text: string;
   map: CodeMap;
+  /** What the tolerant pipeline dropped or clamped; empty without `readFile`. */
+  adjustments: string[];
   /** Turns used, including the retry turn. */
   attempts: number;
   sessionId?: string;
@@ -63,7 +72,8 @@ export async function generateMap(
   for (;;) {
     request.onPhase?.('validating');
     try {
-      return { text: reply.text, map: mapFromReply(reply.text), attempts, sessionId: reply.sessionId };
+      const { map, adjustments } = await buildMap(reply.text, request.readFile);
+      return { text: reply.text, map, adjustments, attempts, sessionId: reply.sessionId };
     } catch (error) {
       lastIssues = [(error as Error).message];
       if (attempts > retries) {
@@ -78,6 +88,26 @@ export async function generateMap(
 }
 
 /** Extracts and validates the JSON object from the agent's final message. */
+const MAX_ANCHOR_FILES = 60;
+
+async function buildMap(
+  text: string,
+  readFile: MapRequest['readFile'],
+): Promise<{ map: CodeMap; adjustments: string[] }> {
+  if (!readFile) return { map: mapFromReply(text), adjustments: [] };
+  const json = extractJson(text);
+  if (!json) throw new AiError('AI_NO_JSON', '没有在 agent 的回复中找到合法的 JSON 对象。');
+  const draft = normalizeDraft(JSON.parse(json));
+  const files = [...new Set(Object.values(draft.sources).map(ref => ref.file))].slice(0, MAX_ANCHOR_FILES);
+  const cache = new Map<string, string | undefined>();
+  await Promise.all(files.map(async file => {
+    cache.set(file, await readFile(file).catch(() => undefined));
+  }));
+  const filled = fillAnchors(draft, file => cache.get(file));
+  const map = parseMap(JSON.stringify(filled.map));
+  return { map, adjustments: describeAdjustments(filled) };
+}
+
 export function mapFromReply(text: string): CodeMap {
   const json = extractJson(text);
   if (!json) throw new AiError('AI_NO_JSON', '没有在 agent 的回复中找到合法的 JSON 对象。');

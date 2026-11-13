@@ -341,3 +341,30 @@ test('cli.allowedTools 生效，但只保留只读工具', () => {
   assert.equal(tools('Bash'), 'Read,Grep,Glob,LS', '全部被过滤时回落到默认只读集合');
   assert.equal(tools(''), 'Read,Grep,Glob,LS');
 });
+
+test('提供 readFile 时，命令行生成的地图按真实文件补锚点、保留 note 并容错', async () => {
+  const reply = JSON.stringify({
+    schemaVersion: 1, id: 'demo', title: 'Demo',
+    sources: {
+      s1: { file: 'src/a.ts', startLine: 2, endLine: 3, note: '核心逻辑' },
+      far: { file: 'src/a.ts', startLine: 99, endLine: 120 },
+    },
+    nodes: [
+      { id: 'n1', label: 'A', sourceIds: ['s1'] },
+      { id: 'n1', label: '重复', sourceIds: ['s1'] },
+      { id: 'n2', label: 'B', sourceIds: ['far'] },
+    ],
+    edges: [],
+  });
+  const session = { label: 'fake', send: async () => ({ text: reply }) };
+  const result = await generateMap(session as never, {
+    topic: 't', rootName: 'r', priorityFiles: [], cwd: '/', timeoutMs: 1_000,
+    cancel: { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) },
+    readFile: async file => (file === 'src/a.ts' ? 'l1\nl2\nl3\nl4\n' : undefined),
+  }, { retries: 0 });
+  assert.equal(result.attempts, 1, '小错不应触发重试');
+  assert.deepEqual(result.map.sources.s1, { file: 'src/a.ts', startLine: 2, endLine: 3, anchorText: 'l2\nl3', note: '核心逻辑' });
+  assert.ok(!('far' in result.map.sources), '起始行越界的来源被丢弃');
+  assert.deepEqual(result.map.nodes.map(node => node.id), ['n1']);
+  assert.ok(result.adjustments.length > 0, '丢弃项应被报告');
+});

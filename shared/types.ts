@@ -3,6 +3,8 @@ export interface SourceRef {
   startLine: number;
   endLine: number;
   anchorText?: string;
+  /** One-line explanation shown beside the highlighted code (≤ 200 chars). */
+  note?: string;
 }
 export interface MapNode {
   id: string;

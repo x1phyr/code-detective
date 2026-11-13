@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readWorkspaceText } from './workspaceText';
 import * as path from 'node:path';
 import type { AiPhase, AiAgentStatus, AiResultPayload, CodeMap } from '../../shared/types';
 import { readAiConfig, type AiConfig } from '../ai/config';
@@ -154,6 +155,7 @@ export class AiService implements vscode.Disposable {
           detail === undefined ? undefined : detail.length);
         },
         onProgress: chars => this.report('running', `${session.label} 正在阅读源码`, chars),
+        readFile: file => readWorkspaceText(root, file),
       }, { retries: 1 });
       task.sessionId = result.sessionId;
 
@@ -167,6 +169,9 @@ export class AiService implements vscode.Disposable {
       await this.hooks.refresh();
       this.lastPhase = '';
       this.report('done', `已生成 ${path.posix.basename(written.relativePath)}`);
+      if (result.adjustments.length > 0) {
+        this.hooks.log.appendLine(`地图《${result.map.title}》已自动修正：\n${result.adjustments.join('\n')}`);
+      }
       this.hooks.result({
         ok: true,
         phase: 'done',
@@ -174,7 +179,8 @@ export class AiService implements vscode.Disposable {
         title: result.map.title,
         fileName: written.relativePath,
         provider: session.label,
-        message: `${session.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 轮`,
+        message: `${session.label} · ${Math.round((Date.now() - started) / 1000)} 秒 · ${result.attempts} 轮`
+          + (result.adjustments.length > 0 ? ` · 自动修正 ${result.adjustments.length} 处（详见输出面板）` : ''),
       });
     } catch (error) {
       const cancelled = source.token.isCancellationRequested
