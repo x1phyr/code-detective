@@ -67,6 +67,10 @@ export const webview = {
   'webview.hideBranches': { 'zh-CN': '收起分支', en: 'Hide branches' },
   'webview.multipleSources': { 'zh-CN': '{count} 处源码，点击选择', en: '{count} source locations; click to choose' },
   'webview.sourceDrift': { 'zh-CN': '部分源码位置已漂移或缺失', en: 'Some source locations drifted or are missing' },
+  'webview.enterBlockShort': { 'zh-CN': '进入 · {count} 步', en: 'Open · {count} steps' },
+  'webview.showBranchesShort': { 'zh-CN': '{count} 个分支', en: '{count} branches' },
+  'webview.hideBranchesShort': { 'zh-CN': '收起分支', en: 'Hide' },
+  'webview.chooseSource': { 'zh-CN': '选择要打开的代码', en: 'Choose code to open' },
   'webview.mergedEdges': { 'zh-CN': '{count} 条调用', en: '{count} calls' },
   'webview.nodeKindExit': { 'zh-CN': '结束', en: 'Exit' },
 } satisfies Record<`webview.${string}`, Message>;

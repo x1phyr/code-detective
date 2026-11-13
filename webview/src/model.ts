@@ -17,6 +17,14 @@ export interface NodeData {
   sources: number;
   /** 有源码位置漂移或缺失。 */
   warn: boolean;
+  /** 布局时使用的高度；节点按这个高度渲染，保证连线正好接在边上。 */
+  height: number;
+}
+
+/** 连线上显示的文字：合并的跨层连线显示“N 条调用”，支线显示分支条件，其余显示 label。 */
+export function edgeText(edge: { edge: MapEdge; edgeIds: readonly string[] }): string | undefined {
+  if (edge.edgeIds.length > 1) return t('webview.mergedEdges', { count: edge.edgeIds.length });
+  return edge.edge.branch ?? edge.edge.label;
 }
 
 export interface EdgeData {
@@ -28,6 +36,10 @@ export interface EdgeData {
   merged: number;
   /** 是否为支线。 */
   branch: boolean;
+  /** 显示在线上的文字。 */
+  label?: string;
+  /** ELK 给出的折线路由；兜底布局时没有，由画布直接连接两端。 */
+  route?: import('./layout').EdgeRoute;
 }
 
 const NODE_KIND_KEYS = {

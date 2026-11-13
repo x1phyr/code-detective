@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { VueFlow, useVueFlow, type Edge, type Node, type ViewportTransform } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import type {
@@ -19,8 +19,9 @@ import { t } from '../../shared/i18n';
 import type { HostBridge } from './host';
 import MapNode from './components/MapNode.vue';
 import MapEdge from './components/MapEdge.vue';
-import { computeLayout, type Positioned } from './layout';
-import { relatedSelection, statusTone } from './model';
+import { computeLayout, type LayoutResult } from './layout';
+import { edgeLabelSize, nodeShape, nodeSize } from './measure';
+import { edgeText, relatedSelection, statusTone } from './model';
 
 const props = defineProps<{ host: HostBridge }>();
 
@@ -37,7 +38,7 @@ function initialTheme(): ThemeKind {
 
 const theme = ref<ThemeKind>(initialTheme());
 const notice = ref<{ message: string; severity: string }>();
-const layout = ref<Record<string, Positioned>>({});
+const layout = shallowRef<LayoutResult>({ nodes: {}, edges: {} });
 /** 与 `layout` 对应的地图；画布只渲染已布局好的版本，避免新节点在布局完成前堆在原点。 */
 const layoutMap = shallowRef<CodeMap>();
 /** 当前所在的功能块（顶层为 undefined）。只在 webview 本地，不写回宿主。 */
@@ -85,18 +86,6 @@ const related = computed(() => {
   return { nodes, edges };
 });
 
-/** 节点位置只由 ELK 布局决定，用户不能拖动，因此不使用会话里保存的坐标。 */
-const currentPositions = computed<Record<string, { x: number; y: number }>>(() => {
-  const current = layoutMap.value;
-  if (!current) return {};
-  const output: Record<string, { x: number; y: number }> = {};
-  for (const node of current.nodes) {
-    const position = layout.value[node.id];
-    output[node.id] = position ? { x: Math.round(position.x), y: Math.round(position.y) } : { x: 0, y: 0 };
-  }
-  return output;
-});
-
 const activeNodeId = computed(() => {
   const current = map.value;
   const chosen = selection.value;
@@ -104,30 +93,42 @@ const activeNodeId = computed(() => {
   return representativeAt(current, chosen.id, level.value);
 });
 
+/** 节点的附加信息（子节点数、折叠数、源码数……），布局和渲染共用，保证尺寸一致。 */
+function nodeExtras(node: CodeMap['nodes'][number], hidden: Map<string, number>) {
+  return {
+    children: blocks.value.get(node.id) ?? 0,
+    hidden: hidden.get(node.id) ?? 0,
+    expanded: expanded.value.has(node.id),
+    sources: node.sourceIds.length,
+    warn: node.sourceIds.some(id => {
+      const state = statuses.value[id]?.state;
+      return state !== undefined && state !== 'pending' && state !== 'matched';
+    }),
+  };
+}
+
 const nodes = computed<Node[]>(() => {
   const current = currentLevel.value;
   if (!current) return [];
-  const positions = currentPositions.value;
+  const boxes = layout.value.nodes;
   const { visible, hidden } = collapsed.value;
-  return current.nodes.filter(node => visible.has(node.id)).map(node => ({
-    id: node.id,
-    type: 'detective',
-    position: positions[node.id] ?? { x: 0, y: 0 },
-    data: {
-      node,
-      active: activeNodeId.value === node.id,
-      related: related.value.nodes.has(node.id),
-      dimmed: Boolean(selection.value) && !related.value.nodes.has(node.id),
-      children: blocks.value.get(node.id) ?? 0,
-      hidden: hidden.get(node.id) ?? 0,
-      expanded: expanded.value.has(node.id),
-      sources: node.sourceIds.length,
-      warn: node.sourceIds.some(id => {
-        const state = statuses.value[id]?.state;
-        return state !== undefined && state !== 'pending' && state !== 'matched';
-      }),
-    },
-  }));
+  return current.nodes.filter(node => visible.has(node.id)).map(node => {
+    const box = boxes[node.id];
+    const extras = nodeExtras(node, hidden);
+    return {
+      id: node.id,
+      type: 'detective',
+      position: { x: Math.round(box?.x ?? 0), y: Math.round(box?.y ?? 0) },
+      data: {
+        node,
+        ...extras,
+        height: box?.height ?? nodeSize(node, nodeShape(node, extras)).height,
+        active: activeNodeId.value === node.id,
+        related: related.value.nodes.has(node.id),
+        dimmed: Boolean(selection.value) && !related.value.nodes.has(node.id),
+      },
+    };
+  });
 });
 
 const edges = computed<Edge[]>(() => {
@@ -145,6 +146,8 @@ const edges = computed<Edge[]>(() => {
       edge: edge.edge,
       merged: edge.edgeIds.length,
       branch: edge.branch,
+      label: edgeText(edge),
+      route: layout.value.edges[edge.id],
       active: chosen?.kind === 'edge' && edge.edgeIds.includes(chosen.id),
       related: related.value.edges.has(edge.id),
       dimmed: Boolean(chosen) && !related.value.edges.has(edge.id),
@@ -213,6 +216,7 @@ function selectAndReveal(kind: 'node' | 'edge', id: string, at?: { x: number; y:
 function pointer(event: MouseEvent | TouchEvent): { x: number; y: number } {
   const point = 'touches' in event ? event.touches[0] ?? event.changedTouches[0] : event;
   const box = document.querySelector('.cd-canvas')?.getBoundingClientRect();
+  canvasSize.value = { width: box?.width ?? 0, height: box?.height ?? 0 };
   return { x: (point?.clientX ?? 0) - (box?.left ?? 0), y: (point?.clientY ?? 0) - (box?.top ?? 0) };
 }
 
@@ -308,13 +312,15 @@ function flushViewportPatch(): void {
 
 function onViewportChange(viewport: ViewportTransform): void {
   if (applyingViewport) return;
+  autoFit = false;
   pendingViewport = { x: Math.round(viewport.x), y: Math.round(viewport.y), zoom: Number(viewport.zoom.toFixed(3)) };
   if (viewportTimer) clearTimeout(viewportTimer);
   viewportTimer = setTimeout(flushViewportPatch, VIEWPORT_DEBOUNCE_MS);
 }
 
-async function applyViewport(change: () => Promise<unknown>): Promise<void> {
+async function applyViewport(change: () => Promise<unknown>, auto = true): Promise<void> {
   applyingViewport = true;
+  autoFit = auto;
   try {
     await change();
   } finally {
@@ -322,8 +328,52 @@ async function applyViewport(change: () => Promise<unknown>): Promise<void> {
   }
 }
 
+/**
+ * 适配整层：侧栏通常又窄又高，按宽度适配、水平居中、顶部对齐。
+ * 内容太高时不再继续缩小（最小 0.6），而是让用户上下拖动，避免字小到看不清。
+ */
+function fitContent(duration = 0): Promise<unknown> {
+  const boxes = Object.values(layout.value.nodes);
+  const pane = document.querySelector('.cd-canvas')?.getBoundingClientRect();
+  if (!boxes.length || !pane?.width) return flow.fitView({ padding: 0.1, maxZoom: 1 });
+  const pad = 16;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const box of boxes) {
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x + box.width + 4);
+    maxY = Math.max(maxY, box.y + box.height + 4);
+  }
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const fitWidth = (pane.width - pad * 2) / width;
+  const fitHeight = (pane.height - pad * 2) / height;
+  const zoom = Math.min(1, fitWidth, Math.max(fitHeight, Math.min(0.6, fitWidth)));
+  const x = (pane.width - width * zoom) / 2 - minX * zoom;
+  // 顶部对齐：侧栏里从上往下读，不在上方留一大块空白。
+  const y = pad - minY * zoom;
+  return flow.setViewport({ x, y, zoom }, { duration });
+}
+
+/** 视口还是程序适配出来的（用户没手动拖动/缩放过）：面板尺寸变化时自动重新适配。 */
+let autoFit = true;
+let resizeObserver: ResizeObserver | undefined;
+let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function watchCanvasSize(element: Element | null): void {
+  resizeObserver?.disconnect();
+  if (!element || typeof ResizeObserver === 'undefined') return;
+  resizeObserver = new ResizeObserver(() => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (autoFit && ready.value) void applyViewport(() => fitContent());
+    }, 80);
+  });
+  resizeObserver.observe(element);
+}
+
 function fitToView(): void {
-  void applyViewport(() => flow.fitView({ padding: 0.2 }));
+  void applyViewport(() => fitContent(200));
 }
 
 /** 切到新地图后待执行的首次视口：有保存的视口就恢复，否则适配整张图。只执行一次。 */
@@ -336,13 +386,34 @@ function onNodesInitialized(): void {
   if (!pending || pending.key !== snapshot.value?.key) return;
   initialView = undefined;
   const saved = pending.viewport;
-  void applyViewport(() => (saved ? flow.setViewport(saved) : flow.fitView({ padding: 0.2 })));
+  void applyViewport(() => (saved ? flow.setViewport(saved) : fitContent()), !saved);
 }
 
 function openSource(sourceId: string): void {
   const menu = sourceMenu.value;
   sourceMenu.value = undefined;
   if (menu) reveal(menu.kind, menu.id, sourceId);
+}
+
+/** 菜单出现在点击处，但不超出画布：靠右时向左展开，靠下时向上展开。 */
+const canvasSize = ref({ width: 0, height: 0 });
+const menuStyle = computed(() => {
+  const menu = sourceMenu.value;
+  if (!menu) return {};
+  const { width, height } = canvasSize.value;
+  const menuWidth = Math.min(280, width - 16);
+  const left = Math.max(8, Math.min(menu.x, width - menuWidth - 8));
+  const below = menu.y + 8 < height * 0.6;
+  return below
+    ? { left: `${left}px`, top: `${menu.y + 8}px` }
+    : { left: `${left}px`, bottom: `${Math.max(8, height - menu.y + 8)}px` };
+});
+
+function sourceLocation(id: string): string {
+  const ref = map.value?.sources[id];
+  const file = statuses.value[id]?.file ?? ref?.file ?? id;
+  const line = statuses.value[id]?.startLine ?? ref?.startLine;
+  return line ? `${file.split('/').pop()}:${line}` : file;
 }
 
 const menuSources = computed(() => {
@@ -356,7 +427,7 @@ const menuSources = computed(() => {
 async function focusNodes(ids: string[]): Promise<void> {
   if (ids.length === 0 || !ready.value) return;
   await nextTick();
-  void applyViewport(() => flow.fitView({ nodes: ids, padding: 0.35, maxZoom: 1.2, duration: 240 }));
+  void applyViewport(() => flow.fitView({ nodes: ids, padding: 0.25, maxZoom: 1, duration: 240 }), false);
 }
 
 function handle(message: HostMessage): void {
@@ -388,10 +459,19 @@ let layoutGeneration = 0;
 async function prepareLayout(current: CodeMap): Promise<void> {
   const generation = ++layoutGeneration;
   const view = levelOf(current, level.value);
-  const { visible } = collapseBranches(view, expanded.value);
+  const { visible, hidden } = collapseBranches(view, expanded.value);
   const positions = await computeLayout({
-    nodes: view.nodes.filter(node => visible.has(node.id)),
-    edges: view.edges.filter(edge => visible.has(edge.from) && visible.has(edge.to)),
+    nodes: view.nodes.filter(node => visible.has(node.id)).map(node => ({
+      id: node.id,
+      ...nodeSize(node, nodeShape(node, nodeExtras(node, hidden))),
+    })),
+    edges: view.edges.filter(edge => visible.has(edge.from) && visible.has(edge.to)).map(edge => ({
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+      branch: edge.branch,
+      label: edgeLabelSize(edgeText(edge)),
+    })),
   });
   if (generation !== layoutGeneration) return;
   layout.value = positions;
@@ -409,7 +489,8 @@ watch([level, expanded], async () => {
   const levelChanged = key.split('|')[0] !== layoutKey.split('|')[0];
   await prepareLayout(current);
   await nextTick();
-  if (levelChanged) void applyViewport(() => flow.fitView({ padding: 0.2, maxZoom: 1.2 }));
+  // 换层：重新适配；展开/收起支线：如果用户没手动调整过视口，也重新适配，避免新出现的支线跑出画布。
+  if (levelChanged || autoFit) void applyViewport(() => fitContent(levelChanged ? 0 : 200));
 });
 
 /**
@@ -454,7 +535,10 @@ onMounted(() => {
   props.host.onMessage(handle);
   window.addEventListener('pagehide', flushViewportPatch);
   post('view.ready', {});
+  watchCanvasSize(document.querySelector('.cd-canvas'));
 });
+
+onBeforeUnmount(() => resizeObserver?.disconnect());
 </script>
 
 <template>
@@ -548,17 +632,16 @@ onMounted(() => {
           v-if="sourceMenu && menuSources.length"
           class="cd-popup"
           role="menu"
-          :style="{ left: `${sourceMenu.x}px`, top: `${sourceMenu.y}px` }"
+          :style="menuStyle"
         >
+          <li class="cd-popup-title" role="presentation">{{ t('webview.chooseSource') }}</li>
           <li v-for="id in menuSources" :key="id" role="none">
             <button role="menuitem" class="cd-source" :class="{ chosen: activeSourceId === id }" @click="openSource(id)">
               <span class="cd-dot" :class="statusTone(statuses[id]?.state)"></span>
               <span class="cd-source-text">
-                <strong>{{ map?.sources[id]?.note || (statuses[id]?.file ?? map?.sources[id]?.file ?? id) }}</strong>
-                <small>
-                  {{ statuses[id]?.file ?? map?.sources[id]?.file }} ·
-                  {{ t('webview.sourceLineRange', { start: statuses[id]?.startLine ?? map?.sources[id]?.startLine ?? 0, end: statuses[id]?.endLine ?? map?.sources[id]?.endLine ?? 0 }) }}
-                  · {{ labelFor(statuses[id]) }}
+                <strong>{{ map?.sources[id]?.note || sourceLocation(id) }}</strong>
+                <small v-if="map?.sources[id]?.note" :title="`${statuses[id]?.file ?? map?.sources[id]?.file}:${statuses[id]?.startLine ?? map?.sources[id]?.startLine} · ${labelFor(statuses[id])}`">
+                  <bdi>{{ statuses[id]?.file ?? map?.sources[id]?.file }}:{{ statuses[id]?.startLine ?? map?.sources[id]?.startLine }}</bdi>
                 </small>
               </span>
             </button>
@@ -582,8 +665,11 @@ onMounted(() => {
 
     <svg class="cd-defs" aria-hidden="true">
       <defs>
-        <marker id="cd-arrow" viewBox="0 0 12 12" markerWidth="10" markerHeight="10" refX="10" refY="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 12 6 L 0 12 z" fill="currentColor" />
+        <marker id="cd-arrow" viewBox="0 0 10 10" markerWidth="8" markerHeight="8" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+          <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="var(--cd-edge)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </marker>
+        <marker id="cd-arrow-active" viewBox="0 0 10 10" markerWidth="9" markerHeight="9" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+          <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="var(--cd-focus)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
         </marker>
       </defs>
     </svg>

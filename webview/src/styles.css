@@ -23,6 +23,8 @@
   --cd-button-text: var(--vscode-button-foreground, #ffffff);
   --cd-button-hover: var(--vscode-button-hoverBackground, #026ec1);
   --cd-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  /* 连线需要在任何主题下都清楚可见，取编辑器里比较醒目的中性前景色。 */
+  --cd-edge: var(--vscode-editorLineNumber-activeForeground, var(--vscode-descriptionForeground, #9d9d9d));
   --cd-radius: 4px;
   font-family: var(--vscode-font-family, system-ui, -apple-system, 'Segoe UI', sans-serif);
   font-size: var(--vscode-font-size, 13px);
@@ -119,54 +121,27 @@ body {
 .cd-canvas { position: relative; flex: 1 1 60%; min-width: 0; min-height: 180px; }
 .cd-flow { width: 100%; height: 100%; }
 
-.cd-source {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
-  font: inherit;
-  text-align: left;
-  color: var(--cd-text);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--cd-radius);
-  cursor: pointer;
-}
-.cd-source:hover { background: var(--cd-hover); }
-.cd-source.chosen { background: var(--cd-selected); color: var(--cd-selected-text); }
-.cd-source-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.cd-source-text strong { font-weight: 500; overflow-wrap: anywhere; }
-.cd-source-text small { color: var(--cd-muted); }
-
 .cd-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--cd-muted); }
 .cd-dot.ok { background: var(--cd-ok); }
 .cd-dot.warn { background: var(--cd-warn); }
 .cd-dot.error { background: var(--cd-error); }
 .cd-dot.idle { background: var(--cd-muted); }
 
-.cd-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 3px;
-  font-size: 10px;
-  border-radius: 8px;
-  background: var(--cd-panel-2);
-  color: var(--cd-muted);
-}
+.cd-index { font-variant-numeric: tabular-nums; font-size: 11px; }
 
-/* 顶部导航：面包屑（当前所在功能块）+ 导读步骤条（横向滚动）。 */
+/*
+ * 顶部导航：一行。面包屑（在功能块里时）在左，阅读顺序在右侧横向滚动。
+ * 高度固定，切换步骤 / 层级时画布不会跳动。
+ */
 .cd-bar {
   flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 6px;
-  background: var(--cd-panel);
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--cd-border);
+  overflow: hidden;
 }
 .cd-crumbs, .cd-steps {
   margin: 0;
@@ -174,55 +149,95 @@ body {
   list-style: none;
   display: flex;
   align-items: center;
+  min-width: 0;
+}
+.cd-crumbs { flex: 0 1 auto; gap: 0; }
+.cd-crumbs + .cd-steps { border-left: 1px solid var(--cd-border); padding-left: 4px; }
+.cd-steps {
+  flex: 1 1 auto;
   gap: 2px;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
 }
-.cd-crumbs::-webkit-scrollbar, .cd-steps::-webkit-scrollbar { height: 4px; }
-.cd-crumbs li, .cd-steps li { display: flex; align-items: center; flex: none; }
-.cd-crumbs .codicon-chevron-right { font-size: 12px; color: var(--cd-muted); }
+.cd-steps::-webkit-scrollbar { display: none; }
+.cd-crumbs li { display: flex; align-items: center; min-width: 0; }
+.cd-crumbs li:last-child { flex: 0 1 auto; }
+.cd-steps li { display: flex; flex: none; }
+.cd-crumbs .codicon-chevron-right { flex: none; font-size: 12px; color: var(--cd-muted); }
 .cd-crumb, .cd-step {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 180px;
-  padding: 2px 6px;
+  gap: 4px;
+  height: 22px;
+  min-width: 0;
+  padding: 0 6px;
   font: inherit;
-  color: var(--cd-text);
+  font-size: 12px;
+  color: var(--cd-muted);
   background: none;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--cd-radius);
   cursor: pointer;
   white-space: nowrap;
 }
-.cd-crumb { color: var(--cd-accent); }
-.cd-crumb:disabled { color: var(--cd-text); font-weight: 600; cursor: default; }
-.cd-crumb:not(:disabled):hover, .cd-step:hover { background: var(--cd-hover); }
-.cd-step.current { background: var(--cd-selected); color: var(--cd-selected-text); }
-.cd-step.current .cd-index { background: var(--cd-focus); color: var(--cd-button-text); }
-.cd-step-title { overflow: hidden; text-overflow: ellipsis; }
+.cd-crumb { max-width: 140px; }
+.cd-crumb > span:last-child, .cd-step-title { overflow: hidden; text-overflow: ellipsis; }
+.cd-crumb:disabled { color: var(--cd-text); cursor: default; }
+.cd-crumb:not(:disabled):hover, .cd-step:hover { color: var(--cd-text); background: var(--cd-hover); }
+.cd-step-title { max-width: 120px; }
+.cd-step .cd-index { background: none; padding: 0; min-width: 0; color: inherit; opacity: 0.7; }
+.cd-step.current { color: var(--cd-selected-text); background: var(--cd-selected); }
+.cd-step.current .cd-index { opacity: 1; }
 
-/* 多个源码位置时的选择菜单，定位在点击处。 */
+/* 多个源码位置时的选择菜单，定位在点击处（会被限制在画布内）。 */
 .cd-popup {
   position: absolute;
   z-index: 40;
+  width: min(280px, calc(100% - 16px));
   margin: 0;
-  padding: 4px;
+  padding: 4px 0;
   list-style: none;
-  min-width: 200px;
-  max-width: min(360px, calc(100% - 16px));
   max-height: 60%;
   overflow: auto;
+  font-size: 12px;
   background: var(--vscode-menu-background, var(--cd-panel));
   color: var(--vscode-menu-foreground, var(--cd-text));
   border: 1px solid var(--vscode-menu-border, var(--cd-border));
-  border-radius: var(--cd-radius);
-  box-shadow: 0 2px 8px var(--cd-shadow);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px var(--cd-shadow);
 }
-.cd-popup .cd-source { color: inherit; }
-.cd-popup .cd-source:hover {
+.cd-popup-title { padding: 2px 10px 4px; font-size: 11px; color: var(--cd-muted); }
+.cd-popup .cd-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+.cd-popup .cd-source:hover, .cd-popup .cd-source:focus-visible {
   background: var(--vscode-menu-selectionBackground, var(--cd-hover));
   color: var(--vscode-menu-selectionForeground, inherit);
+  outline: none;
+}
+.cd-popup .cd-dot { margin-top: 5px; }
+.cd-source-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.cd-source-text strong { font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.cd-source-text small {
+  font-size: 11px;
+  color: var(--cd-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 
 .cd-empty {
@@ -292,114 +307,141 @@ body {
   background: none;
   border: 0;
   padding: 0;
-  width: 200px;
+  width: 220px;
   /* 节点位置由布局固定，点击只用于选中，因此不显示拖动手势。 */
   cursor: pointer;
 }
 
+/*
+ * 节点高度由布局预先算好（webview/src/measure.ts），这里的尺寸必须与之保持一致：
+ * padding 8/10、边框 1、标题 13px/18px 最多两行、说明 11.5px/16px 最多两行、底栏 20px。
+ */
 .cd-node {
-  width: 200px;
-  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: 8px 10px;
+  overflow: hidden;
   background: var(--vscode-editorWidget-background, var(--cd-panel));
   border: 1px solid var(--vscode-editorWidget-border, var(--cd-border));
-  border-radius: var(--cd-radius);
+  border-radius: 6px;
   color: var(--vscode-editorWidget-foreground, var(--cd-text));
-  box-shadow: 0 2px 6px var(--cd-shadow);
-  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, opacity 120ms ease;
 }
 /*
- * 配色全部取自当前 VS Code 主题，不再按节点类型着色：
+ * 配色全部取自当前 VS Code 主题，不按节点类型着色：
  * 悬停 = 列表悬停色，选中 = 列表选中色 + 焦点边框，其余无关节点淡出。
  */
-.cd-node:hover { background: var(--cd-hover); }
+.cd-node:hover { border-color: var(--cd-focus); }
 .cd-node.related { border-color: var(--cd-focus); }
 .cd-node.active {
   background: var(--cd-selected);
   color: var(--cd-selected-text);
   border-color: var(--cd-focus);
-  box-shadow: 0 0 0 1px var(--cd-focus);
 }
-.cd-node.active .cd-node-kind, .cd-node.active .cd-node-desc { color: inherit; opacity: 0.8; }
-.cd-node.dimmed { opacity: 0.45; }
-.cd-node-kind { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--cd-muted); }
-.cd-node-kind { display: flex; align-items: center; gap: 4px; }
-.cd-node-kind .codicon { font-size: 12px; }
-.cd-node-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-  padding: 0 4px;
-  font-size: 10px;
-  letter-spacing: 0;
-  border-radius: 8px;
-  background: var(--cd-panel-2);
-  color: var(--cd-muted);
-}
-.cd-node-tag + .cd-node-tag { margin-left: 0; }
-.cd-node-tag .codicon { font-size: 11px; }
-.cd-node-tag.warn { color: var(--cd-warn); background: transparent; }
-.cd-node.warn { border-color: var(--cd-warn); }
+.cd-node.active .cd-node-desc, .cd-node.active .cd-node-icon { color: inherit; opacity: 0.85; }
+.cd-node.dimmed { opacity: 0.4; }
 
-/* 功能块：有子节点，叠层阴影表示“里面还有一层”。 */
-.cd-node.block {
-  box-shadow: 3px 3px 0 -1px var(--vscode-editorWidget-background, var(--cd-panel)),
-    3px 3px 0 0 var(--vscode-editorWidget-border, var(--cd-border)),
-    0 2px 6px var(--cd-shadow);
+.cd-node-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
 }
-.cd-node.kind-condition { border-style: dashed; }
-.cd-node.kind-exit { border-left: 3px solid var(--cd-muted); }
-.cd-node.kind-exit .cd-node-kind { color: var(--cd-muted); }
-
-.cd-node-actions { display: flex; gap: 4px; margin-top: 6px; }
-.cd-node-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--cd-accent);
-  background: var(--cd-panel-2);
-  border: 1px solid transparent;
-  border-radius: var(--cd-radius);
-  cursor: pointer;
-}
-.cd-node-action:hover { border-color: var(--cd-focus); }
-.cd-node-action .codicon { font-size: 12px; }
-.cd-node.active .cd-node-action { color: inherit; }
-.cd-node-label { margin-top: 2px; font-weight: 600; line-height: 1.35; }
-.cd-node-desc {
-  margin-top: 3px;
-  font-size: 11px;
-  color: var(--cd-muted);
+.cd-node-icon { flex: none; width: 14px; margin-top: 2px; font-size: 14px; color: var(--cd-muted); }
+.cd-node-text, .cd-node-desc {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
+.cd-node-desc { margin-top: 3px; font-size: 11.5px; line-height: 16px; color: var(--cd-muted); }
 
-.vue-flow__handle { width: 6px; height: 6px; background: var(--cd-border); border: 0; }
+.cd-node-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-top: auto;
+  padding-top: 0;
+}
+.cd-node-footer:first-child, .cd-node-label + .cd-node-footer, .cd-node-desc + .cd-node-footer { margin-top: 6px; }
+.cd-node-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 6px 0 4px;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--cd-text);
+  background: var(--cd-hover);
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cd-node-action:hover { background: var(--cd-selected); color: var(--cd-selected-text); }
+.cd-node-action .codicon { font-size: 12px; }
+.cd-node-meta { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.cd-node-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--cd-muted);
+}
+.cd-node-tag .codicon { font-size: 12px; }
+.cd-node-tag.warn { color: var(--cd-warn); }
+.cd-node.active .cd-node-tag, .cd-node.active .cd-node-action { color: inherit; }
 
-.cd-edge { stroke: var(--cd-muted); stroke-width: 1.25; color: var(--cd-muted); opacity: 0.7; transition: opacity 120ms ease; }
-.cd-edge.related { stroke: var(--cd-focus); color: var(--cd-focus); opacity: 1; }
-.cd-edge.active { stroke: var(--cd-focus); color: var(--cd-focus); stroke-width: 2.25; opacity: 1; }
-.cd-edge.dimmed { opacity: 0.3; }
-.cd-edge.branch { stroke-dasharray: 4 3; }
+/* 功能块：右下叠一层，表示“里面还有一层”。 */
+.cd-node.block {
+  box-shadow: 4px 4px 0 -1px var(--cd-bg), 4px 4px 0 0 var(--vscode-editorWidget-border, var(--cd-border));
+  overflow: visible;
+}
+.cd-node.warn { border-color: var(--cd-warn); }
+.cd-node.kind-exit { border-style: dashed; }
+
+/* 连接点只用于布局，不需要显示。 */
+.vue-flow__handle { width: 1px; height: 1px; min-width: 0; min-height: 0; background: transparent; border: 0; opacity: 0; }
+
+/*
+ * 连线使用描边色而不是 currentColor：BaseEdge 的 path 上设置了 Vue Flow 默认的描边，
+ * 这里必须直接覆盖 .vue-flow__edge-path 才能生效。
+ */
+.vue-flow__edge-path.cd-edge,
+.cd-edge {
+  fill: none;
+  stroke: var(--cd-edge);
+  stroke-width: 1.25;
+  transition: opacity 120ms ease, stroke 120ms ease;
+}
+.vue-flow__edge-path.cd-edge.branch { stroke-dasharray: 4 3; }
+.vue-flow__edge-path.cd-edge.related { stroke: var(--cd-focus); }
+.vue-flow__edge-path.cd-edge.active { stroke: var(--cd-focus); stroke-width: 2; }
+.vue-flow__edge-path.cd-edge.dimmed { opacity: 0.35; }
+.vue-flow__edge:hover .vue-flow__edge-path.cd-edge { stroke: var(--cd-text); }
 
 .cd-edge-label {
   position: absolute;
-  padding: 0 4px;
-  font-size: 10px;
+  max-width: 160px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--cd-muted);
   background: var(--cd-bg);
-  border-radius: 2px;
+  border-radius: 3px;
   pointer-events: none;
 }
-.cd-edge-label.active { color: var(--cd-text); }
+.cd-edge-label.related, .cd-edge-label.active { color: var(--cd-text); }
 .cd-edge-label.dimmed { opacity: 0.45; }
-.cd-edge-label.branch { font-style: italic; }
+.cd-edge-label.branch { font-style: normal; }
 
-.vue-flow__edge-path { stroke: inherit; }
 .vue-flow__controls, .vue-flow__minimap { display: none; }
-

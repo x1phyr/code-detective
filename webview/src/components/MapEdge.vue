@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type Position } from '@vue-flow/core';
 import type { EdgeData } from '../model';
-import { t } from '../../../shared/i18n';
+import { roundedPath } from '../layout';
 
 const props = defineProps<{
   id: string;
@@ -17,38 +17,55 @@ const props = defineProps<{
   selected?: boolean;
 }>();
 
-const path = computed(() => getSmoothStepPath({
-  sourceX: props.sourceX,
-  sourceY: props.sourceY,
-  targetX: props.targetX,
-  targetY: props.targetY,
-  sourcePosition: props.sourcePosition,
-  targetPosition: props.targetPosition,
-  borderRadius: 12,
-}));
-
-
-/** 支线显示分支条件；合并的跨层连线显示“N 条调用”。 */
-const label = computed(() => {
-  const data = props.data;
-  if (!data) return undefined;
-  if (data.merged > 1) return t('webview.mergedEdges', { count: data.merged });
-  return data.edge.branch ?? data.edge.label;
+/**
+ * 优先用 ELK 的正交路由：跨层长连线会绕开中间节点，标签放在 ELK 预留的位置上。
+ * 兜底布局没有路由时，退回 Vue Flow 的折线连接两端。
+ */
+const geometry = computed<{ path: string; x: number; y: number }>(() => {
+  const route = props.data?.route;
+  if (route && route.points.length >= 2) {
+    const points = route.points;
+    const middle = route.label ?? (() => {
+      const a = points[Math.floor((points.length - 1) / 2)]!;
+      const b = points[Math.floor((points.length - 1) / 2) + 1]!;
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    })();
+    return { path: roundedPath(points), x: middle.x, y: middle.y };
+  }
+  const [path, x, y] = getSmoothStepPath({
+    sourceX: props.sourceX,
+    sourceY: props.sourceY,
+    targetX: props.targetX,
+    targetY: props.targetY,
+    sourcePosition: props.sourcePosition,
+    targetPosition: props.targetPosition,
+    borderRadius: 6,
+  });
+  return { path, x, y };
 });
+
+const state = computed(() => ({
+  active: props.data?.active,
+  related: props.data?.related,
+  dimmed: props.data?.dimmed,
+  branch: props.data?.branch,
+}));
 </script>
 
 <template>
   <BaseEdge
     :id="id"
-    :path="path[0]"
-    :marker-end="markerEnd"
-    :class="['cd-edge', { active: data?.active, related: data?.related, dimmed: data?.dimmed, branch: data?.branch }]"
+    :path="geometry.path"
+    :marker-end="data?.active || data?.related ? 'url(#cd-arrow-active)' : markerEnd"
+    :interaction-width="14"
+    :class="['cd-edge', state]"
   />
-  <EdgeLabelRenderer v-if="label">
+  <EdgeLabelRenderer v-if="data?.label">
     <div
       class="cd-edge-label"
-      :class="{ active: data?.active, dimmed: data?.dimmed, branch: data?.branch }"
-      :style="{ transform: `translate(-50%, -50%) translate(${path[1]}px, ${path[2]}px)` }"
-    >{{ label }}</div>
+      :class="state"
+      :title="data.label"
+      :style="{ transform: `translate(-50%, -50%) translate(${geometry.x}px, ${geometry.y}px)` }"
+    >{{ data.label }}</div>
   </EdgeLabelRenderer>
 </template>
