@@ -32,7 +32,7 @@
   },
   "activationEvents": [
     "workspaceContains:.code-detective/maps/*.json",
-    "onWebviewPanel:codeDetective.mapView",
+    "onView:codeDetective.mapView",
     "onCommand:codeDetective.openMap",
     "onCommand:codeDetective.generateMap",
     "onCommand:codeDetective.chooseAiProvider",
@@ -55,21 +55,44 @@
     "vscode:prepublish": "npm run build"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeDetective",
+          "title": "代码侦探",
+          "icon": "$(type-hierarchy)"
+        }
+      ]
+    },
+    "views": {
+      "codeDetective": [
+        {
+          "type": "webview",
+          "id": "codeDetective.mapView",
+          "name": "代码地图",
+          "icon": "$(type-hierarchy)",
+          "contextualTitle": "代码侦探"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "codeDetective.openMap",
         "title": "打开地图",
-        "category": "代码侦探"
+        "category": "代码侦探",
+        "icon": "$(list-selection)"
       },
       {
         "command": "codeDetective.refreshMaps",
         "title": "重新扫描地图",
-        "category": "代码侦探"
+        "category": "代码侦探",
+        "icon": "$(refresh)"
       },
       {
         "command": "codeDetective.startWalkthrough",
         "title": "开始导读",
-        "category": "代码侦探"
+        "category": "代码侦探",
+        "icon": "$(play)"
       },
       {
         "command": "codeDetective.nextStep",
@@ -94,7 +117,8 @@
       {
         "command": "codeDetective.toggleHighlights",
         "title": "切换相关代码高亮",
-        "category": "代码侦探"
+        "category": "代码侦探",
+        "icon": "$(eye)"
       },
       {
         "command": "codeDetective.copyAuthoringPrompt",
@@ -104,12 +128,14 @@
       {
         "command": "codeDetective.openHelp",
         "title": "查看地图格式与使用说明",
-        "category": "代码侦探"
+        "category": "代码侦探",
+        "icon": "$(question)"
       },
       {
         "command": "codeDetective.generateMap",
         "title": "用 AI 生成地图",
-        "category": "代码侦探"
+        "category": "代码侦探",
+        "icon": "$(sparkle)"
       },
       {
         "command": "codeDetective.chooseAiProvider",
@@ -492,7 +518,51 @@
           }
         }
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codeDetective.openMap",
+          "when": "view == codeDetective.mapView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeDetective.generateMap",
+          "when": "view == codeDetective.mapView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codeDetective.startWalkthrough",
+          "when": "view == codeDetective.mapView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "codeDetective.toggleHighlights",
+          "when": "view == codeDetective.mapView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "codeDetective.refreshMaps",
+          "when": "view == codeDetective.mapView",
+          "group": "navigation@5"
+        },
+        {
+          "command": "codeDetective.copyAuthoringPrompt",
+          "when": "view == codeDetective.mapView",
+          "group": "more@1"
+        },
+        {
+          "command": "codeDetective.chooseAiProvider",
+          "when": "view == codeDetective.mapView",
+          "group": "more@2"
+        },
+        {
+          "command": "codeDetective.openHelp",
+          "when": "view == codeDetective.mapView",
+          "group": "more@3"
+        }
+      ]
+    }
   },
   "dependencies": {
     "@vscode/codicons": "^0.0.36",

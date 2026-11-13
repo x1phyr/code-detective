@@ -457,7 +457,7 @@ onMounted(() => {
         <div class="cd-select">
           <button class="cd-button" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
             <span class="codicon codicon-list-selection" aria-hidden="true"></span>
-            地图
+            <span class="cd-button-label">地图</span>
             <span v-if="maps.length" class="cd-badge">{{ maps.length }}</span>
           </button>
           <ul v-if="menuOpen" class="cd-menu" role="menu">
@@ -473,29 +473,17 @@ onMounted(() => {
             </li>
           </ul>
         </div>
-        <button class="cd-button" title="重新扫描地图" @click="post('maps.refresh', {})">
-          <span class="codicon codicon-refresh" aria-hidden="true"></span>
-          重新扫描
-        </button>
         <button class="cd-button" title="缩放到能看到整张地图" @click="fitToView">
           <span class="codicon codicon-screen-full" aria-hidden="true"></span>
-          适应窗口
+          <span class="cd-button-label">适应</span>
         </button>
-        <button class="cd-button" :class="{ on: ui.highlightEnabled }" @click="toggleHighlights">
+        <button class="cd-button" title="在编辑器中高亮相关代码" :class="{ on: ui.highlightEnabled }" @click="toggleHighlights">
           <span class="codicon codicon-symbol-color" aria-hidden="true"></span>
-          相关高亮
+          <span class="cd-button-label">高亮</span>
         </button>
-        <button class="cd-button" :class="{ on: aiOpen }" @click="openAi">
+        <button class="cd-button" title="用 AI 生成地图" :class="{ on: aiOpen }" @click="openAi">
           <span class="codicon codicon-sparkle" aria-hidden="true"></span>
-          AI 生成
-        </button>
-        <button class="cd-button" @click="post('prompt.copy', {})">
-          <span class="codicon codicon-copy" aria-hidden="true"></span>
-          提示词
-        </button>
-        <button class="cd-button" @click="post('help.open', {})">
-          <span class="codicon codicon-question" aria-hidden="true"></span>
-          帮助
+          <span class="cd-button-label">AI</span>
         </button>
       </div>
     </header>

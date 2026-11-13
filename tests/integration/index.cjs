@@ -38,6 +38,11 @@ exports.run = async function run() {
   const document = await vscode.workspace.openTextDocument(maps[0]);
   assert.ok(document.getText().includes('"schemaVersion": 1'), '地图应包含 schemaVersion');
 
+  // 侧边栏视图：清单里声明在活动栏容器下，且 focus 命令能打开它。
+  const views = extension.packageJSON?.contributes?.views?.codeDetective ?? [];
+  assert.ok(views.some(view => view.id === 'codeDetective.mapView' && view.type === 'webview'), '应声明侧边栏 webview 视图');
+  await vscode.commands.executeCommand('codeDetective.mapView.focus');
+
   await vscode.commands.executeCommand('codeDetective.refreshMaps');
   await new Promise(resolve => setTimeout(resolve, 500));
 

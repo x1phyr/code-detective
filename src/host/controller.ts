@@ -47,7 +47,8 @@ export class DetectiveController implements vscode.Disposable {
   private readonly highlights: HighlightController;
   private readonly ai: AiService;
   private readonly disposables: vscode.Disposable[] = [];
-  private panel?: vscode.WebviewPanel;
+  /** The sidebar webview, once VS Code has resolved it (the user opened the tab). */
+  private panel?: vscode.WebviewView;
   private current?: AcceptedMap;
   private ui?: ViewState;
   private started = false;
@@ -94,11 +95,9 @@ export class DetectiveController implements vscode.Disposable {
         this.pushSnapshot();
       }),
       vscode.window.onDidChangeActiveColorTheme(() => this.post({ protocolVersion: 1, type: 'theme', payload: { kind: themeKind() } })),
-      vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
-        deserializeWebviewPanel: async (panel, state: unknown) => {
-          await this.restorePanel(panel, state);
-        },
-      }),
+      vscode.window.registerWebviewViewProvider(VIEW_TYPE, {
+        resolveWebviewView: view => this.attachView(view),
+      }, { webviewOptions: { retainContextWhenHidden: true } }),
       vscode.commands.registerCommand('codeDetective.openMap', (key?: unknown) =>
         this.openMap(typeof key === 'string' && key.trim() ? key.trim() : undefined)),
       vscode.commands.registerCommand('codeDetective.refreshMaps', () => this.refreshMaps()),
@@ -146,31 +145,26 @@ export class DetectiveController implements vscode.Disposable {
 
   dispose(): void { void this.shutdown(); }
 
-  private async restorePanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
-    // VS Code may restore the panel before the first scan completes.
-    await this.scanned;
-    const key = typeof state === 'object' && state !== null && 'mapKey' in state
-      && typeof (state as { mapKey: unknown }).mapKey === 'string'
-      ? (state as { mapKey: string }).mapKey
-      : this.session.current();
-    const record = key ? this.repository.get(key) : undefined;
-    await this.attachPanel(panel, isAccepted(record) ? record : undefined);
-  }
-
-  private async attachPanel(panel: vscode.WebviewPanel, record: AcceptedMap | undefined): Promise<void> {
-    this.panel = panel;
-    panel.webview.options = { enableScripts: true, localResourceRoots: [webviewRoot(this.context.extensionUri)] };
-    panel.webview.html = webviewHtml(panel.webview, this.context.extensionUri);
-    const messages = panel.webview.onDidReceiveMessage((message: unknown) => { void this.onMessage(message); });
-    panel.onDidDispose(() => {
+  private async attachView(view: vscode.WebviewView): Promise<void> {
+    this.panel = view;
+    view.webview.options = { enableScripts: true, localResourceRoots: [webviewRoot(this.context.extensionUri)] };
+    view.webview.html = webviewHtml(view.webview, this.context.extensionUri);
+    const messages = view.webview.onDidReceiveMessage((message: unknown) => { void this.onMessage(message); });
+    view.onDidDispose(() => {
       messages.dispose();
-      if (this.panel === panel) {
+      if (this.panel === view) {
         this.panel = undefined;
         this.highlights.clear();
       }
     });
-    const restored = record ?? this.lastAccepted();
-    if (restored) await this.select(restored, { reuse: true });
+    if (this.current) {
+      this.updateTitle();
+      return;
+    }
+    // VS Code may resolve the view before the first scan completes.
+    await this.scanned;
+    const restored = this.lastAccepted();
+    if (restored && !this.current) await this.select(restored, { reuse: true });
   }
 
   /** Last map the user opened, so a recreated panel is never blank. */
@@ -181,18 +175,17 @@ export class DetectiveController implements vscode.Disposable {
     return isAccepted(record) ? record : undefined;
   }
 
-  /** Creates the panel if needed (no map picker) and brings it to the front. */
+  /** Shows the sidebar view; VS Code resolves it (attachView) the first time. */
   private async ensurePanel(): Promise<void> {
-    if (!this.panel) {
-      const panel = vscode.window.createWebviewPanel(VIEW_TYPE, '代码侦探', vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [webviewRoot(this.context.extensionUri)],
-      });
-      await this.attachPanel(panel, undefined);
-    } else {
-      this.panel.reveal(vscode.ViewColumn.Active, false);
+    if (this.panel) {
+      this.panel.show(true);
+      return;
     }
+    await vscode.commands.executeCommand(`${VIEW_TYPE}.focus`);
+  }
+
+  private updateTitle(): void {
+    if (this.panel) this.panel.description = this.current?.map.title;
   }
 
   private async openMap(key?: string): Promise<void> {
@@ -243,7 +236,7 @@ export class DetectiveController implements vscode.Disposable {
     if (options.reuse !== true) this.session.setCurrent(record.key);
     this.sources.reset(record);
     this.highlights.update(record, this.ui);
-    if (this.panel) this.panel.title = record.map.title;
+    this.updateTitle();
     this.pushSnapshot();
   }
 
@@ -283,7 +276,7 @@ export class DetectiveController implements vscode.Disposable {
         this.ui = undefined;
         this.sources.reset();
         this.highlights.clear();
-        if (this.panel) this.panel.title = '代码侦探';
+        this.updateTitle();
         this.notify(`地图「${title}」已被删除或改名，请从列表重新选择。`, 'warning');
       }
     }
@@ -325,7 +318,7 @@ export class DetectiveController implements vscode.Disposable {
   }
 
   private reveal(): void {
-    this.panel?.reveal(vscode.ViewColumn.Active, false);
+    this.panel?.show(true);
   }
 
   private async onMessage(raw: unknown): Promise<void> {
@@ -507,7 +500,7 @@ export class DetectiveController implements vscode.Disposable {
       void vscode.window.showInformationMessage('当前地图没有导读步骤。');
       return;
     }
-    if (!this.panel) await this.openMap(this.current?.key);
+    if (!this.panel) await this.ensurePanel();
     await this.gotoStep(walkthrough.steps[0]!.id);
   }
 
