@@ -1,4 +1,11 @@
-import type { CodeMap, MapNode } from '../../shared/types';
+/**
+ * 布局只关心“当前层里可见的节点和连线”，与地图格式解耦。
+ * 主干连线权重高、走中轴；支线权重低、被挤到两侧。
+ */
+export interface LayoutGraph {
+  nodes: { id: string }[];
+  edges: { id: string; from: string; to: string; branch?: boolean }[];
+}
 
 export interface Positioned {
   id: string;
@@ -23,6 +30,7 @@ interface ElkEdge {
   id: string;
   sources: string[];
   targets: string[];
+  layoutOptions?: Record<string, string>;
 }
 
 interface ElkGraph extends ElkNode {
@@ -42,7 +50,7 @@ async function engine(): Promise<import('elkjs').ELK> {
 /**
  * Deterministic fallback used when ELK is unavailable so the map stays usable.
  */
-export function fallbackLayout(map: CodeMap): Record<string, Positioned> {
+export function fallbackLayout(map: LayoutGraph): Record<string, Positioned> {
   const columns = new Map<string, number>();
   for (const node of map.nodes) columns.set(node.id, 0);
   const incoming = new Map<string, string[]>();
@@ -74,7 +82,7 @@ export function fallbackLayout(map: CodeMap): Record<string, Positioned> {
   return output;
 }
 
-export async function computeLayout(map: CodeMap): Promise<Record<string, Positioned>> {
+export async function computeLayout(map: LayoutGraph): Promise<Record<string, Positioned>> {
   let elk: import('elkjs').ELK;
   try {
     elk = await engine();
@@ -88,10 +96,20 @@ export async function computeLayout(map: CodeMap): Promise<Record<string, Positi
       'elk.direction': 'DOWN',
       'elk.spacing.nodeNode': '28',
       'elk.layered.spacing.nodeNodeBetweenLayers': '56',
-      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+      'elk.layered.cycleBreaking.strategy': 'DEPTH_FIRST',
     },
-    children: map.nodes.map((node: MapNode) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
-    edges: map.edges.map(edge => ({ id: edge.id, sources: [edge.from], targets: [edge.to] })),
+    children: map.nodes.map(node => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
+    edges: map.edges.map(edge => ({
+      id: edge.id,
+      sources: [edge.from],
+      targets: [edge.to],
+      // 主干尽量拉直、支线可以弯：ELK 会优先让高优先级的边保持竖直、短。
+      layoutOptions: edge.branch
+        ? { 'elk.layered.priority.straightness': '0', 'elk.layered.priority.shortness': '0' }
+        : { 'elk.layered.priority.straightness': '10', 'elk.layered.priority.shortness': '10' },
+    })),
   };
   try {
     const result = await elk.layout(graph as never);

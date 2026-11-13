@@ -7,6 +7,16 @@ export interface NodeData {
   related: boolean;
   /** 有选中对象时，与之无关的节点淡出，而不是换颜色。 */
   dimmed: boolean;
+  /** 功能块的直接子节点数；0 表示普通节点。 */
+  children: number;
+  /** 折叠在它支线后面的节点数。 */
+  hidden: number;
+  /** 支线是否已展开。 */
+  expanded: boolean;
+  /** 关联的源码处数。 */
+  sources: number;
+  /** 有源码位置漂移或缺失。 */
+  warn: boolean;
 }
 
 export interface EdgeData {
@@ -14,6 +24,10 @@ export interface EdgeData {
   active: boolean;
   related: boolean;
   dimmed: boolean;
+  /** 合并进这条线的原始连线数（跨层连线会合并）。 */
+  merged: number;
+  /** 是否为支线。 */
+  branch: boolean;
 }
 
 const NODE_KIND_KEYS = {
@@ -21,6 +35,7 @@ const NODE_KIND_KEYS = {
   function: 'webview.nodeKindFunction',
   condition: 'webview.nodeKindCondition',
   event: 'webview.nodeKindEvent',
+  exit: 'webview.nodeKindExit',
   default: 'webview.nodeKindDefault',
 } as const satisfies Record<NonNullable<MapNode['kind']> | 'default', MessageKey>;
 

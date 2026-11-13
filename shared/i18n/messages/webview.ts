@@ -13,24 +13,11 @@ export const webview = {
   'webview.edgeKindEvent': { 'zh-CN': '事件', en: 'Event' },
   'webview.edgeKindRelated': { 'zh-CN': '相关', en: 'Related' },
 
-  // 详情面板
-  'webview.detailKindNode': { 'zh-CN': '节点', en: 'Node' },
-  'webview.detailKindEdge': { 'zh-CN': '连线', en: 'Edge' },
-  'webview.detailKindStep': { 'zh-CN': '导读', en: 'Tour' },
-  'webview.stepProgress': { 'zh-CN': '步骤 {index} / {total}', en: 'Step {index} / {total}' },
+  // 源码与导读
   'webview.sourceUnchecked': { 'zh-CN': '未检查', en: 'Not checked' },
-  'webview.sourceLocations': { 'zh-CN': '源码位置', en: 'Source locations' },
   'webview.sourceLineRange': { 'zh-CN': '第 {start}–{end} 行', en: 'Lines {start}–{end}' },
   'webview.noLinkedSource': { 'zh-CN': '这个对象没有关联源码。', en: 'This item has no linked source.' },
-  'webview.relatedNodes': { 'zh-CN': '相关节点', en: 'Related nodes' },
-  'webview.relatedEdges': { 'zh-CN': '相关连线', en: 'Related edges' },
-  'webview.outline': { 'zh-CN': '对象目录', en: 'Outline' },
-  'webview.sideLabel': { 'zh-CN': '对象目录与详情', en: 'Outline and details' },
   'webview.readingOrder': { 'zh-CN': '阅读顺序', en: 'Reading order' },
-  'webview.readingOrderHint': {
-    'zh-CN': '地图作者建议的阅读顺序；点一步会高亮相关节点并打开代码',
-    en: 'Reading order suggested by the map author; click a step to highlight its nodes and open the code',
-  },
 
   // 空状态
   'webview.preparingTitle': { 'zh-CN': '正在准备地图…', en: 'Preparing map…' },
@@ -73,4 +60,13 @@ export const webview = {
   'webview.shellMountMissing': { 'zh-CN': '预览外壳缺少地图挂载点。', en: 'Preview shell is missing the map mount point.' },
   'webview.shellDocTitle': { 'zh-CN': '{title} · 代码侦探', en: '{title} · Code Detective' },
   'webview.shellLines': { 'zh-CN': '行 {start}–{end}', en: 'Ln {start}–{end}' },
+  'webview.breadcrumbLabel': { 'zh-CN': '当前层级', en: 'Current level' },
+  'webview.overview': { 'zh-CN': '总览', en: 'Overview' },
+  'webview.enterBlock': { 'zh-CN': '进入功能块（{count} 个步骤）', en: 'Open block ({count} steps)' },
+  'webview.showBranches': { 'zh-CN': '展开 {count} 个分支节点', en: 'Show {count} branch nodes' },
+  'webview.hideBranches': { 'zh-CN': '收起分支', en: 'Hide branches' },
+  'webview.multipleSources': { 'zh-CN': '{count} 处源码，点击选择', en: '{count} source locations; click to choose' },
+  'webview.sourceDrift': { 'zh-CN': '部分源码位置已漂移或缺失', en: 'Some source locations drifted or are missing' },
+  'webview.mergedEdges': { 'zh-CN': '{count} 条调用', en: '{count} calls' },
+  'webview.nodeKindExit': { 'zh-CN': '结束', en: 'Exit' },
 } satisfies Record<`webview.${string}`, Message>;

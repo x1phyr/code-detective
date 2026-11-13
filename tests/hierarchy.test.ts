@@ -121,3 +121,42 @@ test('findParentCycle 发现 parent 环', () => {
   );
   assert.ok(findParentCycle(m));
 });
+
+test('环里的入口只取一个，其余支线照常折叠', () => {
+  const m = map(
+    [
+      { id: 'post', label: 'post', sourceIds: [] },
+      { id: 'ok', label: 'ok', sourceIds: [] },
+      { id: 'retry', label: 'retry', sourceIds: [] },
+      { id: 'giveup', label: 'giveup', sourceIds: [] },
+    ],
+    [
+      { id: 'a', from: 'post', to: 'ok', sourceIds: [] },
+      { id: 'b', from: 'post', to: 'retry', sourceIds: [], branch: '失败' },
+      { id: 'c', from: 'retry', to: 'post', sourceIds: [], branch: '再试' },
+      { id: 'd', from: 'retry', to: 'giveup', sourceIds: [], branch: '用尽' },
+      { id: 'e', from: 'giveup', to: 'post', sourceIds: [], branch: '回到入口' },
+    ],
+  );
+  const { visible, hidden } = collapseBranches(levelOf(m, undefined), new Set());
+  assert.deepEqual([...visible].sort(), ['ok', 'post']);
+  assert.equal(hidden.get('post'), 2);
+});
+
+test('只经由不可见节点才能到达的节点不会消失', () => {
+  const m = map(
+    [
+      { id: 'a', label: 'a', sourceIds: [] },
+      { id: 'x', label: 'x', sourceIds: [] },
+      { id: 'y', label: 'y', sourceIds: [] },
+    ],
+    [
+      { id: 'xy', from: 'x', to: 'y', sourceIds: [], branch: '去' },
+      { id: 'yx', from: 'y', to: 'x', sourceIds: [], branch: '回' },
+    ],
+  );
+  const { visible, hidden } = collapseBranches(levelOf(m, undefined), new Set());
+  assert.ok(visible.has('a'));
+  assert.ok(visible.has('x') || visible.has('y'));
+  assert.equal([...hidden.values()].reduce((sum, n) => sum + n, 0) + visible.size, 3);
+});

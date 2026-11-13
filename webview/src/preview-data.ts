@@ -2,12 +2,17 @@ import type { CodeMap } from '../../shared/types';
 import bagButton from '../../examples/bag-demo/src/bag-button.ts?raw';
 import bagPanel from '../../examples/bag-demo/src/bag-panel.ts?raw';
 import bagRepository from '../../examples/bag-demo/src/bag-repository.ts?raw';
+import loginController from '../../examples/login-demo/src/login-controller.ts?raw';
+import loginValidate from '../../examples/login-demo/src/validate.ts?raw';
+import loginAuth from '../../examples/login-demo/src/auth-service.ts?raw';
+import loginRouter from '../../examples/login-demo/src/router.ts?raw';
+import loginMap from '../../examples/login-demo/.code-detective/maps/login-demo.json';
 
 /**
  * 浏览器预览直接复用 examples/bag-demo 的地图内容与源码，
  * 这样右侧只读源码视图和真实示例保持一致。
  */
-export const demoMap: CodeMap = {
+const bagMap: CodeMap = {
   schemaVersion: 1,
   id: 'bag-demo',
   title: '背包打开流程',
@@ -90,8 +95,23 @@ export const demoMap: CodeMap = {
   ],
 };
 
-export const demoSourceText: Record<string, string> = {
+const bagSourceText: Record<string, string> = {
   'src/bag-button.ts': bagButton,
   'src/bag-panel.ts': bagPanel,
   'src/bag-repository.ts': bagRepository,
 };
+
+const loginSourceText: Record<string, string> = {
+  'src/login-controller.ts': loginController,
+  'src/validate.ts': loginValidate,
+  'src/auth-service.ts': loginAuth,
+  'src/router.ts': loginRouter,
+};
+
+/** 浏览器预览默认展示背包示例；地址栏加 `?map=login` 切到分层更深的登录示例。 */
+const loginDemo = loginMap as unknown as CodeMap & { $schema?: string };
+
+const useLogin = new URLSearchParams(globalThis.location?.search ?? '').get('map') === 'login';
+
+export const demoMap: CodeMap = useLogin ? (({ $schema: _schema, ...rest }) => rest)(loginDemo) : bagMap;
+export const demoSourceText: Record<string, string> = useLogin ? loginSourceText : bagSourceText;

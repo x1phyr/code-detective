@@ -6,15 +6,15 @@ import type { HostBridge } from './bridge';
 import { demoMap } from './preview-data';
 import { currentPreviewTheme, nextPreviewTheme, setPreviewTheme } from './preview-theme';
 
-const mapKey = 'preview::bag-demo';
+const mapKey = `preview::${demoMap.id}`;
 const revision = '0'.repeat(64);
 
 const summaries: MapSummary[] = [
   {
     key: mapKey,
     title: demoMap.title,
-    rootName: 'bag-demo',
-    fileName: '.code-detective/maps/bag-demo.json',
+    rootName: demoMap.id,
+    fileName: `.code-detective/maps/${demoMap.id}.json`,
     revision,
   },
 ];

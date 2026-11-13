@@ -133,27 +133,29 @@ export function collapseBranches(level: MapLevel, expanded: ReadonlySet<string>)
     outgoing.set(edge.from, list);
     if (!edge.branch) mainIncoming.add(edge.to);
   }
-  const anyIncoming = new Set(level.edges.map(edge => edge.to));
-  // 入口：没有任何入边的节点；若全是环，则取没有主干入边的节点；再不行就取第一个。
+  const anyIncoming = new Set(level.edges.filter(edge => ids.has(edge.from)).map(edge => edge.to));
+  // 入口：没有任何入边的节点；若全在环里，就取第一个没有主干入边的节点（再不行取第一个节点）。
   let roots = level.nodes.filter(node => !anyIncoming.has(node.id)).map(node => node.id);
-  if (roots.length === 0) roots = level.nodes.filter(node => !mainIncoming.has(node.id)).map(node => node.id);
-  if (roots.length === 0 && level.nodes[0]) roots = [level.nodes[0].id];
+  if (roots.length === 0) {
+    const first = level.nodes.find(node => !mainIncoming.has(node.id)) ?? level.nodes[0];
+    roots = first ? [first.id] : [];
+  }
 
   const visible = new Set<string>();
-  const queue = [...roots];
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (visible.has(id)) continue;
-    visible.add(id);
-    for (const edge of outgoing.get(id) ?? []) {
-      if (!edge.branch || expanded.has(id)) queue.push(edge.to);
+  const walk = (start: string[]): void => {
+    const queue = [...start];
+    while (queue.length) {
+      const id = queue.shift()!;
+      if (visible.has(id)) continue;
+      visible.add(id);
+      for (const edge of outgoing.get(id) ?? []) {
+        if (!edge.branch || expanded.has(id)) queue.push(edge.to);
+      }
     }
-  }
-  // 统计每个可见节点下折叠了多少个节点（沿任意边，从它的支线出发能到、且当前不可见的节点）。
-  const hidden = new Map<string, number>();
-  for (const id of visible) {
-    if (expanded.has(id)) continue;
+  };
+  const foldedUnder = (id: string): Set<string> => {
     const reach = new Set<string>();
+    if (expanded.has(id)) return reach;
     const stack = (outgoing.get(id) ?? []).filter(edge => edge.branch).map(edge => edge.to);
     while (stack.length) {
       const next = stack.pop()!;
@@ -161,7 +163,24 @@ export function collapseBranches(level: MapLevel, expanded: ReadonlySet<string>)
       reach.add(next);
       for (const edge of outgoing.get(next) ?? []) stack.push(edge.to);
     }
-    if (reach.size > 0) hidden.set(id, reach.size);
+    return reach;
+  };
+
+  walk(roots);
+  // 兜底：既不可见、也没有被折叠到任何可见节点下的节点，作为新的入口显示，避免节点“消失”。
+  for (;;) {
+    const covered = new Set<string>();
+    for (const id of visible) for (const next of foldedUnder(id)) covered.add(next);
+    const orphan = level.nodes.find(node => !visible.has(node.id) && !covered.has(node.id));
+    if (!orphan) break;
+    walk([orphan.id]);
+  }
+
+  // 统计每个可见节点下折叠了多少个节点（从它的支线出发能到、且当前不可见的节点）。
+  const hidden = new Map<string, number>();
+  for (const id of visible) {
+    const size = foldedUnder(id).size;
+    if (size > 0) hidden.set(id, size);
   }
   return { visible, hidden };
 }
