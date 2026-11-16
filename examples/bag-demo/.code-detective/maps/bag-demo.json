@@ -2,199 +2,327 @@
   "$schema": "../../../../schemas/code-map-v1.schema.json",
   "schemaVersion": 1,
   "id": "bag-demo",
-  "title": "背包打开流程",
-  "description": "从点击背包按钮，到加载资源、读取数据，再到刷新物品列表的示例流程。",
+  "title": "背包打开与物品渲染",
+  "description": "从点击背包按钮，到创建面板、读取缓存或接口数据，最终渲染物品列表的完整链路。",
   "sources": {
     "button.bind": {
       "file": "src/bag-button.ts",
-      "startLine": 3,
-      "endLine": 7,
-      "anchorText": "export function bindBagButton(button: HTMLButtonElement): void {\n  button.addEventListener('click', () => {\n    void openBagPanel();\n  });\n}",
-      "note": "给背包按钮绑定点击事件，点击后打开面板"
-    },
-    "button.id": {
-      "file": "src/bag-button.ts",
-      "startLine": 9,
-      "endLine": 9,
-      "anchorText": "export const bagButtonId = 'bag-button';",
-      "note": "按钮的 DOM id，供绑定时查找"
+      "startLine": 5,
+      "endLine": 5,
+      "anchorText": "    void openBagPanel();",
+      "note": "点击回调调用 openBagPanel() 打开背包面板"
     },
     "panel.open": {
       "file": "src/bag-panel.ts",
-      "startLine": 7,
-      "endLine": 11,
-      "anchorText": "  panel = document.createElement('div');\n  panel.className = 'bag-panel';\n  await ensureAssets();\n  await refreshList();\n}",
-      "note": "创建面板节点，先加载界面资源再刷新列表"
-    },
-    "panel.refresh": {
-      "file": "src/bag-panel.ts",
-      "startLine": 17,
-      "endLine": 21,
-      "anchorText": "export async function refreshList(): Promise<void> {\n  const items = await readItems();\n  if (!panel) return;\n  panel.replaceChildren(...items.map(item => renderItem(item)));\n}",
-      "note": "读取物品后重新渲染列表"
+      "startLine": 10,
+      "endLine": 10,
+      "anchorText": "  await refreshList();",
+      "note": "建好面板并加载资源后，调用 refreshList() 拉数渲染"
     },
     "panel.read": {
       "file": "src/bag-panel.ts",
-      "startLine": 23,
-      "endLine": 27,
-      "anchorText": "async function readItems(): Promise<BagItem[]> {\n  const items = await loadBag();\n  if (items.length > 0) return items;\n  return loadFallback();\n}",
-      "note": "读取背包数据，没有数据时走兜底"
+      "startLine": 24,
+      "endLine": 26,
+      "anchorText": "  const items = await loadBag();\n  if (items.length > 0) return items;\n  return loadFallback();",
+      "note": "调用 loadBag() 读取物品，空列表时回退 loadFallback()"
     },
     "repo.load": {
       "file": "src/bag-repository.ts",
       "startLine": 6,
-      "endLine": 12,
-      "anchorText": "  const cached = cache.get('bag');\n  if (cached) return cached;\n  const response = await fetch('/api/bag');\n  const items = (await response.json()) as BagItem[];\n  cache.set('bag', items);\n  return items;\n}",
-      "note": "先查缓存，未命中再请求接口并写回缓存"
+      "endLine": 8,
+      "anchorText": "  const cached = cache.get('bag');\n  if (cached) return cached;\n  const response = await fetch('/api/bag');",
+      "note": "先调 cache.get('bag') 查缓存，未命中则 fetch('/api/bag')"
     },
     "repo.fallback": {
       "file": "src/bag-repository.ts",
-      "startLine": 14,
-      "endLine": 16,
-      "anchorText": "export async function loadFallback(): Promise<BagItem[]> {\n  return [];\n}",
-      "note": "接口无数据时返回空列表作为兜底"
+      "startLine": 15,
+      "endLine": 15,
+      "anchorText": "  return [];",
+      "note": "接口返回空列表时的兜底空数据源"
+    },
+    "panel.refresh": {
+      "file": "src/bag-panel.ts",
+      "startLine": 18,
+      "endLine": 18,
+      "anchorText": "  const items = await readItems();",
+      "note": "先调用 readItems() 异步获取背包物品列表"
+    },
+    "panel.render": {
+      "file": "src/bag-panel.ts",
+      "startLine": 30,
+      "endLine": 31,
+      "anchorText": "  const element = document.createElement('span');\n  element.textContent = `${item.id} × ${item.count}`;",
+      "note": "创建 <span> 并写入 id × count 文本"
+    },
+    "panel.guard": {
+      "file": "src/bag-panel.ts",
+      "startLine": 19,
+      "endLine": 20,
+      "anchorText": "  if (!panel) return;\n  panel.replaceChildren(...items.map(item => renderItem(item)));",
+      "note": "确认面板仍在后，对每个物品调用 renderItem() 批量替换子节点"
     }
   },
   "nodes": [
     {
-      "id": "click",
+      "id": "bindBagButton",
       "label": "点击背包按钮",
       "kind": "event",
-      "description": "按钮的点击回调触发打开面板。",
+      "description": "给按钮挂 click 监听。",
       "sourceIds": [
-        "button.bind",
-        "button.id"
+        "button.bind"
       ]
     },
     {
-      "id": "open",
-      "label": "创建并打开面板",
+      "id": "openBagPanel",
+      "label": "初始化面板 (openBagPanel)",
       "kind": "function",
-      "description": "先加载界面资源，再请求物品数据。",
+      "description": "建面板 DOM，加载资源后刷新列表。",
       "sourceIds": [
         "panel.open"
       ]
     },
     {
-      "id": "read",
-      "label": "读取背包数据",
+      "id": "refreshList",
+      "label": "刷新列表 (refreshList)",
       "kind": "function",
-      "description": "优先使用缓存，未命中时请求接口。",
+      "description": "读数据，确认面板还在，再渲染。",
       "sourceIds": [
-        "panel.read",
+        "panel.refresh",
+        "panel.guard"
+      ]
+    },
+    {
+      "id": "readItems",
+      "label": "读取物品 (readItems)",
+      "kind": "function",
+      "description": "先拿背包数据，空了走兜底。",
+      "sourceIds": [
+        "panel.read"
+      ]
+    },
+    {
+      "id": "loadBag",
+      "label": "缓存或接口 (loadBag)",
+      "kind": "function",
+      "description": "内存缓存优先，未命中请求 /api/bag。",
+      "sourceIds": [
         "repo.load"
       ]
     },
     {
-      "id": "fallback",
-      "label": "未命中时调用",
-      "kind": "condition",
-      "description": "接口没有返回数据时使用兜底内容。",
+      "id": "loadFallback",
+      "label": "空背包兜底 (loadFallback)",
+      "kind": "function",
+      "description": "背包为空时的默认数据。",
       "sourceIds": [
         "repo.fallback"
       ]
     },
     {
-      "id": "refresh",
-      "label": "刷新物品列表",
-      "kind": "step",
-      "description": "把物品渲染到面板中。",
+      "id": "renderItem",
+      "label": "渲染单个物品 (renderItem)",
+      "kind": "function",
+      "description": "物品 → <span>。",
       "sourceIds": [
-        "panel.refresh"
+        "panel.render"
       ]
     }
   ],
   "edges": [
     {
       "id": "e.click-open",
-      "from": "click",
-      "to": "open",
-      "label": "打开面板",
-      "kind": "flow",
+      "from": "bindBagButton",
+      "to": "openBagPanel",
+      "label": "点击",
+      "kind": "event",
       "sourceIds": [
         "button.bind"
       ]
     },
     {
-      "id": "e.open-read",
-      "from": "open",
-      "to": "read",
-      "label": "请求数据",
+      "id": "e.open-refresh",
+      "from": "openBagPanel",
+      "to": "refreshList",
+      "label": "await",
       "kind": "call",
       "sourceIds": [
-        "panel.open",
+        "panel.open"
+      ]
+    },
+    {
+      "id": "e.refresh-read",
+      "from": "refreshList",
+      "to": "readItems",
+      "label": "await",
+      "kind": "call",
+      "sourceIds": [
+        "panel.refresh"
+      ]
+    },
+    {
+      "id": "e.read-load",
+      "from": "readItems",
+      "to": "loadBag",
+      "label": "await",
+      "kind": "call",
+      "sourceIds": [
         "panel.read"
       ]
     },
     {
       "id": "e.read-fallback",
-      "from": "read",
-      "to": "fallback",
-      "label": "未命中时调用",
-      "kind": "flow",
+      "from": "readItems",
+      "to": "loadFallback",
+      "kind": "call",
+      "branch": "背包为空",
       "sourceIds": [
-        "repo.fallback"
+        "panel.read"
       ]
     },
     {
-      "id": "e.read-refresh",
-      "from": "read",
-      "to": "refresh",
-      "label": "返回结果",
-      "kind": "flow",
+      "id": "e.refresh-render",
+      "from": "refreshList",
+      "to": "renderItem",
+      "label": "每个物品",
+      "kind": "call",
       "sourceIds": [
-        "panel.refresh",
-        "repo.load"
-      ]
-    },
-    {
-      "id": "e.fallback-refresh",
-      "from": "fallback",
-      "to": "refresh",
-      "label": "兜底后刷新",
-      "kind": "flow",
-      "sourceIds": [
-        "panel.refresh"
+        "panel.guard"
       ]
     }
   ],
   "walkthrough": [
     {
-      "id": "step-open",
-      "title": "从按钮到界面",
-      "description": "点击按钮后创建面板并加载资源。",
+      "id": "w.click",
+      "title": "点击按钮 → openBagPanel()",
       "nodeIds": [
-        "click",
-        "open"
+        "bindBagButton"
       ],
       "edgeIds": [
         "e.click-open"
+      ],
+      "sourceId": "button.bind",
+      "description": "起点在 bindBagButton：给按钮挂 click 监听，回调里第 5 行调用 openBagPanel()。下一步就跟进这个函数。",
+      "why": "用 void 显式丢弃 Promise：点击回调本身不需要等渲染结束。",
+      "example": "玩家点了「背包」按钮，回调执行，进入 openBagPanel()。"
+    },
+    {
+      "id": "w.open",
+      "title": "openBagPanel：建面板，再 await refreshList()",
+      "nodeIds": [
+        "openBagPanel"
+      ],
+      "edgeIds": [
+        "e.open-refresh"
+      ],
+      "sourceId": "panel.open",
+      "description": "先建 div.bag-panel 存进模块变量 panel，然后串行 await ensureAssets() 和 refreshList()。数据是在 refreshList 里拿的，下一步跟进第 10 行的 refreshList()。",
+      "why": "先等资源就绪再刷列表，避免物品文字先出来、底图后闪。",
+      "watch": "panel 是模块级单例：连点两次按钮，前一个 panel 引用会被直接覆盖。",
+      "skip": "ensureAssets() 目前是空函数，不用跟进去。",
+      "example": "内存里有了 div.bag-panel，资源加载完，进入 refreshList()。"
+    },
+    {
+      "id": "w.refresh",
+      "title": "refreshList：第一件事是 await readItems()",
+      "nodeIds": [
+        "refreshList"
+      ],
+      "edgeIds": [
+        "e.refresh-read"
+      ],
+      "sourceId": "panel.refresh",
+      "description": "refreshList 第 18 行先 await readItems() 拿物品，拿到后才判断面板、渲染。先记住这里停在第 18 行等待，下一步跟进 readItems()。",
+      "skip": "第 19–20 行的守卫和渲染等数据回来再看（第 6 步）。",
+      "example": "停在第 18 行，等 readItems() 的结果。",
+      "notes": [
+        {
+          "id": "note-mwj04f08-1",
+          "question": "这里为什么要这样做呢",
+          "answer": "It reads the data first and checks the panel second because `await` is a pause, and the world can change during it.\n\n- **Rendering needs the data.** `items.map(item => renderItem(item))` at `src/bag-panel.ts:20` has nothing to draw until `readItems()` returns. In our example, that means waiting for the 2 potions from `/api/bag`.\n- **The panel can disappear while we wait.** When line 18 suspends, other code can run. If the player closes the bag before the request finishes, `closeBagPanel()` removes the panel and sets `panel = undefined` (`src/bag-panel.ts:35-38`).\n- **So the panel check comes after the `await`.** Line 19 runs once the data is back and asks \"is the panel still open?\" If not, it exits quietly. If the check came before the `await`, the panel could still close during the wait and line 20 would fail.\n- **The list is replaced in one go.** `replaceChildren` swaps the contents in a single call, so a refresh doesn't leave a half-updated list.\n\nSo the order is: get the data, check the panel is still there, then render. Step 6 covers that last check in more detail. Next, step 4 follows what `readItems()` does while line 18 waits.",
+          "createdAt": "2026-11-16T08:28:28.280Z"
+        }
+      ],
+      "branches": [
+        "aside-mwj04gck-1"
       ]
     },
     {
-      "id": "step-read",
-      "title": "读取数据",
-      "description": "面板读取缓存或请求接口，未命中时走兜底。",
+      "id": "w.read",
+      "title": "readItems：调用 loadBag()",
       "nodeIds": [
-        "read",
-        "fallback"
+        "readItems"
       ],
       "edgeIds": [
-        "e.open-read",
+        "e.read-load"
+      ],
+      "sourceId": "panel.read",
+      "description": "readItems 第 24 行 await loadBag()，从仓库层拿数据；拿到空数组才走 loadFallback()。下一步跟进 bag-repository.ts 的 loadBag()。",
+      "why": "面板层不关心数据来源，只负责“空了用兜底”这一条规则。",
+      "example": "进入 loadBag()。",
+      "branches": [
+        "w.fallback"
+      ]
+    },
+    {
+      "id": "w.load",
+      "title": "loadBag：缓存命中直接返回，否则请求接口",
+      "nodeIds": [
+        "loadBag"
+      ],
+      "edgeIds": [],
+      "sourceId": "repo.load",
+      "description": "先查 cache.get('bag')，有就直接返回；没有才 fetch('/api/bag')，把结果写进缓存后返回。返回值一路回到 readItems → refreshList。",
+      "why": "缓存收拢在仓库层一处，上层不用关心数据来自内存还是网络。",
+      "watch": "接口返回过一次空数组 [] 也会被缓存（数组是 truthy），之后一直命中这个空数组，除非调用 invalidate()。",
+      "example": "首次打开，缓存未命中，GET /api/bag 返回 2 件药水，写入缓存后返回。readItems 拿到 2 件，长度 > 0，直接返回给 refreshList。"
+    },
+    {
+      "id": "w.fallback",
+      "title": "岔路：背包为空时走 loadFallback()",
+      "aside": true,
+      "nodeIds": [
+        "loadFallback"
+      ],
+      "edgeIds": [
         "e.read-fallback"
-      ]
+      ],
+      "sourceId": "repo.fallback",
+      "description": "如果 loadBag() 返回空数组，readItems 第 26 行改为 return loadFallback()。",
+      "skip": "示例里 loadFallback 也只是返回 []，真实业务常在这里放占位道具。"
     },
     {
-      "id": "step-refresh",
-      "title": "刷新列表",
-      "description": "数据到达后渲染物品。",
+      "id": "w.render",
+      "title": "回到 refreshList：面板还在才渲染",
       "nodeIds": [
-        "refresh"
+        "refreshList",
+        "renderItem"
       ],
       "edgeIds": [
-        "e.read-refresh",
-        "e.fallback-refresh"
-      ]
+        "e.refresh-render"
+      ],
+      "sourceId": "panel.guard",
+      "description": "数据一路返回，回到第 3 步停住的 refreshList 第 18 行之后。第 19 行确认 panel 还在，第 20 行对每个物品调用 renderItem()，再用 replaceChildren 一次性替换。",
+      "why": "await 期间玩家可能已经关掉面板（closeBagPanel 把 panel 置空），这个守卫防止往已销毁的面板上渲染。",
+      "skip": "renderItem() 只是拼一个 <span>id × count</span>，扫一眼即可。",
+      "example": "panel 还在，2 件药水变成两个 <span>，挂进面板，打开流程结束。"
+    },
+    {
+      "id": "aside-mwj04gck-1",
+      "title": "这里为什么要这样做呢",
+      "description": "It reads the data first and checks the panel second because `await` is a pause, and the world can change during it.\n\n- **Rendering needs the data.** `items.map(item => renderItem(item))` at `src/bag-panel.ts:20` has nothing to draw until `readItems()` returns. In our example, that means waiting for the 2 potions from `/api/bag`.\n- **The panel can disappear while we wait.** When line 18 suspends, other code can run. If the player closes the bag before the request finishes, `closeBagPanel()` removes the panel and sets `panel = undefined` (`src/bag-panel.ts:35-38`).\n- **So the panel check comes after the `await`.** Line 19 runs once the data is back and asks \"is the panel still open?\" If not, it exits quietly. If the check came before the `await`, the panel could still close during the wait and line 20 would fail.\n- **The list is replaced in one go.** `replaceChildren` swaps the contents in a single call, so a refresh doesn't leave a half-updated list.\n\nSo the order is: get the data, check the panel is still there, then render. Step 6 covers that last check in more detail. Next, step 4 follows what `readItems()` does while line 18 waits.",
+      "nodeIds": [
+        "refreshList"
+      ],
+      "edgeIds": [
+        "e.refresh-read"
+      ],
+      "sourceId": "panel.refresh",
+      "aside": true
     }
-  ]
+  ],
+  "tour": {
+    "example": "玩家首次点击「背包」按钮，服务端 /api/bag 返回 2 件药水道具。",
+    "recap": "调用顺序：点击 → openBagPanel → refreshList → readItems → loadBag（缓存 / 接口），数据原路返回到 refreshList，确认面板还在后渲染。三层分工：bag-button 管入口，bag-panel 管面板生命周期和渲染守卫，bag-repository 管缓存和请求。",
+    "exercise": "看一眼 bag-panel.ts 第 35 行的 closeBagPanel()：如果玩家在 fetch('/api/bag') 还没返回时关掉了面板，cache 里还会写入这次请求回来的物品吗？顺着代码验证一下你的判断。"
+  }
 }

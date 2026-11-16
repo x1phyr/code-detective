@@ -2,6 +2,19 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "运行代码侦探（选择文件夹…）",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${input:testFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.cjs"
+      ],
+      "preLaunchTask": "npm: build"
+    },
+    {
       "name": "运行代码侦探（登录示例 · 导读演示）",
       "type": "extensionHost",
       "request": "launch",
@@ -67,6 +80,13 @@
         "${workspaceFolder}/dist/**/*.cjs"
       ],
       "preLaunchTask": "npm: build"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testFolder",
+      "type": "promptString",
+      "description": "要用代码侦探打开的文件夹，填绝对路径，例如 /Users/you/code/my-project"
     }
   ]
 }

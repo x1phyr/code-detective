@@ -2,792 +2,339 @@
   "$schema": "../../../../schemas/code-map-v1.schema.json",
   "schemaVersion": 1,
   "id": "login-demo",
-  "title": "登录流程",
-  "description": "带提前返回、缓存、重试与多个落地页的登录流程，演示功能块分层与支线折叠。",
+  "title": "登录认证与落地跳转",
+  "description": "包含前置表单校验、Token 缓存、指数退避重试与多优先级路由分发的登录主链路。",
   "sources": {
     "ctl.submit": {
-      "file": "src/login-controller.ts",
-      "startLine": 6,
-      "endLine": 14,
-      "anchorText": "export async function onSubmit(form: LoginForm): Promise<LoginResult> {\n  const problem = validateForm(form);\n  if (problem) return showError(problem);\n\n  const result = await authenticate(form.username, form.password);\n  if (!result.ok) return showError(result.reason);\n\n  return routeAfterLogin(result.user);\n}",
-      "note": "提交入口：校验 → 认证 → 跳转，任一步失败都提前返回"
-    },
-    "ctl.validate": {
       "file": "src/login-controller.ts",
       "startLine": 7,
       "endLine": 8,
       "anchorText": "  const problem = validateForm(form);\n  if (problem) return showError(problem);",
-      "note": "表单不合法时直接提示错误并返回"
+      "note": "第 1 步调用 validateForm(form) 校验输入，失败提前返回"
     },
     "ctl.auth": {
       "file": "src/login-controller.ts",
       "startLine": 10,
       "endLine": 11,
       "anchorText": "  const result = await authenticate(form.username, form.password);\n  if (!result.ok) return showError(result.reason);",
-      "note": "认证失败时提示原因并返回"
+      "note": "第 2 步调用 authenticate() 远程认证，失败转入 showError()"
     },
     "ctl.route": {
       "file": "src/login-controller.ts",
       "startLine": 13,
       "endLine": 13,
       "anchorText": "  return routeAfterLogin(result.user);",
-      "note": "认证成功后按用户状态决定去哪一页"
+      "note": "第 3 步认证通过，调用 routeAfterLogin() 决定落地页"
     },
     "ctl.error": {
       "file": "src/login-controller.ts",
-      "startLine": 16,
-      "endLine": 19,
-      "anchorText": "function showError(message: string): LoginResult {\n  console.warn(`[login] ${message}`);\n  return { error: message };\n}",
-      "note": "统一的错误提示出口"
+      "startLine": 17,
+      "endLine": 18,
+      "anchorText": "  console.warn(`[login] ${message}`);\n  return { error: message };",
+      "note": "所有失败分支汇入此处打印告警并返回 { error }"
     },
-    "val.username": {
+    "val.form": {
       "file": "src/validate.ts",
       "startLine": 5,
-      "endLine": 5,
-      "anchorText": "  if (!form.username.trim()) return '请输入用户名';",
-      "note": "用户名为空"
-    },
-    "val.password": {
-      "file": "src/validate.ts",
-      "startLine": 6,
-      "endLine": 6,
-      "anchorText": "  if (form.password.length < 8) return '密码至少 8 位';",
-      "note": "密码长度不足"
-    },
-    "val.captcha": {
-      "file": "src/validate.ts",
-      "startLine": 7,
       "endLine": 7,
-      "anchorText": "  if (needsCaptcha(form.username) && !form.captcha) return '请输入验证码';",
-      "note": "失败次数多时要求验证码"
-    },
-    "val.needs": {
-      "file": "src/validate.ts",
-      "startLine": 13,
-      "endLine": 15,
-      "anchorText": "function needsCaptcha(username: string): boolean {\n  return (failures.get(username) ?? 0) >= 3;\n}",
-      "note": "失败 3 次以上需要验证码"
-    },
-    "val.ok": {
-      "file": "src/validate.ts",
-      "startLine": 8,
-      "endLine": 8,
-      "anchorText": "  return undefined;",
-      "note": "全部通过"
+      "anchorText": "  if (!form.username.trim()) return '请输入用户名';\n  if (form.password.length < 8) return '密码至少 8 位';\n  if (needsCaptcha(form.username) && !form.captcha) return '请输入验证码';",
+      "note": "顺序检查必填项，并调用 needsCaptcha() 校验验证码门槛"
     },
     "val.record": {
       "file": "src/validate.ts",
-      "startLine": 17,
-      "endLine": 19,
-      "anchorText": "export function recordFailure(username: string): void {\n  failures.set(username, (failures.get(username) ?? 0) + 1);\n}",
-      "note": "记录一次失败，影响下次是否要验证码"
+      "startLine": 18,
+      "endLine": 18,
+      "anchorText": "  failures.set(username, (failures.get(username) ?? 0) + 1);",
+      "note": "认证失败时调用 failures.set() 累加错误次数"
+    },
+    "auth.entry": {
+      "file": "src/auth-service.ts",
+      "startLine": 11,
+      "endLine": 13,
+      "anchorText": "  const token = await requestToken(username, password);\n  if (typeof token !== 'string') {\n    recordFailure(username);",
+      "note": "未命中缓存时调用 requestToken()，失败则调 recordFailure()"
     },
     "auth.cache": {
       "file": "src/auth-service.ts",
       "startLine": 8,
       "endLine": 9,
       "anchorText": "  const cached = tokenCache.get(username);\n  if (cached) return { ok: true, user: await loadProfile(cached) };",
-      "note": "有缓存的 token 时跳过登录请求"
+      "note": "先调 tokenCache.get() 查缓存，命中直接调 loadProfile()"
     },
-    "auth.request": {
+    "req.loop": {
       "file": "src/auth-service.ts",
-      "startLine": 11,
-      "endLine": 15,
-      "anchorText": "  const token = await requestToken(username, password);\n  if (typeof token !== 'string') {\n    recordFailure(username);\n    return { ok: false, reason: token.reason };\n  }",
-      "note": "请求 token，失败时记录并返回原因"
-    },
-    "auth.store": {
-      "file": "src/auth-service.ts",
-      "startLine": 16,
-      "endLine": 17,
-      "anchorText": "  tokenCache.set(username, token);\n  return { ok: true, user: await loadProfile(token) };",
-      "note": "缓存 token 并加载用户资料"
-    },
-    "auth.profile": {
-      "file": "src/auth-service.ts",
-      "startLine": 34,
-      "endLine": 37,
-      "anchorText": "async function loadProfile(token: string): Promise<User> {\n  const response = await fetch('/api/me', { headers: { authorization: `Bearer ${token}` } });\n  return (await response.json()) as User;\n}",
-      "note": "用 token 拉取用户资料"
-    },
-    "req.post": {
-      "file": "src/auth-service.ts",
-      "startLine": 21,
-      "endLine": 25,
-      "anchorText": "  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {\n    const response = await fetch('/api/login', {\n      method: 'POST',\n      body: JSON.stringify({ username, password }),\n    });",
-      "note": "最多尝试 3 次 POST /api/login"
-    },
-    "req.ok": {
-      "file": "src/auth-service.ts",
-      "startLine": 26,
+      "startLine": 22,
       "endLine": 26,
-      "anchorText": "    if (response.ok) return ((await response.json()) as { token: string }).token;",
-      "note": "成功拿到 token"
+      "anchorText": "    const response = await fetch('/api/login', {\n      method: 'POST',\n      body: JSON.stringify({ username, password }),\n    });\n    if (response.ok) return ((await response.json()) as { token: string }).token;",
+      "note": "调用 fetch('/api/login') 请求登录，成功即解析返回 token"
     },
     "req.denied": {
       "file": "src/auth-service.ts",
       "startLine": 27,
       "endLine": 28,
       "anchorText": "    if (response.status === 401) return { reason: '用户名或密码错误' };\n    if (response.status === 423) return { reason: '账号已锁定，请联系管理员' };",
-      "note": "401 / 423 不重试，直接返回原因"
+      "note": "401 / 423 属于确定性拒绝，立即终止不重试"
     },
     "req.retry": {
       "file": "src/auth-service.ts",
       "startLine": 29,
-      "endLine": 29,
-      "anchorText": "    await delay(200 * 2 ** attempt);",
-      "note": "其他错误指数退避后重试"
-    },
-    "req.giveup": {
-      "file": "src/auth-service.ts",
-      "startLine": 31,
       "endLine": 31,
-      "anchorText": "  return { reason: '服务暂时不可用，请稍后再试' };",
-      "note": "重试用尽，返回服务不可用"
+      "anchorText": "    await delay(200 * 2 ** attempt);\n  }\n  return { reason: '服务暂时不可用，请稍后再试' };",
+      "note": "网络或 5xx 错误按指数退避重试，3 次耗尽返回不可用"
+    },
+    "auth.profile": {
+      "file": "src/auth-service.ts",
+      "startLine": 16,
+      "endLine": 17,
+      "anchorText": "  tokenCache.set(username, token);\n  return { ok: true, user: await loadProfile(token) };",
+      "note": "缓存新 Token 并调用 loadProfile() 拉取用户状态"
     },
     "route.fn": {
       "file": "src/router.ts",
-      "startLine": 3,
-      "endLine": 7,
-      "anchorText": "export function routeAfterLogin(user: User): LoginResult {\n  if (user.mustChangePassword) return { page: '/account/password' };\n  if (user.firstLogin) return { page: '/onboarding' };\n  return { page: redirectTarget() ?? '/home' };\n}",
-      "note": "按用户状态选择落地页"
-    },
-    "route.password": {
-      "file": "src/router.ts",
       "startLine": 4,
-      "endLine": 4,
-      "anchorText": "  if (user.mustChangePassword) return { page: '/account/password' };",
-      "note": "必须改密码"
-    },
-    "route.onboarding": {
-      "file": "src/router.ts",
-      "startLine": 5,
-      "endLine": 5,
-      "anchorText": "  if (user.firstLogin) return { page: '/onboarding' };",
-      "note": "首次登录走引导"
-    },
-    "route.home": {
-      "file": "src/router.ts",
-      "startLine": 6,
       "endLine": 6,
-      "anchorText": "  return { page: redirectTarget() ?? '/home' };",
-      "note": "默认去首页或 redirect 指定页"
-    },
-    "route.redirect": {
-      "file": "src/router.ts",
-      "startLine": 9,
-      "endLine": 12,
-      "anchorText": "function redirectTarget(): string | undefined {\n  const target = new URLSearchParams(location.search).get('redirect');\n  return target?.startsWith('/') ? target : undefined;\n}",
-      "note": "只接受站内相对路径，防止开放重定向"
+      "anchorText": "  if (user.mustChangePassword) return { page: '/account/password' };\n  if (user.firstLogin) return { page: '/onboarding' };\n  return { page: redirectTarget() ?? '/home' };",
+      "note": "按改密 > 首次引导 > redirectTarget() 的优先级决定去向"
     }
   },
   "nodes": [
     {
-      "id": "submit",
-      "label": "提交登录表单",
+      "id": "onSubmit",
+      "label": "提交登录 (onSubmit)",
       "kind": "event",
-      "description": "onSubmit 串起校验、认证、跳转三段。",
-      "sourceIds": [
-        "ctl.submit"
-      ]
+      "description": "串起本地校验、远程认证、路由分发三阶段。",
+      "sourceIds": ["ctl.submit", "ctl.auth", "ctl.route"]
     },
     {
-      "id": "validate",
-      "label": "校验表单",
+      "id": "validateForm",
+      "label": "本地表单校验 (validateForm)",
       "kind": "function",
-      "description": "三项检查，任一不过就提前返回。",
-      "sourceIds": [
-        "ctl.validate"
-      ]
+      "description": "检查必填项与连续失败触发的验证码门槛。",
+      "sourceIds": ["val.form", "val.record"]
     },
     {
-      "id": "auth",
-      "label": "认证",
+      "id": "authGroup",
+      "label": "身份认证阶段 (authenticate)",
       "kind": "function",
-      "description": "先查 token 缓存，未命中再请求登录接口。",
-      "sourceIds": [
-        "ctl.auth",
-        "auth.request"
-      ]
+      "description": "查 Token 缓存 → 带退避重试请求登录 → 拉取用户资料。",
+      "sourceIds": ["auth.entry"]
     },
     {
-      "id": "route",
-      "label": "登录后跳转",
+      "id": "auth.cache",
+      "label": "检查 Token 缓存",
+      "kind": "condition",
+      "parent": "authGroup",
+      "description": "命中直接复用 Token 拉资料。",
+      "sourceIds": ["auth.cache"]
+    },
+    {
+      "id": "auth.request",
+      "label": "请求 Token (requestToken)",
       "kind": "function",
-      "description": "按账号状态决定落地页。",
-      "sourceIds": [
-        "ctl.route",
-        "route.fn"
-      ]
+      "parent": "authGroup",
+      "description": "POST /api/login，最多 3 次指数退避。",
+      "sourceIds": ["req.loop"]
     },
     {
-      "id": "show-error",
-      "label": "提示错误并返回",
+      "id": "auth.profile",
+      "label": "缓存并拉取资料 (loadProfile)",
+      "kind": "function",
+      "parent": "authGroup",
+      "description": "保存 Token 并请求 /api/me 获取账号状态。",
+      "sourceIds": ["auth.profile"]
+    },
+    {
+      "id": "routeAfterLogin",
+      "label": "登录后路由分发 (routeAfterLogin)",
+      "kind": "function",
+      "description": "按改密、新手引导、站内跳转优先级决定落地页。",
+      "sourceIds": ["route.fn"]
+    },
+    {
+      "id": "showError",
+      "label": "统一错误返回 (showError)",
       "kind": "exit",
-      "description": "所有失败路径的统一出口。",
-      "sourceIds": [
-        "ctl.error"
-      ]
-    },
-    {
-      "id": "v.username",
-      "label": "用户名为空？",
-      "kind": "condition",
-      "parent": "validate",
-      "sourceIds": [
-        "val.username"
-      ]
-    },
-    {
-      "id": "v.password",
-      "label": "密码不足 8 位？",
-      "kind": "condition",
-      "parent": "validate",
-      "sourceIds": [
-        "val.password"
-      ]
-    },
-    {
-      "id": "v.captcha",
-      "label": "需要验证码但没填？",
-      "kind": "condition",
-      "parent": "validate",
-      "sourceIds": [
-        "val.captcha",
-        "val.needs"
-      ]
-    },
-    {
-      "id": "v.ok",
-      "label": "校验通过",
-      "kind": "step",
-      "parent": "validate",
-      "sourceIds": [
-        "val.ok"
-      ]
-    },
-    {
-      "id": "a.cache",
-      "label": "有缓存 token？",
-      "kind": "condition",
-      "parent": "auth",
-      "sourceIds": [
-        "auth.cache"
-      ]
-    },
-    {
-      "id": "a.request",
-      "label": "请求登录接口",
-      "kind": "function",
-      "parent": "auth",
-      "description": "带重试的 POST /api/login。",
-      "sourceIds": [
-        "auth.request"
-      ]
-    },
-    {
-      "id": "a.store",
-      "label": "缓存 token",
-      "kind": "step",
-      "parent": "auth",
-      "sourceIds": [
-        "auth.store"
-      ]
-    },
-    {
-      "id": "a.profile",
-      "label": "加载用户资料",
-      "kind": "function",
-      "parent": "auth",
-      "sourceIds": [
-        "auth.profile"
-      ]
-    },
-    {
-      "id": "a.record",
-      "label": "记录失败次数",
-      "kind": "function",
-      "parent": "auth",
-      "description": "累计到 3 次后下次登录要求验证码。",
-      "sourceIds": [
-        "val.record",
-        "auth.request"
-      ]
-    },
-    {
-      "id": "r.post",
-      "label": "POST /api/login",
-      "kind": "step",
-      "parent": "a.request",
-      "sourceIds": [
-        "req.post"
-      ]
-    },
-    {
-      "id": "r.ok",
-      "label": "拿到 token",
-      "kind": "step",
-      "parent": "a.request",
-      "sourceIds": [
-        "req.ok"
-      ]
-    },
-    {
-      "id": "r.denied",
-      "label": "401 / 423",
-      "kind": "exit",
-      "parent": "a.request",
-      "description": "密码错误或账号锁定，不重试。",
-      "sourceIds": [
-        "req.denied"
-      ]
-    },
-    {
-      "id": "r.retry",
-      "label": "退避后重试",
-      "kind": "step",
-      "parent": "a.request",
-      "sourceIds": [
-        "req.retry"
-      ]
-    },
-    {
-      "id": "r.giveup",
-      "label": "重试用尽",
-      "kind": "exit",
-      "parent": "a.request",
-      "sourceIds": [
-        "req.giveup"
-      ]
-    },
-    {
-      "id": "t.password",
-      "label": "跳到改密码页",
-      "kind": "step",
-      "parent": "route",
-      "sourceIds": [
-        "route.password"
-      ]
-    },
-    {
-      "id": "t.onboarding",
-      "label": "跳到新手引导",
-      "kind": "step",
-      "parent": "route",
-      "sourceIds": [
-        "route.onboarding"
-      ]
-    },
-    {
-      "id": "t.home",
-      "label": "跳到首页 / redirect",
-      "kind": "step",
-      "parent": "route",
-      "description": "redirect 只接受站内相对路径。",
-      "sourceIds": [
-        "route.home",
-        "route.redirect"
-      ]
+      "description": "汇总校验不通过或认证失败提示。",
+      "sourceIds": ["ctl.error"]
     }
   ],
   "edges": [
     {
       "id": "e.submit-validate",
-      "from": "submit",
-      "to": "v.username",
-      "kind": "flow",
-      "label": "先校验",
-      "sourceIds": [
-        "ctl.validate"
-      ]
-    },
-    {
-      "id": "e.v1",
-      "from": "v.username",
-      "to": "v.password",
-      "kind": "flow",
-      "sourceIds": [
-        "val.username"
-      ]
-    },
-    {
-      "id": "e.v2",
-      "from": "v.password",
-      "to": "v.captcha",
-      "kind": "flow",
-      "sourceIds": [
-        "val.password"
-      ]
-    },
-    {
-      "id": "e.v3",
-      "from": "v.captcha",
-      "to": "v.ok",
-      "kind": "flow",
-      "sourceIds": [
-        "val.captcha"
-      ]
-    },
-    {
-      "id": "e.v1-err",
-      "from": "v.username",
-      "to": "show-error",
-      "kind": "flow",
-      "branch": "用户名为空",
-      "sourceIds": [
-        "val.username",
-        "ctl.validate"
-      ]
-    },
-    {
-      "id": "e.v2-err",
-      "from": "v.password",
-      "to": "show-error",
-      "kind": "flow",
-      "branch": "密码太短",
-      "sourceIds": [
-        "val.password",
-        "ctl.validate"
-      ]
-    },
-    {
-      "id": "e.v3-err",
-      "from": "v.captcha",
-      "to": "show-error",
-      "kind": "flow",
-      "branch": "缺验证码",
-      "sourceIds": [
-        "val.captcha",
-        "ctl.validate"
-      ]
-    },
-    {
-      "id": "e.ok-auth",
-      "from": "v.ok",
-      "to": "a.cache",
+      "from": "onSubmit",
+      "to": "validateForm",
+      "label": "1. 校验输入",
       "kind": "call",
-      "label": "再认证",
-      "sourceIds": [
-        "ctl.auth"
-      ]
+      "sourceIds": ["ctl.submit"]
+    },
+    {
+      "id": "e.validate-err",
+      "from": "validateForm",
+      "to": "showError",
+      "branch": "校验未通过",
+      "kind": "flow",
+      "sourceIds": ["ctl.submit", "ctl.error"]
+    },
+    {
+      "id": "e.validate-auth",
+      "from": "validateForm",
+      "to": "auth.cache",
+      "label": "2. 进入认证",
+      "kind": "call",
+      "sourceIds": ["ctl.auth"]
     },
     {
       "id": "e.cache-hit",
-      "from": "a.cache",
-      "to": "a.profile",
-      "kind": "flow",
+      "from": "auth.cache",
+      "to": "auth.profile",
       "branch": "缓存命中",
-      "sourceIds": [
-        "auth.cache"
-      ]
+      "kind": "flow",
+      "sourceIds": ["auth.cache"]
     },
     {
       "id": "e.cache-miss",
-      "from": "a.cache",
-      "to": "r.post",
+      "from": "auth.cache",
+      "to": "auth.request",
+      "label": "缓存未命中",
       "kind": "call",
-      "label": "未命中",
-      "sourceIds": [
-        "auth.cache",
-        "auth.request"
-      ]
+      "sourceIds": ["auth.entry"]
     },
     {
-      "id": "e.post-ok",
-      "from": "r.post",
-      "to": "r.ok",
+      "id": "e.req-ok",
+      "from": "auth.request",
+      "to": "auth.profile",
+      "label": "拿到 Token",
       "kind": "flow",
-      "sourceIds": [
-        "req.ok"
-      ]
+      "sourceIds": ["auth.profile"]
     },
     {
-      "id": "e.post-denied",
-      "from": "r.post",
-      "to": "r.denied",
-      "kind": "flow",
-      "branch": "401 / 423",
-      "sourceIds": [
-        "req.denied"
-      ]
-    },
-    {
-      "id": "e.post-retry",
-      "from": "r.post",
-      "to": "r.retry",
-      "kind": "flow",
-      "branch": "其他错误",
-      "sourceIds": [
-        "req.retry"
-      ]
-    },
-    {
-      "id": "e.retry-post",
-      "from": "r.retry",
-      "to": "r.post",
-      "kind": "flow",
-      "branch": "再试一次",
-      "sourceIds": [
-        "req.retry"
-      ]
-    },
-    {
-      "id": "e.retry-giveup",
-      "from": "r.retry",
-      "to": "r.giveup",
-      "kind": "flow",
-      "branch": "第 3 次仍失败",
-      "sourceIds": [
-        "req.giveup"
-      ]
-    },
-    {
-      "id": "e.ok-store",
-      "from": "r.ok",
-      "to": "a.store",
-      "kind": "flow",
-      "sourceIds": [
-        "auth.store"
-      ]
-    },
-    {
-      "id": "e.store-profile",
-      "from": "a.store",
-      "to": "a.profile",
-      "kind": "call",
-      "sourceIds": [
-        "auth.store"
-      ]
-    },
-    {
-      "id": "e.denied-record",
-      "from": "r.denied",
-      "to": "a.record",
-      "kind": "flow",
-      "branch": "失败",
-      "sourceIds": [
-        "auth.request"
-      ]
-    },
-    {
-      "id": "e.giveup-record",
-      "from": "r.giveup",
-      "to": "a.record",
-      "kind": "flow",
-      "branch": "失败",
-      "sourceIds": [
-        "auth.request"
-      ]
-    },
-    {
-      "id": "e.record-error",
-      "from": "a.record",
-      "to": "show-error",
-      "kind": "flow",
+      "id": "e.req-err",
+      "from": "auth.request",
+      "to": "showError",
       "branch": "认证失败",
-      "sourceIds": [
-        "ctl.auth",
-        "ctl.error"
-      ]
+      "kind": "flow",
+      "sourceIds": ["auth.entry", "ctl.error"]
     },
     {
       "id": "e.profile-route",
-      "from": "a.profile",
-      "to": "t.home",
-      "kind": "flow",
-      "label": "跳转",
-      "sourceIds": [
-        "ctl.route",
-        "route.home"
-      ]
-    },
-    {
-      "id": "e.route-password",
-      "from": "a.profile",
-      "to": "t.password",
-      "kind": "flow",
-      "branch": "必须改密码",
-      "sourceIds": [
-        "route.password"
-      ]
-    },
-    {
-      "id": "e.route-onboarding",
-      "from": "a.profile",
-      "to": "t.onboarding",
-      "kind": "flow",
-      "branch": "首次登录",
-      "sourceIds": [
-        "route.onboarding"
-      ]
+      "from": "auth.profile",
+      "to": "routeAfterLogin",
+      "label": "3. 决定落地页",
+      "kind": "call",
+      "sourceIds": ["ctl.route"]
     }
   ],
   "walkthrough": [
     {
       "id": "w.entry",
-      "title": "从提交开始",
-      "nodeIds": [
-        "submit"
-      ],
-      "edgeIds": [],
+      "title": "先看总控骨架：三段式卫语句",
+      "nodeIds": ["onSubmit"],
+      "edgeIds": ["e.submit-validate"],
       "sourceId": "ctl.submit",
-      "description": "onSubmit 是整个登录的入口。先别急着看细节，注意它的形状：校验 → 认证 → 跳转，三件事各占一行，失败都是提前 return。",
-      "why": "每一步失败都立刻返回，主流程就能保持“一条直线”，读起来不需要在脑子里维护 if/else 嵌套。",
-      "skip": "showError 只是打日志并返回错误对象，后面会单独看一眼，现在可以略过。",
-      "example": "alice 点了「登录」，form 里是她的用户名和正确的密码，没有填验证码。"
+      "description": "打开 login-controller.ts 看 onSubmit：先别钻进子函数，先看清它的骨架——validateForm → authenticate → routeAfterLogin，三步排成一条直线，每步出错都立刻 return showError(...)。",
+      "why": "用卫语句（early return）把异常分支尽早踢出局，主干代码就不需要套三层 if/else，一眼能读到底。",
+      "skip": "showError 只是打一行日志并包装 { error }，最后一步再扫一眼即可。",
+      "example": "alice 点下登录按钮：她填对了密码，但没填验证码（而她之前已经输错过 3 次密码）。"
     },
     {
       "id": "w.validate",
-      "title": "本地校验",
-      "nodeIds": [
-        "v.username",
-        "v.password",
-        "v.captcha"
-      ],
-      "edgeIds": [
-        "e.v1-err",
-        "e.v2-err",
-        "e.v3-err"
-      ],
-      "sourceId": "val.captcha",
-      "description": "validateForm 依次检查用户名、密码长度、验证码，返回第一条错误。重点看第 7 行：只有“需要验证码但没填”才会拦下。",
-      "why": "校验函数返回“错误信息或 undefined”，而不是抛异常：调用方用一个 if 就能处理，也方便直接把文案展示给用户。",
-      "watch": "needsCaptcha 读的是内存里的失败计数，刷新页面就清零了——这只是示例，真实系统要放在服务端。",
-      "example": "alice 之前失败过 3 次，needsCaptcha 返回 true，而她没填验证码，所以会在这里被拦下，返回「请输入验证码」。",
-      "branches": [
-        "w.captcha"
-      ]
+      "title": "前置本地校验与动态验证码门槛",
+      "nodeIds": ["validateForm"],
+      "edgeIds": ["e.validate-err", "e.validate-auth"],
+      "sourceId": "val.form",
+      "description": "进入 validateForm：按顺序检查用户名非空、密码满 8 位、以及 needsCaptcha(username) 时必须填验证码。合法返回 undefined，不合法直接返回提示文案。",
+      "why": "返回 string | undefined 而不是抛 Error，因为表单输错属于高频正常交互，调用方一行 if (problem) 就能拿到可直接展示的文案。",
+      "watch": "needsCaptcha 依赖内存 Map failures，页面一刷新计数就归零——真实线上环境必须由服务端下发风控状态。",
+      "example": "因为 alice 之前失败已满 3 次，needsCaptcha 返回 true，她在第 7 行被拦下，提示「请输入验证码」。",
+      "branches": ["w.captcha"]
     },
     {
       "id": "w.captcha",
-      "title": "失败次数从哪来",
+      "title": "失败计数是在哪里悄悄累加的？",
       "aside": true,
-      "nodeIds": [
-        "a.record"
-      ],
+      "nodeIds": ["validateForm"],
       "edgeIds": [],
       "sourceId": "val.record",
-      "description": "失败计数是在认证失败时累加的（auth-service.ts 里调用 recordFailure）。校验和认证就这样通过一个共享的 Map 连在了一起。",
-      "watch": "这是两个模块之间的隐式耦合：改认证逻辑时很容易忘了这里会影响下一次校验。"
+      "description": "看 validate.ts 下半部分的 recordFailure：它并不在校验模块自己调用，而是被 auth-service.ts 在登录接口失败时跨模块调用。",
+      "watch": "这是典型的跨模块隐式状态耦合：阅读或修改认证失败分支时，很容易漏掉它会反过来改变下一次本地校验的行为。"
     },
     {
       "id": "w.cache",
-      "title": "先查 token 缓存",
-      "nodeIds": [
-        "a.cache"
-      ],
-      "edgeIds": [
-        "e.cache-hit",
-        "e.cache-miss"
-      ],
+      "title": "进入认证：先查内存 Token 缓存",
+      "nodeIds": ["authGroup", "auth.cache"],
+      "edgeIds": ["e.cache-hit", "e.cache-miss"],
       "sourceId": "auth.cache",
-      "description": "假设 alice 补上验证码重新提交，校验通过，进入 authenticate。第一件事是看有没有缓存的 token。",
-      "why": "命中缓存就完全跳过登录接口，只拉一次用户资料，能省一次网络请求。",
-      "watch": "缓存按用户名记，不校验密码——拿着别人的用户名也能命中缓存。示例代码为了简单这么写，真实系统不能这样。",
-      "example": "alice 是第一次登录，缓存里没有她，走“未命中”。"
+      "description": "假设 alice 补填验证码重新提交通过校验，进入 authenticate。第一步先查 tokenCache 里有没有现成 token，有就直接跳去拉取用户资料。",
+      "why": "短时间内重复触发认证时省掉一次 POST /api/login 往返。",
+      "watch": "注意这里的示例写法只按 username 查缓存而未核对凭证，真实生产系统绝不能跳过凭据校验直接按用户名复用会话！",
+      "example": "alice 是首次成功登录，tokenCache 为空，继续往下走 requestToken。"
     },
     {
       "id": "w.request",
-      "title": "请求登录接口",
-      "nodeIds": [
-        "r.post",
-        "r.ok"
-      ],
-      "edgeIds": [
-        "e.post-ok"
-      ],
-      "sourceId": "req.post",
-      "description": "requestToken 用一个 for 循环最多尝试 3 次 POST /api/login，成功就直接返回 token。",
-      "skip": "循环里 401 / 423 / 其他错误的处理是支线，可以先走岔路看，也可以先跳过。",
-      "example": "alice 的密码正确，接口第一次就返回 200 和 token。",
-      "branches": [
-        "w.denied",
-        "w.retry"
-      ]
+      "title": "带退避重试的登录请求",
+      "nodeIds": ["auth.request"],
+      "edgeIds": ["e.req-ok"],
+      "sourceId": "req.loop",
+      "description": "requestToken 用最多 3 次的 for 循环调用 POST /api/login：拿到 2xx 立刻返回 token 字符串；遇到 401/423 立刻放弃；遇到网络或 5xx 则退避等待后再试。",
+      "why": "返回值用 string | { reason: string } 可辨识形状区分成功与失败，让外层用 typeof token !== 'string' 就能收窄类型。",
+      "skip": "delay 只是对 setTimeout 的一行的 Promise 封装，无需展开。",
+      "example": "alice 密码正确，第 1 次请求就返回 200 OK，顺利拿到她的 token。",
+      "branches": ["w.denied", "w.retry"]
     },
     {
       "id": "w.denied",
-      "title": "哪些错误不重试",
+      "title": "为什么 401 和 423 绝不重试？",
       "aside": true,
-      "nodeIds": [
-        "r.denied"
-      ],
-      "edgeIds": [
-        "e.post-denied"
-      ],
+      "nodeIds": ["auth.request"],
+      "edgeIds": ["e.req-err"],
       "sourceId": "req.denied",
-      "description": "401（密码错）和 423（账号锁定）直接返回原因，不进入重试。",
-      "why": "这两种错误重试多少次结果都一样，重试只会白白拖慢用户、还可能触发更严格的风控。"
+      "description": "密码错误（401）和账号锁定（423）属于确定性业务拒绝，原样重发 3 次结果也不会变。",
+      "why": "对密码错误做自动重试不仅白白卡住界面，还可能瞬间把用户的密码错误次数刷爆导致账号被锁！"
     },
     {
       "id": "w.retry",
-      "title": "退避重试",
+      "title": "指数退避的耗时账怎么算？",
       "aside": true,
-      "nodeIds": [
-        "r.retry",
-        "r.giveup"
-      ],
-      "edgeIds": [
-        "e.post-retry",
-        "e.retry-giveup"
-      ],
+      "nodeIds": ["auth.request"],
+      "edgeIds": ["e.req-err"],
       "sourceId": "req.retry",
-      "description": "其他错误（比如 500、网络抖动）会等待 200·2^attempt 毫秒再试，3 次都失败就返回「服务暂时不可用」。",
-      "watch": "等待时间是 400ms、800ms、1600ms，最坏情况下用户要多等将近 3 秒才看到错误。"
+      "description": "其他异常会等待 200 * 2^attempt 毫秒后进入下一轮循环，3 次全败后返回「服务暂时不可用」。",
+      "watch": "attempt=1 等 400ms、attempt=2 等 800ms、第 3 次失败后其实还多等了一次 1600ms 才退出循环——最坏要白等 2.8 秒！这是代码里一个值得顺手优化的小瑕疵。"
     },
     {
       "id": "w.store",
-      "title": "缓存 token 并加载资料",
-      "nodeIds": [
-        "a.store",
-        "a.profile"
-      ],
-      "edgeIds": [
-        "e.ok-store",
-        "e.store-profile"
-      ],
-      "sourceId": "auth.store",
-      "description": "拿到 token 后先写进缓存，再用它拉取用户资料，组装成 { ok: true, user }。",
-      "skip": "loadProfile 只是带 token 调一次 /api/me，不需要细看。",
-      "example": "alice 的 token 被缓存下来，下次她再登录就会命中上一步的缓存分支。"
+      "title": "缓存 Token 并拉取用户画像",
+      "nodeIds": ["auth.profile"],
+      "edgeIds": ["e.profile-route"],
+      "sourceId": "auth.profile",
+      "description": "回到 authenticate 第 16–17 行：把刚拿到的 token 存入 tokenCache，随后调用 loadProfile('/api/me') 取出完整的 User 状态返回给控制器。",
+      "skip": "loadProfile 只是标准的 Bearer Header GET 请求，一眼带过即可。",
+      "example": "alice 的 token 已缓存，/api/me 返回 { mustChangePassword: false, firstLogin: true }。"
     },
     {
       "id": "w.route",
-      "title": "决定去哪一页",
-      "nodeIds": [
-        "t.password",
-        "t.onboarding",
-        "t.home"
-      ],
-      "edgeIds": [
-        "e.route-password",
-        "e.route-onboarding",
-        "e.profile-route"
-      ],
+      "title": "按优先级决定登录后去哪一页",
+      "nodeIds": ["routeAfterLogin"],
+      "edgeIds": [],
       "sourceId": "route.fn",
-      "description": "routeAfterLogin 按优先级判断：必须改密码 > 首次登录 > 默认去首页（或 redirect 指定的页面）。",
-      "why": "顺序就是优先级：如果账号被要求改密码，就算是首次登录也要先去改密码。",
-      "watch": "redirect 只接受以 / 开头的站内路径（第 11 行），否则会被利用成开放重定向。",
-      "example": "alice 不需要改密码，但 firstLogin 为 true，所以落地到 /onboarding。"
+      "description": "最后一步来到 router.ts 的 routeAfterLogin：依次判断强制改密 → 首次登录新手引导 → URL redirect 参数（兜底 /home）。",
+      "why": "连续 if return 的上下顺序本身就编码了业务优先级：安全合规（强制改密）永远压过体验引导（onboarding）与普通跳转。",
+      "watch": "看第 11 行 target?.startsWith('/')：只放行站内相对路径，防止攻击者构造 ?redirect=https://evil.com 实施开放重定向钓鱼。",
+      "example": "alice 无需改密但 firstLogin 为 true，最终返回 { page: '/onboarding' } 进入新手引导！"
     },
     {
       "id": "w.error",
-      "title": "统一的失败出口",
-      "nodeIds": [
-        "show-error"
-      ],
-      "edgeIds": [
-        "e.v1-err",
-        "e.record-error"
-      ],
+      "title": "收尾确认：统一的失败出口",
+      "nodeIds": ["showError"],
+      "edgeIds": ["e.validate-err", "e.req-err"],
       "sourceId": "ctl.error",
-      "description": "回头看 onSubmit 里的两个提前返回：它们都调用 showError。所有失败最终都汇到这一个地方。",
-      "why": "只有一个出口，以后要加埋点、统一提示样式，只需要改这一处。"
+      "description": "最后回头扫一眼 login-controller.ts 底部的 showError：前面无论本地校验拦下还是远程认证失败，最终都落到这里统一打印告警并返回错误对象。",
+      "why": "收敛成单一失败出口后，将来接入 Toast 组件或错误监控上报只需改这 3 行代码。"
     }
   ],
   "tour": {
-    "example": "用户 alice 用正确密码登录，但她之前已经输错过 3 次密码，而且是第一次登录这个系统。",
-    "recap": "登录被拆成三段：onSubmit 先做本地校验，任何一项不过就提前返回；authenticate 优先用缓存的 token，没有缓存才去请求接口，接口请求自带重试；拿到用户后 routeAfterLogin 按账号状态决定落地页。所有失败最后都汇到 showError 这一个出口。",
-    "exercise": "把 validate.ts 里 needsCaptcha 的阈值从 3 改成 1，然后想一想：alice 第一次输错密码后，下一次提交会在哪一步被拦下？在那一行加个 console.log 验证你的判断。"
+    "example": "用户 alice 用正确密码登录，但她此前已连续输错 3 次密码，且这是她首次登录系统（firstLogin = true）。",
+    "recap": "整条登录链路围绕 login-controller.ts 的三段式卫语句展开：1) validate.ts 守住本地输入与动态验证码门槛；2) auth-service.ts 用「查缓存 → 区分错误类型的退避重试 → 拉用户资料」完成认证；3) router.ts 按安全优先级分发落地页并防御开放重定向。",
+    "exercise": "回看「指数退避」那条岔路提到的瑕疵：在 auth-service.ts 第 29 行，第 3 次（最后一次）请求失败后其实没必要再 await delay(1600) 了。你会怎么改这一行，省掉用户白等的 1.6 秒？"
   }
 }

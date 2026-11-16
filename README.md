@@ -1,206 +1,95 @@
 # 代码侦探 🕵️ Code Detective
 
-把 AI 生成的功能地图变成可点击的源码导读：调用关系、源码跳转与相关代码高亮。
+像一位熟手同事坐在你旁边，手把手带你读懂一段代码：**叙事化带读讲义为主角、粗粒度全景脉络图为辅助、VS Code 源码编辑器保持干净通透。**
 
-AI 负责分析功能、产出地图 JSON；插件负责严格校验、渲染地图、跳转到真实源码并高亮相关范围。地图由谁生成都一样——插件内置的 AI、Copilot Chat，或者你手写的 JSON，最终都走同一套校验与展示链路。
+要求 VS Code **1.95 或以上**，支持桌面版本的本地工作区。
 
-要求 VS Code **1.95 或以上**，仅支持桌面版本的本地工作区。
+## 核心交互设计
 
-## 安装与上手
+1. **📖 手风琴式带读主线（默认侧边栏视图）**
+   - 顶部提供**贯穿案例**（例如“alice 输错 3 次密码后再登录”），用一条真实业务数据串起整条调用链。
+   - 主线步骤垂直排布成手风琴时间轴：一次只展开当前精讲的一步，讲清**这段在做什么、为什么这样设计（Why）、容易踩的坑（Watch）、哪些细节可以先跳过（Skip）**。
+   - **🔀 内嵌岔路（Aside）**：异常分支、退避重试、缓存兜底等支线以胶囊按钮挂在主线步骤下，点开就地阅读，收起即回主线，绝不迷路。
+   - 走完最后一步给出**全局复盘与动手小练习**，检验是否真正读懂。
+2. **🧼 干净克制的源码编辑器 + 柔和双向跟随**
+   - 所有讲解、岔路、笔记与追问全部收敛在左侧导师面板中，**不在代码行间塞入评论框破坏代码排版**。
+   - 编辑器内**仅高亮当前步骤（或脉络图临时窥探）对应的唯一代码段**，并在首行末尾附上一句简短行内批注（`← ...`）。
+   - 当你在编辑器里自由翻看代码时，侧栏静默标出 `📍 光标在此` 并在底栏给出轻提示（可一键切到对应步骤或回到本步代码），绝不强抢你的阅读进度。
+3. **💬 流式向老手追问 + 沉淀为笔记或新岔路**
+   - 底部常驻追问框，在编辑器里框选一段代码后提问会自动附带选区上下文。
+   - AI 流式输出回答，实时展示正在检索/阅读的文件足迹；回答中的 `` `path/file.ts:line` `` 渲染为可点击按钮，一键跳到对应源码行。
+   - 有价值的解答可一键**存为本步笔记**或**存为新岔路**，直接持久化写回 `.code-detective/maps/<id>.json`。
+4. **🗺️ 粗粒度调用脉络图（原地展开分组 + 独立宽屏页签）**
+   - 聚焦函数/模块级粗粒度骨架（最多 1 层阶段分组 `parent`），分组框基于 ELK Compound Layout **原地展开/收起**，上下游始终同屏可见。
+   - 节点右上角标注关联的带读步号徽章（如 `#1`、`#3–4`）；点击节点或连线触发**非破坏性源码窥探（Peek）**，不会冲掉你当前的带读进度；点标题栏 `↗` 可在独立编辑器页签中宽屏查看全景脉络图。
+5. **✨ 就地发起带读与实时探索足迹**
+   - 在任意函数或代码行上右键选择 **代码侦探：从此处开始带读**，自动锚定当前文件、行号与函数符号，在侧栏内嵌发起框里补充一句想搞懂的问题即可生成。
+   - 生成过程中实时滚动展示 AI 搜索与阅读源码的足迹流。
 
-从源码构建出的安装包在 `artifacts/code-detective-0.2.0.vsix`：
+## 快速上手
 
-1. 在 VS Code 中执行 `Extensions: Install from VSIX...`，选择该文件。
-2. 打开一个包含 `.code-detective/maps/*.json` 的工作区（仓库内的示例是 `examples/bag-demo`）。
-3. 点左侧活动栏的 **代码侦探** 图标，地图在侧边栏里打开（也可执行 **代码侦探: 打开地图** 选择其它地图）。视图标题栏上有打开地图、AI 生成、适应窗口、高亮开关（眼睛图标表示当前状态），`…` 菜单里是重新扫描、选择 AI、复制提示词、取消 AI 任务和帮助。
+1. 安装构建产物 `artifacts/code-detective-0.2.0.vsix`（`Extensions: Install from VSIX...`），或按 `F5` 启动调试宿主窗口。
+2. 打开示例工作区 `examples/login-demo` 或 `examples/bag-demo`。
+3. 点击左侧活动栏的 **代码侦探** 图标打开导师带读面板：
+   - 顶部书架下拉框可切换已有带读讲义，支持 `+ 新建`、`↻ 重生成`（原位覆盖更新）与 `🗑 删除`。
+   - 快捷键 `⌥[` / `⌥]`（Windows / Linux 为 `Alt+[` / `Alt+]`）可快速切换上一步 / 下一步。
 
-想先用示例体验，直接以 `examples/bag-demo` 作为工作区根目录打开即可，里面的地图已经可以直接加载。
+## 多通道 AI 引擎与非 VS Code 兼容
 
-## 能做什么
+插件核心体验全部收敛在侧边栏导师面板与本地 Agent 体系中，在 **Cursor、Windsurf、Trae、Antigravity IDE、VSCodium** 等非官方 VS Code 分支中同样可完整使用。若宿主编辑器不支持 `@detective`（`vscode.chat`）或 `vscode.lm`，插件会自动跳过聊天参与者注册，并由侧边栏内嵌 Agent 驱动生成与追问。
 
-- **侧边栏视图**：常驻左侧活动栏，可以像资源管理器一样拖到其它侧栏或面板；流程图自上而下竖向排列，整个视图都留给地图。
-- **地图浏览**：配色直接取当前 VS Code 主题（悬停/选中与列表一致），选中后无关节点淡出；支持缩放、平移、适应窗口、分支、循环、自环与平行边。
-- **分层浏览**：节点可以归属到功能块（`parent`），画布一次只画一层；点功能块底部的层级按钮（带子节点数）进入下一层，顶部面包屑返回上层。跨层连线会提升到当前层并合并（标注「N 条调用」）。
-- **支线折叠**：标了 `branch` 的连线是支线（提前返回、异常、重试等），默认折叠成节点上的「+N」，主干保持一条竖线；点「+N」展开，支线用虚线画在主干两侧。`exit` 节点表示提前返回或异常出口。
-- **源码定位**：点击节点跳到实现，点击连线跳到调用或关系所在位置；节点关联多段代码时（节点上显示文件数）在点击处弹出列表选择；源码在当前聚焦的编辑器组里以新页签打开（已在某个分栏可见则复用），不会新建分栏。点空白处取消选择。
-- **两层高亮 + 注释**：相关范围与当前选择分别高亮，同文件多个可见编辑器会各自应用；选中范围首行末尾用灰字显示这段代码的注释（来自 source 的 `note`，没有时用节点说明），悬停查看完整说明与导读步骤。
-- **带读（编辑器内导读）**：标题栏 ▶ 或点顶部步骤条开始。每一步只打开一段代码，讲解直接展开在这段代码下方：这段在做什么、为什么这样写、注意什么、哪些可以先跳过，以及贯穿例子（比如“alice 输错 3 次后再登录”）走到这里发生了什么。
-  - 面板里有 上一步 / 下一步（快捷键 `⌥[` / `⌥]`，Windows/Linux 为 `Alt+[` / `Alt+]`），最后一步给出小结和一个动手练习。
-  - **岔路**：异常、重试这类支线不挤在主线里，讲解里列出「岔路」，点进去看完，“下一步”会带你回到出发的那一步。
-  - **随时提问**：在面板的回复框里直接问（例如“为什么这里要先查缓存？”），本机 agent 会结合当前步骤、这段代码和贯穿例子回答，问答留在这一步的面板里，追问会接着同一个会话。
-  - 地图同步高亮当前步骤；点地图空白处或「看完了」结束导读。
-- **状态恢复**：重开侧边栏回到上次打开的地图；地图内容变化时重新布局。
-- **中英双语**：界面、命令、通知、Chat 回复与 AI 提示词跟随 VS Code 显示语言（中文环境用中文，其余用英文）；英文环境下 AI 生成的地图内容也是英文。
-- **主题跟随**：配色取自 VS Code 注入的 `--vscode-*` 变量，支持深色、浅色与高对比度。
+内置引擎按 **`copilot` → `agy` → `codex` → `claude`** 顺位排序；未显式固定引擎时，自动探测 PATH（含 macOS/Linux 常见桌面安装目录如 `~/.local/bin`、`/opt/homebrew/bin`）并选中首个可用引擎：
 
-插件不会推导调用关系。图中的结论来自地图作者；文本锚点只用于恢复位置，不代表分析结论仍然成立。
+| 顺位 | 引擎 | `codeDetective.ai.agent` | 说明 |
+| --- | --- | --- | --- |
+| 1（默认） | GitHub Copilot | `copilot` | 优先调用本机 `copilot` CLI（`-p -s --allow-all-tools --deny-tool write --deny-tool shell`）；VS Code 内未装 CLI 时无缝回退到 `vscode.lm` 语言模型 API（VS Code 中亦支持 `@detective`） |
+| 2 | Antigravity (`agy`) | `agy` | `agy -p --output-format stream-json --disable-slash-commands`，支持实时工具足迹与 `--conversation` 会话续接 |
+| 3 | Codex CLI | `codex` | `codex exec --json --sandbox read-only --skip-git-repo-check`，只读沙箱探索与 `codex exec resume` 续接 |
+| 4 | Claude Code | `claude` | `claude -p --output-format stream-json --verbose --allowedTools Read,Grep,Glob,LS`，支持实时工具足迹与 `--resume` 同会话修正/追问 |
+| 扩展 | 自定义 CLI | `<custom-id>` | 在 `codeDetective.ai.cli.agents` 中声明 `{ id, label, command, args }` |
 
-## 生成地图
+所有 CLI 调用均通过 `stdin` 传递提示词且 `shell: false`，只开放只读工具，绝不修改工作区文件。
 
-### 1. 用本机 agent CLI
+## 讲义 JSON 格式（Schema v1）
 
-在侧边栏标题栏点 ✨（**AI 生成**），或执行 **代码侦探: 用 AI 生成地图**：在输入框里描述想了解的功能（agent 用 `…` → 选择本地 Agent CLI 切换）→ **agent 在当前工作区里用只读工具自己阅读源码** → 输出地图 JSON → 插件校验（失败时在同一次会话里让 agent 修正一次）→ 写入 `.code-detective/maps/` → 直接打开。进度显示在右下角通知里，可随时取消。
+讲义保存在 `.code-detective/maps/<id>.json`（Schema 见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）：
 
-插件只支持本机 agent CLI，不内置任何模型，也不把源码文本发给外部服务：
+- `sources`：`file`（工作区规范相对路径）、`startLine`、`endLine`，可选 `anchorText`（整行锚点文本，代码行号漂移时自动重定位）与 `note`（首行行尾批注）。
+- `walkthrough`（必填，至少 1 条主线步骤）：每步包含 `id`、`title`、`nodeIds`、`edgeIds`，推荐填写 `sourceId`、`description`、`why`、`watch`、`skip`、`example`；`aside: true` 表示支线岔路（由主线步骤的 `branches` 引用）；`notes` 保存用户沉淀的问答笔记。
+- `tour`：可选的全局导读设定：`example`（贯穿案例）、`recap`（复盘总结）、`exercise`（课后小练习）。
+- `nodes` / `edges`：6–15 个函数/模块级粗粒度节点与调用连线；可选 `parent` 指向顶层阶段节点（最多允许 1 层阶段分组），可选 `branch` 标记异常/旁路分支（默认收起为 `+N`）。
 
-| Agent | 调用方式 |
-| --- | --- |
-| Claude Code | `claude -p --output-format json --allowedTools Read,Grep,Glob,LS` |
-| Codex CLI | `codex exec --json --sandbox read-only --skip-git-repo-check` |
+完整示例可参考 [login-demo.json](examples/login-demo/.code-detective/maps/login-demo.json) 与 [bag-demo.json](examples/bag-demo/.code-detective/maps/bag-demo.json)。
 
-它是**一次会话**而不是一次性问答：agent 先探索工作区，插件校验后若不通过，会用 `--resume` / `codex exec resume` 在**同一个 session** 里让它修正，因此不会重新读一遍代码。
-
-提示词始终通过 stdin 传入，`shell: false`，话题内容不可能被解释成 CLI 参数。
-
-要接入别的 CLI，用 `codeDetective.ai.cli.agents` 添加（见下方设置）。
-
-### 2. 在 Copilot Chat 里生成
-
-安装 Copilot Chat 后可以直接把探索调用链交给聊天窗口：
-
-- `@detective <话题>`：先用 `#codeDetectiveSearch` / `#codeDetectiveRead` 读真实源码，再经 `#codeDetectiveCreateMap` 提交结构化流程，插件补全锚点、校验并打开地图。
-- `@detective /map <话题>`：同上，显式走地图生成。
-- `@detective /open`、`@detective /next`、`@detective /help`：打开地图、导读下一步、查看用法。
-
-Agent 模式下也可以直接引用 `#codeDetectiveCreateMap`，把已有探索结果落成地图。模型只写 `file` / `startLine` / `endLine`，`anchorText` 由插件按真实文件生成；引用不存在文件的来源会被裁掉并在结果中列出。
-
-### 3. 交给任意编码 AI
-
-在项目根目录创建 `.code-detective/maps/`，执行 **代码侦探: 复制 AI 地图生成提示词**，把规范连同话题交给现有 AI。AI 写入有效 JSON 后地图列表会自动更新。
-
-如果保存到一半或写出了不合法的版本，插件会在地图列表里把它标记为错误项并保留上一次有效内容；改好文件后列表会自动刷新。
-
-## 地图格式
-
-地图是工作区根目录 `.code-detective/maps/<id>.json` 下的单个 JSON 文件，`schemaVersion` 为 `1`，主要由四部分组成：
-
-- `sources`：`file`（工作区相对路径）、`startLine`、`endLine`，可选 `anchorText`（完整整行文本，用于恢复位置）与 `note`（一句话说明这段代码做什么，≤60 字，点击时显示在代码行尾）。
-- `nodes`：id、`label`、分类 `kind`（`step` / `function` / `condition` / `event` / `exit`）、`sourceIds`，可选 `parent`（所属功能块的节点 id）。
-- `edges`：id、`label`、起止节点、关系类型 `kind`，可选 `branch`（支线条件，如「缓存未命中」「校验失败」）。
-- `walkthrough`：可选的导读步骤，引用已存在的节点与连线 id。每一步可写 `sourceId`（只看的那段代码）、`description`（是什么）、`why`（为什么）、`watch`（注意）、`skip`（可跳过）、`example`（贯穿例子走到这里）；`aside: true` 的步骤是岔路，由别的步骤的 `branches` 进入。
-- `tour`：可选的导读设定：`example`（贯穿例子）、`recap`（小结）、`exercise`（动手练习）。
-
-代码分支很深时，建议顶层只放 3–8 个功能块，每个功能块内部 ≤ 12 个节点，主干用普通连线、旁路用 `branch`。完整例子见 [examples/login-demo](examples/login-demo/.code-detective/maps/login-demo.json)（提前返回、token 缓存、带退避的重试、三个落地页，嵌套三层）。
-
-校验是严格的：JSON 重复键、未知字段、越界行号、越界路径、重复或悬空引用、`parent` 自指或成环都会导致地图被拒绝，并给出具体位置。装好插件后编辑地图文件也会获得 JSON Schema 补全与提示（见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）。
-
-## 设置
-
-```json
-{
-  "codeDetective.ai.agent": "claude",
-  "codeDetective.ai.cli.command": "",
-  "codeDetective.ai.cli.extraArgs": [],
-  "codeDetective.ai.cli.allowedTools": "Read,Grep,Glob,LS",
-  "codeDetective.ai.timeoutMs": 300000
-}
-```
-
-| 设置 | 说明 |
-| --- | --- |
-| `codeDetective.ai.agent` | `claude` / `codex`，或 `cli.agents` 里自定义的 id |
-| `codeDetective.ai.cli.command` | 可执行文件路径，留空用 agent id |
-| `codeDetective.ai.cli.extraArgs` | 追加到内置参数之后，用于透传 `--model` 等 |
-| `codeDetective.ai.cli.allowedTools` | Claude Code 允许的工具；只保留只读工具（`Read`、`Grep`、`Glob`、`LS` 等），`Edit` / `Write` / `Bash` 会被忽略 |
-| `codeDetective.ai.cli.agents` | 自定义 agent：`{ id, label, command, args }` |
-| `codeDetective.ai.timeoutMs` | 单轮超时，默认 5 分钟，agent 要读多个文件时留足 |
-
-扩展方式示例：
-
-```json
-{
-  "codeDetective.ai.cli.agents": [
-    { "id": "aider", "label": "Aider", "command": "aider", "args": ["--message-file", "-", "--yes"] }
-  ],
-  "codeDetective.ai.agent": "aider"
-}
-```
-
-自定义 agent 的 stdout 会被取最后一行作为回答，因此它需要把 JSON 作为最后一条输出。
-
-- **代码侦探: 选择本地 Agent CLI** 在已注册的 agent 之间切换。
-- agent 需要已登录（`claude` / `codex login`），插件不保存任何凭据。
-
-## 命令
+## 常用命令
 
 | 命令 | 用途 |
 | --- | --- |
-| `代码侦探: 打开地图` | 选择并打开工作区中的地图 |
-| `代码侦探: 重新扫描地图` | 重新发现地图文件 |
-| `代码侦探: 开始导读` / `下一步` / `上一步` / `停止导读` | 按步骤阅读 |
-| `代码侦探: 切换相关代码高亮` / `清除高亮` | 控制编辑器装饰 |
-| `代码侦探: 用 AI 生成地图` | 交给本机 agent CLI 生成 |
-| `代码侦探: 选择本地 Agent CLI` / `取消 AI 任务` | 切换 agent、取消生成 |
-| `代码侦探: 复制 AI 地图生成提示词` | 交给外部 AI |
-| `代码侦探: 查看地图格式与使用说明` | 打开本文件 |
+| `代码侦探: 打开带读讲义` | 选择并打开工作区中的带读讲义 |
+| `代码侦探: 从此处开始带读` | 以当前编辑器光标/选区为锚点生成带读讲义（亦见编辑器右键菜单） |
+| `代码侦探: 用 AI 生成带读讲义` | 打开侧栏内嵌发起框生成新讲义 |
+| `代码侦探: 在新页签打开全景脉络图` | 在独立宽屏编辑器页签中打开调用脉络图并与侧栏联动 |
+| `代码侦探: 开始带读` / `下一步` / `上一步` | 按主线推进阅读 |
+| `代码侦探: 切换代码高亮` / `清除高亮` | 控制编辑器内当前步骤代码段高亮 |
+| `代码侦探: 选择 AI 引擎` / `取消 AI 任务` | 切换 AI 引擎或中止进行中的任务 |
+| `代码侦探: 复制 AI 带读生成提示词` | 复制完整 Schema 提示词给任意外部 AI |
 
-## 已知限制
+## 开发与验证
 
-- 只支持桌面 VS Code 的本地工作区；远程工作区、虚拟工作区以及 Cursor 等衍生编辑器未做适配。
-- 节点位置由布局计算，不可拖动，地图不会保存坐标。
-- Webview 的浏览器预览只是开发用的模拟环境（右侧源码组为只读模拟），真实插件使用 VS Code 原生编辑器。
-
-## 开发
-
-需要 Node.js **22.12+** 与 npm（集成测试依赖的 `@vscode/test-electron` 3.x 要求 Node 22）。
+需要 Node.js **22.12+** 与 npm：
 
 ```sh
 npm ci
-npm run check        # 类型检查 + 单元测试 + 构建
-npm run package      # 生成 artifacts/code-detective-0.2.0.vsix
+npm run check        # 类型检查 + 单元测试 + 生产构建
+npm run dev          # 浏览器内交互预览（默认 login-demo，加 ?map=bag 切换背包示例）
+npm run package      # 打包 artifacts/code-detective-0.2.0.vsix
 ```
 
-| 命令 | 用途 |
+| 目录 | 职责 |
 | --- | --- |
-| `npm run typecheck` | 检查扩展、Webview、测试与示例的 TypeScript |
-| `npm test` | 核心、Host 输入边界与 Controller 模拟测试 |
-| `npm run test:integration` | 构建后在 Extension Host 中验证命令与工具注册；`VSCODE_TEST_VERSION=1.95.0` 可指定 VS Code 版本 |
-| `npm run build` | 输出 `dist/extension.cjs` 与 `dist/webview/` |
-| `npm run watch:ext` | esbuild 监听扩展宿主，改完 `src/**` 增量重建 |
-| `npm run watch:webview` | vite 监听 Webview，改完 `webview/**` 增量重建 |
-| `npm run dev` | 浏览器中的 Webview 交互预览（地址加 `?map=login` 查看分层示例） |
-
-### 调试
-
-`.vscode/launch.json` 提供四个配置：
-
-| 配置 | 工作区 | 说明 |
-| --- | --- | --- |
-| **运行代码侦探** | `examples/bag-demo` | 一次构建后启动 Extension Development Host |
-| **运行代码侦探（当前工作区）** | 你当前打开的文件夹 | 调试真实项目 |
-| **调试代码侦探（watch）** | `examples/bag-demo` | 并行跑两个 watcher，改完源码只需在宿主窗口 `⌘R` 重载 |
-| **扩展集成测试** | `examples/bag-demo` | 跑 `tests/integration` |
-
-断点直接打在 `src/**` 里即可：`scripts/build.mjs` 会生成带 `sourcesContent` 的 sourcemap，`outFiles` 已指向 `dist/**/*.cjs`。
-
-两个 watcher 的就绪判断用的是工具自己的日志，没有自定义协议：
-
-| 任务 | beginsPattern | endsPattern |
-| --- | --- | --- |
-| `npm: watch:ext` | `[watch] build started` | `[watch] build finished` |
-| `npm: watch:webview` | `build started...` | `built in <n>ms.` |
-
-`activeOnStart: true` 让首轮构建无需等 begins 行就能就绪（esbuild 首次进入 watch 只打印 `build finished`）。
-
-> 命令面板的模糊搜索只索引命令标题（`代码侦探: 打开地图`），不索引命令 ID。想按 ID 查请搜 `代码侦探`，或先用 `Developer: Show Running Extensions` 确认扩展已激活。
-
-浏览器预览通过 `webview/preview.ts` 用示例数据模拟 Host 消息，并套了一层 VS Code 工作台外壳（`webview/src/preview-shell.ts`），状态栏左侧的色块按钮可循环切换 Dark / Light / High Contrast。预览仅按 `import.meta.env.DEV` 动态加载，不会进入 VSIX。
-
-## 工程结构
-
-| 路径 | 职责 |
-| --- | --- |
-| `src/extension.ts` | 扩展激活与退出 |
-| `src/core/` | 地图校验、来源位置匹配、选择状态 |
-| `src/host/` | 工作区文件、消息、源码导航、高亮、持久化与 Chat 集成 |
-| `src/ai/` | AI 通道、提示词、草稿收敛与写盘 |
-| `shared/` | 地图类型与 Webview 消息协议 |
-| `webview/src/` | Vue 地图、分层导航与导读界面 |
-| `schemas/` | v1 JSON Schema（随插件注册给地图文件） |
-| `examples/bag-demo/` | 可直接运行的背包示例与示例地图 |
-| `examples/login-demo/` | 分层更深的登录示例（功能块、支线、出口） |
+| `shared/` | 核心数据结构、双向协议与中英双语词典（`shared/i18n/`） |
+| `src/core/` | JSON 严格校验、草稿收敛补锚点、单层复合图投影、导读步进与光标反查 |
+| `src/ai/` | Claude / Codex / 自定义 CLI 会话、流式足迹解析、带读生成与追问提示词 |
+| `src/host/` | 侧栏与独立页签控制器、克制高亮、光标跟踪、流式答疑沉淀、Copilot 引擎与 Chat 集成 |
+| `webview/src/` | Vue 3 导师面板（`WalkthroughView`、`ComposerPanel`、`QaDrawer`、ELK 复合脉络图与安全 Markdown 引用渲染） |
 | `tests/` | 单元测试与 Extension Host 集成测试 |
-
-## 状态
-
-当前版本 **0.2.0**，处于初步开发阶段，变更见 [CHANGELOG.md](CHANGELOG.md)。项目以 `UNLICENSED` 发布，`publisher` 仍是本地开发标识 `code-detective-dev`。

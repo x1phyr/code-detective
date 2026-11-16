@@ -1,0 +1,384 @@
+{
+  "schemaVersion": 1,
+  "id": "closebagpanel",
+  "title": "关闭背包面板：closeBagPanel 的销毁与渲染守卫",
+  "sources": {
+    "panel.module": {
+      "file": "src/bag-panel.ts",
+      "startLine": 4,
+      "endLine": 4,
+      "anchorText": "let panel: HTMLElement | undefined;",
+      "note": "模块级变量 panel 保存当前面板 DOM 引用，是打开/关闭/渲染三方共享的唯一状态。"
+    },
+    "panel.open": {
+      "file": "src/bag-panel.ts",
+      "startLine": 7,
+      "endLine": 7,
+      "anchorText": "  panel = document.createElement('div');",
+      "note": "openBagPanel 创建 div 并赋值给模块变量 panel。"
+    },
+    "panel.openRefresh": {
+      "file": "src/bag-panel.ts",
+      "startLine": 10,
+      "endLine": 10,
+      "anchorText": "  await refreshList();",
+      "note": "openBagPanel 末尾调用 refreshList() 触发首次渲染。"
+    },
+    "panel.refresh": {
+      "file": "src/bag-panel.ts",
+      "startLine": 18,
+      "endLine": 19,
+      "anchorText": "  const items = await readItems();\n  if (!panel) return;",
+      "note": "refreshList 先 await readItems 取数，再用 if (!panel) return 守卫。"
+    },
+    "panel.guard": {
+      "file": "src/bag-panel.ts",
+      "startLine": 19,
+      "endLine": 19,
+      "anchorText": "  if (!panel) return;",
+      "note": "守卫判断：panel 为 undefined 时直接 return，不再渲染。"
+    },
+    "panel.read": {
+      "file": "src/bag-panel.ts",
+      "startLine": 24,
+      "endLine": 24,
+      "anchorText": "  const items = await loadBag();",
+      "note": "readItems 调用仓库层 loadBag() 取数。"
+    },
+    "panel.render": {
+      "file": "src/bag-panel.ts",
+      "startLine": 30,
+      "endLine": 31,
+      "anchorText": "  const element = document.createElement('span');\n  element.textContent = `${item.id} × ${item.count}`;",
+      "note": "renderItem 创建 <span> 并写入物品文本。"
+    },
+    "panel.close": {
+      "file": "src/bag-panel.ts",
+      "startLine": 36,
+      "endLine": 37,
+      "anchorText": "  panel?.remove();\n  panel = undefined;",
+      "note": "closeBagPanel 移除 panel 节点并把模块变量置为 undefined。"
+    },
+    "button.bind": {
+      "file": "src/bag-button.ts",
+      "startLine": 5,
+      "endLine": 5,
+      "anchorText": "    void openBagPanel();",
+      "note": "bindBagButton 只绑定 click → openBagPanel()，没有绑定任何关闭逻辑。"
+    },
+    "repo.load": {
+      "file": "src/bag-repository.ts",
+      "startLine": 8,
+      "endLine": 8,
+      "anchorText": "  const response = await fetch('/api/bag');",
+      "note": "loadBag 通过 fetch('/api/bag') 取数，与面板生命周期无关。"
+    }
+  },
+  "nodes": [
+    {
+      "id": "closeBagPanel",
+      "label": "closeBagPanel() 关闭面板",
+      "sourceIds": [
+        "panel.close"
+      ],
+      "description": "唯一关闭入口：移除 DOM 节点并清空模块变量 panel。",
+      "kind": "function"
+    },
+    {
+      "id": "panelVar",
+      "label": "模块变量 panel（面板生命周期状态）",
+      "sourceIds": [
+        "panel.module"
+      ],
+      "description": "打开时赋值、关闭时置空，是渲染守卫判断的唯一依据。",
+      "kind": "step"
+    },
+    {
+      "id": "openBagPanel",
+      "label": "openBagPanel() 打开面板",
+      "sourceIds": [
+        "panel.open"
+      ],
+      "description": "创建面板并触发首次渲染，是 panel 被赋值的来源。",
+      "kind": "function"
+    },
+    {
+      "id": "refreshList",
+      "label": "refreshList() 取数 + 守卫 + 渲染",
+      "sourceIds": [
+        "panel.refresh"
+      ],
+      "description": "await 取数后检查 panel 是否还在，不在就直接返回。",
+      "kind": "function"
+    },
+    {
+      "id": "readItems",
+      "label": "readItems() 读取物品",
+      "sourceIds": [
+        "panel.read"
+      ],
+      "description": "loadBag 为空时回退 loadFallback。",
+      "kind": "function"
+    },
+    {
+      "id": "renderItem",
+      "label": "renderItem() 渲染单项",
+      "sourceIds": [
+        "panel.render"
+      ],
+      "description": "把 BagItem 转成 span 元素。",
+      "kind": "function"
+    },
+    {
+      "id": "loadBag",
+      "label": "loadBag() 缓存/接口取数",
+      "sourceIds": [
+        "repo.load"
+      ],
+      "description": "数据层，关闭面板不会影响它。",
+      "kind": "function"
+    },
+    {
+      "id": "bindBagButton",
+      "label": "bindBagButton() 按钮绑定",
+      "sourceIds": [
+        "button.bind"
+      ],
+      "description": "只绑定 click → openBagPanel，未接线关闭逻辑。",
+      "kind": "event"
+    },
+    {
+      "id": "guardExit",
+      "label": "守卫提前返回（面板已关闭）",
+      "sourceIds": [
+        "panel.guard"
+      ],
+      "description": "panel 为 undefined 时 refreshList 直接 return，不再渲染。",
+      "kind": "exit"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-close-remove",
+      "from": "closeBagPanel",
+      "to": "panelVar",
+      "sourceIds": [
+        "panel.close",
+        "panel.module"
+      ],
+      "label": "panel?.remove() 后置 undefined",
+      "description": "关闭动作的全部效果都落在模块变量 panel 上。",
+      "kind": "flow"
+    },
+    {
+      "id": "e-open-assign",
+      "from": "openBagPanel",
+      "to": "panelVar",
+      "sourceIds": [
+        "panel.open",
+        "panel.module"
+      ],
+      "label": "创建 div 并赋值 panel",
+      "kind": "flow"
+    },
+    {
+      "id": "e-open-refresh",
+      "from": "openBagPanel",
+      "to": "refreshList",
+      "sourceIds": [
+        "panel.openRefresh",
+        "panel.refresh"
+      ],
+      "label": "await refreshList()",
+      "kind": "call"
+    },
+    {
+      "id": "e-refresh-read",
+      "from": "refreshList",
+      "to": "readItems",
+      "sourceIds": [
+        "panel.refresh",
+        "panel.read"
+      ],
+      "label": "await readItems()",
+      "kind": "call"
+    },
+    {
+      "id": "e-read-load",
+      "from": "readItems",
+      "to": "loadBag",
+      "sourceIds": [
+        "panel.read",
+        "repo.load"
+      ],
+      "label": "await loadBag()",
+      "kind": "call"
+    },
+    {
+      "id": "e-refresh-render",
+      "from": "refreshList",
+      "to": "renderItem",
+      "sourceIds": [
+        "panel.refresh",
+        "panel.render"
+      ],
+      "label": "items.map(renderItem)",
+      "kind": "call"
+    },
+    {
+      "id": "e-refresh-guard",
+      "from": "refreshList",
+      "to": "guardExit",
+      "sourceIds": [
+        "panel.guard",
+        "panel.close"
+      ],
+      "label": "if (!panel) return",
+      "branch": "panel 已被 closeBagPanel 置空"
+    },
+    {
+      "id": "e-button-open",
+      "from": "bindBagButton",
+      "to": "openBagPanel",
+      "sourceIds": [
+        "button.bind",
+        "panel.open"
+      ],
+      "label": "click",
+      "kind": "event"
+    }
+  ],
+  "walkthrough": [
+    {
+      "id": "w1",
+      "title": "先看关闭函数本身",
+      "nodeIds": [
+        "closeBagPanel"
+      ],
+      "edgeIds": [],
+      "description": "closeBagPanel 只有两行：panel?.remove() 把节点从文档里摘掉，panel = undefined 清空引用。它不读缓存、不发请求、不刷新列表。",
+      "sourceId": "panel.close",
+      "why": "面板是纯 DOM 状态，关闭只需要销毁节点并让共享状态回到“没有面板”的初始值。",
+      "watch": "用的是可选链 panel?.remove()，重复调用不会抛错，是幂等的。",
+      "skip": "不需要关心 remove() 的 DOM 细节。",
+      "example": "玩家点关闭 → div.bag-panel 从页面上消失，模块变量 panel 变成 undefined。"
+    },
+    {
+      "id": "w2",
+      "title": "panel 是三方共享的唯一状态",
+      "nodeIds": [
+        "panelVar"
+      ],
+      "edgeIds": [
+        "e-close-remove"
+      ],
+      "description": "第 4 行的模块级 let panel 被 openBagPanel 赋值、被 refreshList 读取、被 closeBagPanel 置空。关闭流程的真正意义就是把这个变量改回 undefined。",
+      "sourceId": "panel.module",
+      "why": "用一个模块变量表达“面板是否存在”，比到处查 DOM 更简单。",
+      "watch": "它是模块单例，同一时刻只支持一个背包面板；重复打开会覆盖旧引用而不销毁旧节点。",
+      "example": "关闭后 panel === undefined，后续任何渲染都要先过这个判断。"
+    },
+    {
+      "id": "w3",
+      "title": "对照打开流程：panel 从哪来",
+      "nodeIds": [
+        "openBagPanel"
+      ],
+      "edgeIds": [
+        "e-open-assign"
+      ],
+      "description": "openBagPanel 先 createElement('div') 并设置 className，把结果存进 panel，然后 await ensureAssets() 和 await refreshList()。",
+      "sourceId": "panel.open",
+      "why": "先建节点再取数据，让面板骨架尽早存在，数据回来后再填充。",
+      "watch": "两次 await 之间是异步窗口，玩家完全可能在这段时间关闭面板——这正是守卫存在的理由。",
+      "example": "打开后 panel 指向一个 div.bag-panel，随后进入 refreshList。"
+    },
+    {
+      "id": "w4",
+      "title": "refreshList 的取数与守卫顺序",
+      "nodeIds": [
+        "refreshList"
+      ],
+      "edgeIds": [
+        "e-refresh-read"
+      ],
+      "description": "refreshList 第 18 行先 await readItems()，第 19 行才 if (!panel) return，第 20 行 replaceChildren 渲染。",
+      "sourceId": "panel.refresh",
+      "why": "守卫必须放在 await 之后，因为 await 期间状态可能被 closeBagPanel 改变。",
+      "watch": "守卫在取数之后，所以数据请求照常发出、缓存照常写入，只是不渲染。",
+      "example": "请求还没回来时玩家关闭面板 → 数据返回后走到第 19 行直接 return。",
+      "branches": [
+        "w8"
+      ]
+    },
+    {
+      "id": "w5",
+      "title": "数据从哪来",
+      "nodeIds": [
+        "readItems",
+        "loadBag"
+      ],
+      "edgeIds": [
+        "e-read-load"
+      ],
+      "description": "readItems 调 loadBag()，结果非空直接返回，否则回退 loadFallback()。loadBag 在 bag-repository 里负责缓存与接口。",
+      "sourceId": "panel.read",
+      "why": "把数据获取和面板渲染分开，关闭面板完全不影响数据层。",
+      "watch": "关闭面板不会调用 invalidate()，缓存保持原样。",
+      "skip": "loadFallback 的具体实现可以先跳过。",
+      "example": "关闭面板后再次打开，仍会命中同一份缓存数据。"
+    },
+    {
+      "id": "w6",
+      "title": "渲染单项",
+      "nodeIds": [
+        "renderItem"
+      ],
+      "edgeIds": [
+        "e-refresh-render"
+      ],
+      "description": "renderItem 把每个 BagItem 变成 span，文本是 `${item.id} × ${item.count}`，再由 replaceChildren 一次性替换面板内容。",
+      "sourceId": "panel.render",
+      "why": "replaceChildren 整体替换，避免手动增删子节点。",
+      "watch": "这一步只在守卫通过后执行；面板已关闭时永远不会走到这里。",
+      "example": "面板存在时，列表被整体刷新为最新物品。"
+    },
+    {
+      "id": "w7",
+      "title": "关闭逻辑目前没有接线",
+      "nodeIds": [
+        "bindBagButton"
+      ],
+      "edgeIds": [
+        "e-button-open"
+      ],
+      "description": "bindBagButton 只注册了 click → openBagPanel()，全仓库搜索 closeBagPanel 只命中它自己的定义，没有任何事件或按钮调用它。",
+      "sourceId": "button.bind",
+      "why": "关闭函数已导出，等待调用方接入（例如关闭按钮或 ESC 键）。",
+      "watch": "这是当前代码的真实缺口：关闭流程存在但入口未绑定，别误以为点按钮就能关。",
+      "example": "点 bag-button 只会打开面板，不会关闭。"
+    },
+    {
+      "id": "w8",
+      "title": "岔路：守卫提前返回",
+      "nodeIds": [
+        "guardExit"
+      ],
+      "edgeIds": [
+        "e-refresh-guard"
+      ],
+      "description": "当 closeBagPanel 已经把 panel 置为 undefined，refreshList 在第 19 行 return，第 20 行的 replaceChildren 不会执行。",
+      "sourceId": "panel.guard",
+      "why": "防止往已从文档移除的节点上渲染，也避免把 undefined 当元素用。",
+      "watch": "返回的是 undefined 的 Promise 结果，调用方 openBagPanel 不会感知到“被取消”。",
+      "example": "关闭后迟到的请求结果被静默丢弃，页面保持关闭状态。",
+      "aside": true
+    }
+  ],
+  "description": "从 closeBagPanel 出发，看它如何移除 DOM、清空模块变量，以及这个清空如何让 refreshList 的守卫生效。",
+  "tour": {
+    "example": "玩家打开背包（panel 被赋值）→ 请求物品途中点关闭（closeBagPanel 移除节点并把 panel 置空）→ 请求返回，refreshList 在第 19 行守卫处 return，不再渲染。",
+    "recap": "关闭流程只有两步：panel?.remove() 销毁 DOM，panel = undefined 清空共享状态；它的下游影响体现在 refreshList 的 if (!panel) return 守卫上，数据层与缓存完全不受影响。另外 closeBagPanel 目前没有任何调用方，属于已导出未接线的函数。",
+    "exercise": "在 src/bag-button.ts 里给同一个 button 加一个双击监听调用 closeBagPanel()，然后验证：打开面板后立刻双击，请求返回时列表是否还会渲染？再确认 bag-repository 的缓存是否仍被写入。"
+  }
+}
