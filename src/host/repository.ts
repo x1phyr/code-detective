@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { parseMap } from '../core/validator';
+import { mainline } from '../core/tour';
 import type { CodeMap, MapSummary } from '../../shared/types';
 import { checkedSourceUri, errorMessage } from './paths';
 import { t } from '../../shared/i18n';
@@ -155,6 +156,8 @@ export class MapRepository implements vscode.Disposable {
       title: record.map?.title ?? record.relativePath.split('/').at(-1) ?? t('host.invalidMapTitle'),
       rootName: record.root.name,
       fileName: record.relativePath,
+      stepCount: record.map ? mainline(record.map).length : undefined,
+      nodeCount: record.map ? record.map.nodes.length : undefined,
       revision: record.revision,
       error: record.error,
     })).sort((a, b) => a.rootName.localeCompare(b.rootName) || a.title.localeCompare(b.title));

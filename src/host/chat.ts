@@ -1,9 +1,14 @@
 import * as vscode from 'vscode';
-import { DRAFT_MAP_SCHEMA, describeAdjustments, fillAnchors, normalizeDraft } from '../core/mapDraft';
+import { spawn } from 'node:child_process';
+import { describeAdjustments, fillAnchors, normalizeDraft } from '../core/mapDraft';
+import { isCanonicalRelativePath } from '../core/paths';
 import { parseMap } from '../core/validator';
 import { errorMessage } from '../core/errors';
 import { extractJson } from '../ai/json';
+import { resolveExecutable } from '../ai/agent/env';
+import { outputContract, retryPrompt } from '../ai/prompt';
 import { MAP_DIR, writeMapFile, type WrittenMap } from './mapWriter';
+import { checkedSourceUri } from './paths';
 import { readWorkspaceText } from './workspaceText';
 import { MAX_QUERY_LENGTH, unsafeRegex } from './regexGuard';
 import { t } from '../../shared/i18n';
@@ -14,16 +19,15 @@ export const TOOL_SEARCH = 'codeDetective_searchSources';
 export const TOOL_READ = 'codeDetective_readSource';
 export const TOOL_CREATE_MAP = 'codeDetective_createMap';
 
-const MAX_SEARCH_FILES = 200;
+const MAX_SEARCH_FILES = 5_000;
 const MAX_SEARCH_RESULTS = 40;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_READ_LINES = 400;
 const MAX_DRAFT_FILES = 200;
 const PREFETCH_BATCH = 8;
-const MAX_EXPLORE_ROUNDS = 6;
 
 const SOURCE_GLOB = '**/*.{ts,tsx,js,jsx,mjs,cjs,vue,py,go,rs,java,kt,cs,swift,rb,php,c,h,cpp,hpp,md,json}';
-const EXCLUDE_GLOB = '**/{node_modules,.git,dist,out,build,coverage,vendor,target,.next,.nuxt,artifacts}/**';
+const EXCLUDE_GLOB = '**/{node_modules,.git,dist,out,build,coverage,vendor,target,.next,.nuxt,artifacts,library,temp,local,.code-detective}/**';
 
 export interface ChatHostHooks {
   root(): vscode.WorkspaceFolder | undefined;
@@ -87,6 +91,111 @@ export interface SourceMatch {
   text: string;
 }
 
+async function searchWithRipgrep(
+  rgBin: string,
+  root: vscode.WorkspaceFolder,
+  input: { query: string; regex?: boolean; caseSensitive?: boolean; glob?: string },
+  limit: number,
+  token?: vscode.CancellationToken,
+): Promise<SourceMatch[] | undefined> {
+  if (root.uri.scheme !== 'file') return undefined;
+  const args = [
+    '--json',
+    '--max-filesize',
+    '256K',
+    '--glob',
+    `!${EXCLUDE_GLOB}`,
+  ];
+  if (!input.regex) args.push('--fixed-strings');
+  args.push(input.caseSensitive ? '--case-sensitive' : '--ignore-case');
+  if (input.glob && input.glob.trim()) args.push('--glob', input.glob.trim());
+  args.push('--', input.query, '.');
+
+  return new Promise<SourceMatch[] | undefined>(resolve => {
+    let settled = false;
+    let buf = '';
+    const rawMatches: SourceMatch[] = [];
+    const child = spawn(rgBin, args, {
+      cwd: root.uri.fsPath,
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    const done = async (ok: boolean): Promise<void> => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stopCancel?.dispose();
+      if (!ok) {
+        resolve(undefined);
+        return;
+      }
+      const verified: SourceMatch[] = [];
+      for (const item of rawMatches) {
+        if (verified.length >= limit) break;
+        if (!isCanonicalRelativePath(item.file)) continue;
+        try {
+          await checkedSourceUri(root.uri, item.file);
+          verified.push(item);
+        } catch { /* skip symlink outside workspace */ }
+      }
+      resolve(verified);
+    };
+
+    const kill = (): void => {
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+    };
+
+    const timer = setTimeout(() => {
+      kill();
+      void done(rawMatches.length > 0);
+    }, SEARCH_BUDGET_MS);
+    const stopCancel = token?.onCancellationRequested(() => {
+      kill();
+      void done(true);
+    });
+
+    const parseLine = (line: string): void => {
+      if (!line.startsWith('{') || rawMatches.length >= limit * 2) return;
+      try {
+        const evt = JSON.parse(line) as {
+          type?: string;
+          data?: { path?: { text?: string }; lines?: { text?: string }; line_number?: number };
+        };
+        if (evt.type !== 'match' || !evt.data) return;
+        const rawPath = evt.data.path?.text;
+        const lineText = evt.data.lines?.text;
+        const lineNum = evt.data.line_number;
+        if (typeof rawPath !== 'string' || typeof lineText !== 'string' || typeof lineNum !== 'number') return;
+        const rel = rawPath.replace(/\\/g, '/').replace(/^\.\//, '');
+        rawMatches.push({
+          file: rel,
+          line: lineNum,
+          text: lineText.replace(/\r?\n$/, '').slice(0, 240),
+        });
+        if (rawMatches.length >= limit) {
+          kill();
+        }
+      } catch { /* ignore malformed line */ }
+    };
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      buf += chunk;
+      const parts = buf.split('\n');
+      buf = parts.pop() ?? '';
+      for (const part of parts) parseLine(part);
+    });
+    child.on('error', () => { void done(false); });
+    child.on('close', code => {
+      if (buf) parseLine(buf);
+      // rg exits 0 on matches, 1 on no matches, 2 on error (or null when killed early after reaching limit).
+      void done(code === 0 || code === 1 || rawMatches.length > 0);
+    });
+  });
+}
+
 export async function searchSources(
   root: vscode.WorkspaceFolder,
   input: { query: string; regex?: boolean; caseSensitive?: boolean; glob?: string; maxResults?: number },
@@ -106,6 +215,13 @@ export async function searchSources(
   } catch (error) {
     throw new Error(t('chat.regexInvalid', { error: errorMessage(error) }));
   }
+
+  const rgBin = resolveExecutable('rg');
+  if (rgBin) {
+    const rgResult = await searchWithRipgrep(rgBin, root, input, limit, token);
+    if (rgResult !== undefined) return rgResult;
+  }
+
   const include = new vscode.RelativePattern(root, input.glob && input.glob.trim() ? input.glob.trim() : SOURCE_GLOB);
   const uris = await vscode.workspace.findFiles(include, EXCLUDE_GLOB, MAX_SEARCH_FILES, token);
   const matches: SourceMatch[] = [];
@@ -162,8 +278,9 @@ export async function createMapFromDraft(
   root: vscode.WorkspaceFolder,
   hooks: Pick<ChatHostHooks, 'hasMap' | 'refresh'>,
   input: unknown,
+  fallbackTitle?: string,
 ): Promise<CreateMapOutcome> {
-  const draft = normalizeDraft(input);
+  const draft = normalizeDraft(input, { root: root.uri.fsPath, fallbackTitle });
   const files = [...new Set(Object.values(draft.sources).map(ref => ref.file))].slice(0, MAX_DRAFT_FILES);
   // 超出上限的来源不会预热，fillAnchors 会把它们作为不可读来源裁剪并报告。
   const cache = new Map<string, string | undefined>();
@@ -214,17 +331,7 @@ function explorePrompt(topic: string, rootName: string): string {
 }
 
 function planInstruction(): string {
-  return [
-    t('chat.planIntro'),
-    '',
-    t('chat.planRequirements'),
-    t('chat.planRule1'),
-    t('chat.planRule2'),
-    t('chat.planRule3'),
-    t('chat.planRule4'),
-    t('chat.planRule5'),
-    t('chat.planRule6'),
-  ].join('\n');
+  return t('chat.planIntro');
 }
 
 function textPart(value: string): vscode.LanguageModelTextPart {
@@ -267,7 +374,7 @@ async function explore(
     vscode.LanguageModelChatMessage.User(explorePrompt(topic, root.name)),
   ];
   let readSources = false;
-  for (let round = 0; round < MAX_EXPLORE_ROUNDS; round += 1) {
+  for (;;) {
     if (token.isCancellationRequested) return { messages, readSources };
     const response = await model.sendRequest(messages, { tools, justification: t('chat.justifyExplore') }, token);
     const calls: vscode.LanguageModelToolCallPart[] = [];
@@ -304,40 +411,38 @@ async function explore(
 
 interface PlanOutcome {
   draft?: unknown;
+  rawText?: string;
   error?: string;
 }
 
 async function plan(
   model: vscode.LanguageModelChat,
   messages: vscode.LanguageModelChatMessage[],
+  instruction: string,
   token: vscode.CancellationToken,
   stream: vscode.ChatResponseStream,
 ): Promise<PlanOutcome> {
   stream.progress(t('chat.progressPlanning'));
-  const tools: vscode.LanguageModelChatTool[] = [
-    {
-      name: TOOL_CREATE_MAP,
-      description: t('chat.toolCreateMapDesc'),
-      inputSchema: DRAFT_MAP_SCHEMA,
-    },
-  ];
-  const request = [...messages, vscode.LanguageModelChatMessage.User(planInstruction())];
+  const request = [...messages, vscode.LanguageModelChatMessage.User(instruction)];
   const response = await model.sendRequest(request, {
-    tools,
-    toolMode: vscode.LanguageModelChatToolMode.Required,
     justification: t('chat.justifyPlan'),
   }, token);
   let text = '';
   for await (const part of response.stream) {
-    if (part instanceof vscode.LanguageModelToolCallPart) return { draft: part.input };
+    if (part instanceof vscode.LanguageModelToolCallPart) {
+      const input = part.input as Record<string, unknown> | undefined;
+      if (input && typeof input === 'object' && Object.keys(input).length > 0) {
+        return { draft: input, rawText: JSON.stringify(input) };
+      }
+    }
     if (part instanceof vscode.LanguageModelTextPart) text += part.value;
   }
   const json = extractJson(text);
-  if (!json) return { error: t('chat.noStructuredDraft') };
+  if (!json) return { rawText: text, error: t('chat.noStructuredDraft') };
   try {
-    return { draft: JSON.parse(json) };
+    return { draft: JSON.parse(json), rawText: json };
   } catch {
-    return { error: t('chat.draftNotJson') };
+    return { rawText: text, error: t('chat.draftNotJson') };
   }
 }
 
@@ -367,13 +472,43 @@ async function handleMapRequest(
     if (!explored.readSources) {
       stream.markdown(t('chat.noSourcesRead'));
     }
-    const planned = await plan(request.model, explored.messages, token, stream);
-    if (token.isCancellationRequested) return { metadata: { phase: 'cancelled' } };
-    if (!planned.draft) {
-      stream.markdown(t('chat.planFailed', { error: planned.error ?? t('chat.unknownReason') }));
+
+    const planPrompt = `${planInstruction()}\n\n${outputContract()}`;
+    let conversation = explored.messages;
+    let outcome: CreateMapOutcome | undefined;
+    let lastError: string | undefined;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const instruction = attempt === 0 ? planPrompt : retryPrompt([lastError ?? t('chat.unknownReason')]);
+      const planned = await plan(request.model, conversation, instruction, token, stream);
+      if (token.isCancellationRequested) return { metadata: { phase: 'cancelled' } };
+
+      conversation = [
+        ...conversation,
+        vscode.LanguageModelChatMessage.User(instruction),
+        vscode.LanguageModelChatMessage.Assistant(planned.rawText?.trim() || '{}'),
+      ];
+
+      if (!planned.draft) {
+        lastError = planned.error ?? t('chat.unknownReason');
+        continue;
+      }
+      try {
+        outcome = await createMapFromDraft(root, hooks, planned.draft, topic);
+        break;
+      } catch (error) {
+        if (token.isCancellationRequested || error instanceof vscode.CancellationError) {
+          throw error;
+        }
+        lastError = errorMessage(error);
+      }
+    }
+
+    if (!outcome) {
+      stream.markdown(t('chat.planFailed', { error: lastError ?? t('chat.unknownReason') }));
       return {};
     }
-    const outcome = await createMapFromDraft(root, hooks, planned.draft);
+
     hooks.notify(t('chat.mapGenerated', { title: outcome.title, path: outcome.written.relativePath }));
     streamingResult(stream, outcome);
     await hooks.openMap(outcome.written.key);
@@ -390,94 +525,106 @@ async function handleMapRequest(
   }
 }
 
-/** Registers the `@detective` participant plus the exploration / map-writing tools. */
+/** Registers the `@detective` participant plus the exploration / map-writing tools when supported by the host editor. */
 export function registerChatIntegration(hooks: ChatHostHooks): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
-  disposables.push(vscode.lm.registerTool<{ file: string; startLine?: number; endLine?: number }>(TOOL_READ, {
-    prepareInvocation: options => ({
-      invocationMessage: options.input.startLine
-        ? t('chat.readInvocationFrom', { file: options.input.file, line: options.input.startLine })
-        : t('chat.readInvocation', { file: options.input.file }),
-    }),
-    async invoke(options, token) {
-      const root = hooks.root();
-      if (!root) throw new Error(t('chat.noWorkspace'));
-      if (token.isCancellationRequested) throw new vscode.CancellationError();
-      const slice = await readSource(root, options.input);
-      return new vscode.LanguageModelToolResult([textPart(`${t('chat.readResultHeader', { file: slice.file, start: slice.startLine, end: slice.endLine, total: slice.totalLines })}\n${slice.content}`)]);
-    },
-  }));
+  if (typeof vscode.lm?.registerTool === 'function') {
+    try {
+      disposables.push(vscode.lm.registerTool<{ file: string; startLine?: number; endLine?: number }>(TOOL_READ, {
+        prepareInvocation: options => ({
+          invocationMessage: options.input.startLine
+            ? t('chat.readInvocationFrom', { file: options.input.file, line: options.input.startLine })
+            : t('chat.readInvocation', { file: options.input.file }),
+        }),
+        async invoke(options, token) {
+          const root = hooks.root();
+          if (!root) throw new Error(t('chat.noWorkspace'));
+          if (token.isCancellationRequested) throw new vscode.CancellationError();
+          const slice = await readSource(root, options.input);
+          return new vscode.LanguageModelToolResult([textPart(`${t('chat.readResultHeader', { file: slice.file, start: slice.startLine, end: slice.endLine, total: slice.totalLines })}\n${slice.content}`)]);
+        },
+      }));
 
-  disposables.push(vscode.lm.registerTool<{ query: string; regex?: boolean; caseSensitive?: boolean; glob?: string; maxResults?: number }>(TOOL_SEARCH, {
-    prepareInvocation: options => ({
-      invocationMessage: t('chat.searchInvocation', { query: options.input.query }),
-    }),
-    async invoke(options, token) {
-      const root = hooks.root();
-      if (!root) throw new Error(t('chat.noWorkspace'));
-      const matches = await searchSources(root, options.input, token);
-      const body = matches.length === 0
-        ? t('chat.noMatches')
-        : matches.map(match => `${match.file}:${match.line}\t${match.text}`).join('\n');
-      return new vscode.LanguageModelToolResult([textPart(body)]);
-    },
-  }));
+      disposables.push(vscode.lm.registerTool<{ query: string; regex?: boolean; caseSensitive?: boolean; glob?: string; maxResults?: number }>(TOOL_SEARCH, {
+        prepareInvocation: options => ({
+          invocationMessage: t('chat.searchInvocation', { query: options.input.query }),
+        }),
+        async invoke(options, token) {
+          const root = hooks.root();
+          if (!root) throw new Error(t('chat.noWorkspace'));
+          const matches = await searchSources(root, options.input, token);
+          const body = matches.length === 0
+            ? t('chat.noMatches')
+            : matches.map(match => `${match.file}:${match.line}\t${match.text}`).join('\n');
+          return new vscode.LanguageModelToolResult([textPart(body)]);
+        },
+      }));
 
-  disposables.push(vscode.lm.registerTool<Record<string, unknown>>(TOOL_CREATE_MAP, {
-    prepareInvocation: options => {
-      const title = typeof options.input.title === 'string' ? options.input.title : t('chat.defaultMapTitle');
-      return {
-        invocationMessage: t('chat.writeMapInvocation', { title }),
-        confirmationMessages: {
-          title: t('chat.writeMapConfirmTitle'),
-          message: new vscode.MarkdownString(t('chat.writeMapConfirmMessage', { dir: MAP_DIR, title })),
+      disposables.push(vscode.lm.registerTool<Record<string, unknown>>(TOOL_CREATE_MAP, {
+        prepareInvocation: options => {
+          const title = typeof options.input.title === 'string' ? options.input.title : t('chat.defaultMapTitle');
+          return {
+            invocationMessage: t('chat.writeMapInvocation', { title }),
+            confirmationMessages: {
+              title: t('chat.writeMapConfirmTitle'),
+              message: new vscode.MarkdownString(t('chat.writeMapConfirmMessage', { dir: MAP_DIR, title })),
+            },
+          };
+        },
+        async invoke(options) {
+          const root = hooks.root();
+          if (!root) throw new Error(t('chat.noWorkspace'));
+          const outcome = await createMapFromDraft(root, hooks, options.input);
+          hooks.notify(t('chat.mapGenerated', { title: outcome.title, path: outcome.written.relativePath }));
+          return new vscode.LanguageModelToolResult([textPart(createMapResultText(outcome))]);
+        },
+      }));
+    } catch {
+      /* Language model tools are unsupported in some non-VS-Code forks (e.g. Cursor / Windsurf). */
+    }
+  }
+
+  if (typeof vscode.chat?.createChatParticipant === 'function') {
+    try {
+      const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, async (request, _context, stream, token) => {
+        switch (request.command) {
+          case 'open': {
+            // Only an explicit mapKey is forwarded; free text falls back to the picker.
+            const raw = request.prompt.trim();
+            const key = /^[\w.:@/-]+$/.test(raw) ? raw : undefined;
+            await hooks.openMap(key);
+            stream.markdown(key ? t('chat.openedMapKey', { key }) : t('chat.openedMap'));
+            return {};
+          }
+          case 'next':
+            await vscode.commands.executeCommand('codeDetective.nextStep');
+            stream.markdown(t('chat.advancedStep'));
+            return {};
+          case 'help':
+            stream.markdown(t('chat.help'));
+            return {};
+          case 'map':
+          default:
+            return handleMapRequest(request, stream, token, hooks);
+        }
+      });
+      participant.iconPath = new vscode.ThemeIcon('search');
+      participant.followupProvider = {
+        provideFollowups(result) {
+          const mapKey = result.metadata?.mapKey;
+          if (typeof mapKey !== 'string') return [];
+          return [
+            { prompt: t('chat.followupNextPrompt'), label: t('chat.followupNextLabel'), command: 'next' },
+            { prompt: t('chat.followupOpenPrompt'), label: t('chat.followupOpenLabel'), command: 'open' },
+          ];
         },
       };
-    },
-    async invoke(options) {
-      const root = hooks.root();
-      if (!root) throw new Error(t('chat.noWorkspace'));
-      const outcome = await createMapFromDraft(root, hooks, options.input);
-      hooks.notify(t('chat.mapGenerated', { title: outcome.title, path: outcome.written.relativePath }));
-      return new vscode.LanguageModelToolResult([textPart(createMapResultText(outcome))]);
-    },
-  }));
-
-  const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, async (request, _context, stream, token) => {
-    switch (request.command) {
-      case 'open': {
-        // Only an explicit mapKey is forwarded; free text falls back to the picker.
-        const raw = request.prompt.trim();
-        const key = /^[\w.:@/-]+$/.test(raw) ? raw : undefined;
-        await hooks.openMap(key);
-        stream.markdown(key ? t('chat.openedMapKey', { key }) : t('chat.openedMap'));
-        return {};
-      }
-      case 'next':
-        await vscode.commands.executeCommand('codeDetective.nextStep');
-        stream.markdown(t('chat.advancedStep'));
-        return {};
-      case 'help':
-        stream.markdown(t('chat.help'));
-        return {};
-      case 'map':
-      default:
-        return handleMapRequest(request, stream, token, hooks);
+      disposables.push(participant);
+    } catch {
+      /* Chat participant API is unavailable outside VS Code Copilot Chat. */
     }
-  });
-  participant.iconPath = new vscode.ThemeIcon('search');
-  participant.followupProvider = {
-    provideFollowups(result) {
-      const mapKey = result.metadata?.mapKey;
-      if (typeof mapKey !== 'string') return [];
-      return [
-        { prompt: t('chat.followupNextPrompt'), label: t('chat.followupNextLabel'), command: 'next' },
-        { prompt: t('chat.followupOpenPrompt'), label: t('chat.followupOpenLabel'), command: 'open' },
-      ];
-    },
-  };
-  disposables.push(participant);
+  }
 
   return disposables;
 }

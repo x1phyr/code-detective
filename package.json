@@ -34,7 +34,9 @@
     "workspaceContains:.code-detective/maps/*.json",
     "onView:codeDetective.mapView",
     "onCommand:codeDetective.openMap",
+    "onCommand:codeDetective.openMapPanel",
     "onCommand:codeDetective.generateMap",
+    "onCommand:codeDetective.generateFromCursor",
     "onCommand:codeDetective.chooseAiProvider",
     "onChatParticipant:code-detective.detective",
     "onLanguageModelTool:codeDetective_searchSources",
@@ -55,6 +57,28 @@
     "vscode:prepublish": "npm run build"
   },
   "contributes": {
+    "colors": [
+      {
+        "id": "codeDetective.focusBorder",
+        "description": "%colors.focusBorder%",
+        "defaults": { "dark": "#e8b923", "light": "#d4a000", "highContrast": "#ffd54a", "highContrastLight": "#b38600" }
+      },
+      {
+        "id": "codeDetective.mapBackground",
+        "description": "%colors.mapBackground%",
+        "defaults": { "dark": "#ffd54a1a", "light": "#fff8d6", "highContrast": "#ffd54a29", "highContrastLight": "#fff8d6" }
+      },
+      {
+        "id": "codeDetective.callBackground",
+        "description": "%colors.callBackground%",
+        "defaults": { "dark": "#e8b92347", "light": "#ffe066", "highContrast": "#ffd54a66", "highContrastLight": "#ffd633" }
+      },
+      {
+        "id": "codeDetective.mapBorder",
+        "description": "%colors.mapBorder%",
+        "defaults": { "dark": "#e8b92366", "light": "#e6c75a", "highContrast": "#ffd54a99", "highContrastLight": "#c9a227" }
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -80,7 +104,13 @@
         "command": "codeDetective.openMap",
         "title": "%command.openMap%",
         "category": "%category%",
-        "icon": "$(folder-opened)"
+        "icon": "$(book)"
+      },
+      {
+        "command": "codeDetective.openMapPanel",
+        "title": "%command.openMapPanel%",
+        "category": "%category%",
+        "icon": "$(link-external)"
       },
       {
         "command": "codeDetective.refreshMaps",
@@ -105,12 +135,6 @@
         "title": "%command.previousStep%",
         "category": "%category%",
         "icon": "$(arrow-left)"
-      },
-      {
-        "command": "codeDetective.stopWalkthrough",
-        "title": "%command.stopWalkthrough%",
-        "category": "%category%",
-        "icon": "$(close)"
       },
       {
         "command": "codeDetective.clearHighlights",
@@ -159,6 +183,12 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "codeDetective.generateFromCursor",
+        "title": "%command.generateFromCursor%",
+        "category": "%category%",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "codeDetective.chooseAiProvider",
         "title": "%command.chooseAiProvider%",
         "category": "%category%"
@@ -167,17 +197,6 @@
         "command": "codeDetective.cancelAi",
         "title": "%command.cancelAi%",
         "category": "%category%"
-      },
-      {
-        "command": "codeDetective.tourBranch",
-        "title": "%command.tourBranch%",
-        "category": "%category%"
-      },
-      {
-        "command": "codeDetective.tourReply",
-        "title": "%command.tourReply%",
-        "category": "%category%",
-        "icon": "$(send)"
       }
     ],
     "chatParticipants": [
@@ -303,7 +322,8 @@
             "title",
             "sources",
             "nodes",
-            "edges"
+            "edges",
+            "walkthrough"
           ],
           "properties": {
             "id": {
@@ -442,14 +462,13 @@
             },
             "walkthrough": {
               "type": "array",
+              "minItems": 1,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
                   "id",
-                  "title",
-                  "nodeIds",
-                  "edgeIds"
+                  "title"
                 ],
                 "properties": {
                   "id": {
@@ -543,14 +562,18 @@
         "properties": {
           "codeDetective.ai.agent": {
             "type": "string",
-            "default": "claude",
+            "default": "copilot",
             "enum": [
-              "claude",
-              "codex"
+              "copilot",
+              "agy",
+              "codex",
+              "claude"
             ],
             "enumDescriptions": [
-              "Claude Code（claude -p）",
-              "Codex CLI（codex exec）"
+              "%config.ai.agent.enum.copilot%",
+              "%config.ai.agent.enum.agy%",
+              "%config.ai.agent.enum.codex%",
+              "%config.ai.agent.enum.claude%"
             ],
             "markdownDescription": "%config.ai.agent.markdownDescription%"
           },
@@ -569,7 +592,7 @@
           },
           "codeDetective.ai.cli.allowedTools": {
             "type": "string",
-            "default": "Read,Grep,Glob,LS",
+            "default": "",
             "markdownDescription": "%config.ai.cli.allowedTools.markdownDescription%"
           },
           "codeDetective.ai.cli.agents": {
@@ -614,41 +637,48 @@
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "codeDetective.generateFromCursor",
+          "when": "editorTextFocus",
+          "group": "navigation@99"
+        }
+      ],
       "view/title": [
         {
-          "command": "codeDetective.openMap",
+          "command": "codeDetective.generateMap",
           "when": "view == codeDetective.mapView",
           "group": "navigation@1"
         },
         {
-          "command": "codeDetective.generateMap",
-          "when": "view == codeDetective.mapView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "codeDetective.startWalkthrough",
-          "when": "view == codeDetective.mapView && codeDetective.hasTour",
-          "group": "navigation@2"
-        },
-        {
-          "command": "codeDetective.fitView",
+          "command": "codeDetective.openMapPanel",
           "when": "view == codeDetective.mapView && codeDetective.hasMap",
-          "group": "navigation@3"
+          "group": "navigation@2"
         },
         {
           "command": "codeDetective.highlightsOn",
           "when": "view == codeDetective.mapView && codeDetective.hasMap && codeDetective.highlightEnabled",
-          "group": "navigation@4"
+          "group": "navigation@3"
         },
         {
           "command": "codeDetective.highlightsOff",
           "when": "view == codeDetective.mapView && codeDetective.hasMap && !codeDetective.highlightEnabled",
-          "group": "navigation@4"
+          "group": "navigation@3"
+        },
+        {
+          "command": "codeDetective.openMap",
+          "when": "view == codeDetective.mapView",
+          "group": "1_maps@1"
         },
         {
           "command": "codeDetective.refreshMaps",
           "when": "view == codeDetective.mapView",
-          "group": "1_maps@1"
+          "group": "1_maps@2"
+        },
+        {
+          "command": "codeDetective.fitView",
+          "when": "view == codeDetective.mapView && codeDetective.hasMap",
+          "group": "1_maps@3"
         },
         {
           "command": "codeDetective.chooseAiProvider",
@@ -679,38 +709,6 @@
         {
           "command": "codeDetective.highlightsOff",
           "when": "false"
-        },
-        {
-          "command": "codeDetective.tourBranch",
-          "when": "false"
-        },
-        {
-          "command": "codeDetective.tourReply",
-          "when": "false"
-        }
-      ],
-      "comments/commentThread/title": [
-        {
-          "command": "codeDetective.previousStep",
-          "when": "commentController == codeDetective.tour",
-          "group": "navigation@1"
-        },
-        {
-          "command": "codeDetective.nextStep",
-          "when": "commentController == codeDetective.tour",
-          "group": "navigation@2"
-        },
-        {
-          "command": "codeDetective.stopWalkthrough",
-          "when": "commentController == codeDetective.tour",
-          "group": "navigation@3"
-        }
-      ],
-      "comments/commentThread/context": [
-        {
-          "command": "codeDetective.tourReply",
-          "when": "commentController == codeDetective.tour",
-          "group": "inline@1"
         }
       ]
     },
@@ -745,7 +743,7 @@
     "esbuild": "^0.25.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3",
-    "vite": "^7.0.0",
-    "vue-tsc": "^3.0.0"
+    "vue-tsc": "^3.0.0",
+    "vite": "^7.0.0"
   }
 }
