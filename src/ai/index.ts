@@ -1,6 +1,8 @@
 import type { AiConfig } from './config';
+import { AgyCli } from './agent/agy';
 import { ClaudeCli } from './agent/claude';
 import { CodexCli } from './agent/codex';
+import { CopilotCli } from './agent/copilot';
 import { runAgent } from './agent/runner';
 import type { AgentCli } from './agent/types';
 import { AiError, type AgentSession, type AgentTurnRequest, type AgentTurnResponse } from './types';
@@ -8,6 +10,10 @@ import { t } from '../../shared/i18n';
 
 export type { AgentCli } from './agent/types';
 export { AgentError } from './agent/types';
+export { augmentedPath, resolveExecutable } from './agent/env';
+
+/** Default agent when the user has not explicitly pinned one in settings. */
+export const DEFAULT_AGENT = 'copilot';
 
 export interface AgentDescriptor {
   id: string;
@@ -17,12 +23,16 @@ export interface AgentDescriptor {
 }
 
 /**
- * Built-in agents. Adding one is a single entry here plus a settings override
- * through `codeDetective.ai.cli.agents`, so the list stays extensible.
+ * Built-in agents ordered by default detection priority:
+ * `copilot` -> `agy` -> `codex` -> `claude`.
+ * Adding one is a single entry here plus a settings override through
+ * `codeDetective.ai.cli.agents`, so the list stays extensible.
  */
 export const AGENTS: AgentDescriptor[] = [
-  { id: 'claude', label: 'Claude Code', create: (command, config) => new ClaudeCli(command, config.extraArgs, config.allowedTools) },
+  { id: 'copilot', label: 'GitHub Copilot', create: (command, config) => new CopilotCli(command, config.extraArgs) },
+  { id: 'agy', label: 'Antigravity (agy)', create: (command, config) => new AgyCli(command, config.extraArgs) },
   { id: 'codex', label: 'Codex CLI', create: (command, config) => new CodexCli(command, config.extraArgs) },
+  { id: 'claude', label: 'Claude Code', create: (command, config) => new ClaudeCli(command, config.extraArgs, config.allowedTools) },
 ];
 
 function customAgent(config: AiConfig): AgentCli | undefined {

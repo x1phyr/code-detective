@@ -1,5 +1,5 @@
 /**
- * Prompts for a local coding agent.
+ * Prompts for a coding agent.
  *
  * The agent already sits in the workspace with its own read tools, so the plugin
  * never inlines source text: it only states the goal and the output contract.
@@ -10,9 +10,18 @@
 
 import { getLocale, type Locale } from '../../shared/i18n';
 
+export interface PromptAnchor {
+  file: string;
+  symbol?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
 export interface PromptContext {
   rootName: string;
   topic: string;
+  /** Explicit starting anchor when the user launches from cursor / selection. */
+  anchor?: PromptAnchor;
   /** Files the user is looking at, as a hint for where to start. */
   priorityFiles: string[];
   /** Adjustments from the previous turn, fed back so the agent can correct itself. */
@@ -21,11 +30,29 @@ export interface PromptContext {
 
 interface PromptText {
   hints: string;
+  anchorLine: (anchor: PromptAnchor) => string;
   intro: (rootName: string) => string;
   topic: (topic: string) => string;
   explore: string[];
   finish: string;
-  schema: { title: string; description: string; note: string; label: string; optional: string; edgeLabel: string; stepTitle: string; branch: string; stepWhat: string; why: string; watch: string; skip: string; stepExample: string; example: string; recap: string; exercise: string };
+  schema: {
+    title: string;
+    description: string;
+    note: string;
+    label: string;
+    optional: string;
+    edgeLabel: string;
+    stepTitle: string;
+    branch: string;
+    stepWhat: string;
+    why: string;
+    watch: string;
+    skip: string;
+    stepExample: string;
+    example: string;
+    recap: string;
+    exercise: string;
+  };
   contractHead: string[];
   contractTail: string[];
   retryHead: string;
@@ -35,77 +62,77 @@ interface PromptText {
 
 const TEXT: Record<Locale, PromptText> = {
   'zh-CN': {
-    hints: '用户当前正在看这些文件，可以优先从它们入手：',
-    intro: rootName => `你是代码侦探。工作区就是当前目录（${rootName}），请直接用你的读文件 / 搜索工具阅读真实源码。`,
-    topic: topic => `要追踪的流程：${topic}`,
+    hints: '用户当前正在看这些文件，可作为探索参考：',
+    anchorLine: anchor => {
+      const range = anchor.startLine
+        ? (anchor.endLine && anchor.endLine > anchor.startLine ? `:${anchor.startLine}-${anchor.endLine}` : `:${anchor.startLine}`)
+        : '';
+      const symbol = anchor.symbol ? `（符号：${anchor.symbol}）` : '';
+      return `起点锚点：${anchor.file}${range}${symbol}`;
+    },
+    intro: rootName => `你是代码侦探。工作区就是当前目录（${rootName}），请自由发挥你的搜索、读文件、子智能体等探索能力阅读真实源码。`,
+    topic: topic => `要带读的主题：${topic}`,
     explore: [
-      '请按执行顺序梳理出完整链路：入口事件 → 处理函数 → 数据读写 → 界面刷新或返回。',
-      '只写有源码依据的调用关系，不要推测；行号必须来自你实际读到的内容。',
+      '请深入定位并阅读真实的业务实现代码（不要只停留在类型、接口或枚举声明上），按最有利于读者理解代码实际运行机制的方式自由组织带读步骤与脉络图。',
+      '所有文件路径和行号必须来自你实际读到的真实文件内容，不要猜测或凭记忆估算。',
     ],
-    finish: '读够上下文后，把结论整理成下面要求的 JSON，作为最后一条消息输出。',
+    finish: '探索完成后，在最后一条消息里按下面的输出格式直接输出完整的 JSON 对象。',
     schema: {
-      title: '地图标题', description: '可选说明', note: '这段代码做了什么（一句话）',
-      label: '短标签', optional: '可选', edgeLabel: '调用', stepTitle: '第一步', branch: '可选：分支条件',
-      stepWhat: '这一步在看什么（1–3 句）', why: '为什么这样写', watch: '值得注意的坑', skip: '可以先跳过的部分', stepExample: '例子走到这里时发生了什么',
-      example: '一个贯穿全程的具体例子', recap: '看完后的总结（3–5 句）', exercise: '一个动手验证理解的小练习',
+      title: '带读讲义标题', description: '简要说明这条流程做什么', note: '这段代码的作用简注（可选）',
+      label: '节点短标签', optional: '职责简述（可选）', edgeLabel: '关系说明（可选）', stepTitle: '步骤标题', branch: '可选：分支条件说明',
+      stepWhat: '清晰讲解这一步在做什么', why: '可选：设计原因或背景考量', watch: '可选：容易踩坑或需留意的地方', skip: '可选：初读可先略过的细节', stepExample: '可选：结合具体例子说明这一步的变化',
+      example: '可选：贯穿全程的具体例子', recap: '可选：全局回顾总结', exercise: '可选：验证理解的小练习',
     },
     contractHead: [
-      '输出格式（硬性要求）：',
-      '1. 在最后一条消息里只输出一个 JSON 对象，不要 Markdown 围栏，不要额外解释。',
-      '2. schemaVersion 必须为 1，字段名严格如下，不要添加未知字段：',
+      '输出格式（仅约束 JSON 结构）：',
+      '1. 最后一条消息只输出一个合法 JSON 对象，不要加 Markdown 代码块围栏，不要在 JSON 外写额外文字。',
+      '2. schemaVersion 固定为 1；必填顶层字段为 schemaVersion、id、title、sources、nodes（至少 1 个）、edges、walkthrough（至少 1 个非 aside 主线步骤），不要添加未定义字段：',
     ],
     contractTail: [
-      '3. map.id 匹配 ^[a-z0-9][a-z0-9-]*$；node / edge / step / source 的 id 匹配 ^[A-Za-z0-9_.:-]+$。',
-      '4. 每个 source 必须给出相对工作区的 file（用 / 分隔）、startLine、endLine，且 endLine >= startLine。',
-      '5. 不要写 anchorText：插件会按真实文件重新生成。',
-      '6. 每个 source 都要写 note：用一句话（不超过 60 字）说明这几行在流程里做了什么，它会显示在代码行尾。',
-      '7. 只写有源码依据的节点与连线，宁缺勿滥。',
-      '8. 分层：顶层放 3–8 个功能块（整体阶段），每个功能块的内部步骤用 parent 指向该功能块；一层最多约 12 个节点，超过就再拆一层。简单流程可以不分层。',
-      '9. 主干与支线：正常执行路径的边不写 branch；异常、提前返回、缓存命中、重试等分支的边写 branch（例如 "未命中缓存"、"校验失败"）。分叉点用 kind: "condition"，提前 return / 抛错 / 结束用 kind: "exit"。',
-      '10. walkthrough 是带人读代码的导读，像坐在旁边讲解一样写：主线 5–10 步沿正常路径走，每一步只指向一段代码（sourceId，通常 3–20 行）；description 说这段在做什么，why 说为什么这样写，watch 写容易踩的坑，skip 写这一步可以先略过的细节（都可选，没有就不写）。',
-      '11. 在 tour.example 里定一个具体例子（真实的输入 / 用户 / 数据），每一步的 example 写这个例子走到这里时发生了什么；tour.recap 写看完后的总结，tour.exercise 给一个可以动手验证理解的小练习（例如改一行代码、加一条日志后会看到什么）。',
-      '12. 异常、重试等支线不要塞进主线：写成 aside: true 的步骤，并在出发的那一步用 branches 列出它们；用户看完岔路会回到出发的那一步。',
+      '3. id 规范：顶层 id 匹配 ^[a-z0-9][a-z0-9-]*$（最长 64 字符）；sources / nodes / edges / walkthrough 内各项 id 匹配 ^[A-Za-z0-9_.:-]+$，同组内唯一，且所有引用的 id（sourceId、sourceIds、nodeIds、edgeIds、from、to、parent、branches）都必须指向真实存在的目标。',
+      '4. sources：file 写相对工作区根目录的路径（用 / 分隔，不写绝对路径，不以 ./ 开头，不含 ..）；startLine 与 endLine 为从真实文件读到的 1 起始整数且 endLine >= startLine；不要写 anchorText（插件会自动从真实文件提取补全）。',
+      '5. 层级与分支字段约定：node.parent 可选，指向顶层分组节点 id（最多允许 1 层 parent 分组，不可嵌套多层或成环）；edge.branch 可选，用于标注条件/异常分支；旁支步骤可设 aside: true 并在主线步骤的 branches 数组中引用其 id。',
     ],
-    retryHead: '上一次的 JSON 没能通过校验。',
-    retryTail: '请复用你已经读到的内容，输出修正后的完整 JSON 对象。仍然只输出 JSON。',
-    continue: '继续：在上一轮基础上补齐或修正地图，最后只输出完整的 JSON 对象。',
+    retryHead: '上一次输出的 JSON 没能通过格式校验：',
+    retryTail: '请复用已读到的上下文修正格式问题，只输出修正后的完整 JSON 对象。',
+    continue: '继续完成并只输出完整的 JSON 对象。',
   },
   en: {
-    hints: 'The user is currently looking at these files; consider starting from them:',
-    intro: rootName => `You are Code Detective. The workspace is the current directory (${rootName}); read the real source directly with your file-reading / search tools.`,
-    topic: topic => `Flow to trace: ${topic}`,
+    hints: 'Files currently open in the user editor (optional starting hints):',
+    anchorLine: anchor => {
+      const range = anchor.startLine
+        ? (anchor.endLine && anchor.endLine > anchor.startLine ? `:${anchor.startLine}-${anchor.endLine}` : `:${anchor.startLine}`)
+        : '';
+      const symbol = anchor.symbol ? ` (symbol: ${anchor.symbol})` : '';
+      return `Starting anchor: ${anchor.file}${range}${symbol}`;
+    },
+    intro: rootName => `You are Code Detective. The workspace is the current directory (${rootName}); freely use your search, file-reading, subagent, and analysis tools to explore the real source code.`,
+    topic: topic => `Topic to explain: ${topic}`,
     explore: [
-      'Lay out the complete chain in execution order: entry event → handler → data reads/writes → UI refresh or return.',
-      'Only include call relationships backed by the source; do not guess. Line numbers must come from what you actually read.',
+      'Locate and read the actual runtime implementation in the codebase (do not stop at static interfaces, types, or enum declarations), and organize the walkthrough steps and graph in whatever way best explains how the code works.',
+      'Every file path and line number must come from real files you actually read — never guess.',
     ],
-    finish: 'Once you have enough context, turn your findings into the JSON described below and output it as your final message.',
+    finish: 'When finished, output the complete JSON object in your final message matching the schema below.',
     schema: {
-      title: 'Map title', description: 'Optional description', note: 'What this code does (one sentence)',
-      label: 'Short label', optional: 'Optional', edgeLabel: 'calls', stepTitle: 'Step one', branch: 'Optional: branch condition',
-      stepWhat: 'What this step looks at (1-3 sentences)', why: 'Why it is written this way', watch: 'A pitfall worth noticing', skip: 'What can be skipped for now', stepExample: 'What happens to the example here',
-      example: 'One concrete example that runs through the tour', recap: 'Summary after the tour (3-5 sentences)', exercise: 'A small hands-on exercise to check understanding',
+      title: 'Guide title', description: 'Brief summary of what this flow does', note: 'Concise inline note on this code slice (optional)',
+      label: 'Short node label', optional: 'Brief responsibility (optional)', edgeLabel: 'Relationship label (optional)', stepTitle: 'Step title', branch: 'Optional: branch condition',
+      stepWhat: 'Clear explanation of what happens in this step', why: 'Optional: design rationale', watch: 'Optional: subtle pitfall or gotcha', skip: 'Optional: details safe to skip at first', stepExample: 'Optional: what happens to the example here',
+      example: 'Optional: concrete scenario running through the guide', recap: 'Optional: overall summary', exercise: 'Optional: small verification exercise',
     },
     contractHead: [
-      'Output format (hard requirements):',
-      '1. In your final message output exactly one JSON object: no Markdown fences, no extra explanation.',
-      '2. schemaVersion must be 1 and field names must be exactly as below; do not add unknown fields:',
+      'Output format (JSON schema contract only):',
+      '1. Output a single valid JSON object in your final message: no Markdown fences, no extra prose outside the JSON.',
+      '2. schemaVersion must be 1; required top-level fields are schemaVersion, id, title, sources, nodes (min 1), edges, and walkthrough (min 1 non-aside step), with no unknown fields:',
     ],
     contractTail: [
-      '3. map.id matches ^[a-z0-9][a-z0-9-]*$; node / edge / step / source ids match ^[A-Za-z0-9_.:-]+$.',
-      '4. Every source must give a workspace-relative file (separated by /), startLine and endLine, with endLine >= startLine.',
-      '5. Do not write anchorText: the plugin regenerates it from the real file.',
-      '6. Every source needs a note: one sentence (at most 120 characters) on what these lines do in the flow; it is shown at the end of the code line.',
-      '7. Only include nodes and edges backed by the source; fewer but accurate is better.',
-      '8. Layers: put 3–8 feature blocks (overall phases) at the top level; inner steps of a block set parent to that block. Keep each layer to about 12 nodes, split further if needed. Simple flows may stay flat.',
-      '9. Main path vs branches: edges on the normal execution path have no branch; edges for errors, early returns, cache hits, retries etc. set branch (e.g. "cache miss", "validation failed"). Use kind "condition" at decision points and kind "exit" for early return / throw / end.',
-      '10. walkthrough is a guided reading, written as if sitting next to the reader: a main line of 5-10 steps follows the normal path, each step points to exactly one piece of code (sourceId, usually 3-20 lines); description says what that code does, why explains why it is written this way, watch names a pitfall, skip names details that can be skipped for now (all optional; omit when there is nothing to say).',
-      '11. Put one concrete example in tour.example (a real input / user / piece of data); each step\'s example says what happens to that example at this point. tour.recap is the summary after the tour, tour.exercise is a small hands-on exercise to check understanding (e.g. what you would see after changing a line or adding a log).',
-      '12. Keep error / retry paths off the main line: write them as steps with aside: true and list them in branches of the step they start from; after an aside the reader returns to that step.',
-      '13. Write all titles, labels, descriptions, notes, branch labels and tour text in English.',
+      '3. IDs & references: map.id matches ^[a-z0-9][a-z0-9-]*$ (max 64 chars); source / node / edge / step ids match ^[A-Za-z0-9_.:-]+$, unique within each collection, and every referenced id (sourceId, sourceIds, nodeIds, edgeIds, from, to, parent, branches) must exist.',
+      '4. sources: file must be a workspace-relative /-separated path (no absolute paths, no leading ./, no ..); startLine and endLine are 1-based integers from files you read with endLine >= startLine; omit anchorText (the extension fills it from the real file).',
+      '5. Grouping & branches: optional node.parent references a top-level stage node id (at most 1 level of parent nesting, no cycles); optional edge.branch labels conditional/error branches; optional detour steps set aside: true and are referenced in another step\'s branches array.',
+      '6. Write all titles, labels, descriptions, notes, branch labels and tour text in English.',
     ],
-    retryHead: 'The previous JSON failed validation.',
-    retryTail: 'Reuse what you have already read and output the complete corrected JSON object. Still output only JSON.',
-    continue: 'Continue: complete or fix the map based on the previous turn, and finally output only the complete JSON object.',
+    retryHead: 'The previous JSON failed schema validation:',
+    retryTail: 'Reuse what you have already read, fix the schema issues, and output only the complete JSON object.',
+    continue: 'Continue and output only the complete JSON object.',
   },
 };
 
@@ -115,6 +142,7 @@ function text(): PromptText {
 
 export function explorePrompt(context: PromptContext): string {
   const p = text();
+  const anchorBlock = context.anchor ? ['', p.anchorLine(context.anchor)] : [];
   const hints = context.priorityFiles.length > 0
     ? ['', p.hints, ...context.priorityFiles.slice(0, 12).map(file => `- ${file}`)]
     : [];
@@ -122,6 +150,7 @@ export function explorePrompt(context: PromptContext): string {
     p.intro(context.rootName),
     '',
     p.topic(context.topic),
+    ...anchorBlock,
     '',
     ...p.explore,
     ...hints,
@@ -140,15 +169,15 @@ function schema(): string {
     `  "description": "${s.description}",`,
     '  "sources": { "<sourceId>": { "file": "src/a.ts", "startLine": 1, "endLine": 3,',
     `                               "note": "${s.note}" } },`,
-    `  "nodes": [{ "id": "step-1", "label": "${s.label}", "description": "${s.optional}",`,
-    '               "kind": "step|function|condition|event|exit", "parent": "<blockNodeId>", "sourceIds": ["<sourceId>"] }],',
-    `  "edges": [{ "id": "e1", "from": "step-1", "to": "step-2", "label": "${s.edgeLabel}",`,
+    `  "nodes": [{ "id": "fn-1", "label": "${s.label}", "description": "${s.optional}",`,
+    '               "kind": "step|function|condition|event|exit", "parent": "<optionalStageNodeId>", "sourceIds": ["<sourceId>"] }],',
+    `  "edges": [{ "id": "e1", "from": "fn-1", "to": "fn-2", "label": "${s.edgeLabel}",`,
     `              "kind": "call|flow|event|related", "branch": "${s.branch}", "sourceIds": ["<sourceId>"] }],`,
     `  "walkthrough": [{ "id": "w1", "title": "${s.stepTitle}", "description": "${s.stepWhat}",`,
-    '                    "nodeIds": ["step-1"], "edgeIds": ["e1"], "sourceId": "<sourceId>",',
+    '                    "nodeIds": ["fn-1"], "edgeIds": ["e1"], "sourceId": "<sourceId>",',
     `                    "why": "${s.why}", "watch": "${s.watch}", "skip": "${s.skip}", "example": "${s.stepExample}",`,
     '                    "branches": ["w-aside"] },',
-    '                  { "id": "w-aside", "title": "…", "aside": true, "nodeIds": ["…"], "edgeIds": [], "sourceId": "<sourceId>" }],',
+    '                  { "id": "w-aside", "title": "...", "aside": true, "nodeIds": ["..."], "edgeIds": [], "sourceId": "<sourceId>" }],',
     `  "tour": { "example": "${s.example}", "recap": "${s.recap}", "exercise": "${s.exercise}" }`,
     '}',
   ].join('\n');

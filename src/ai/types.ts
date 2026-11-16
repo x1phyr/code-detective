@@ -1,3 +1,5 @@
+import type { AgentActivity } from './agent/types';
+
 export type AiPhase =
   | 'preparing'
   | 'running'
@@ -20,6 +22,10 @@ export interface AgentTurnRequest {
   cancel: AgentCancel;
   /** Raw CLI output, used for the streaming character counter. */
   onChunk?(chunk: string): void;
+  /** Incremental assistant text delta for streaming Q&A replies. */
+  onDelta?(delta: string): void;
+  /** Structured exploration activity (read/search/thinking) for live UI footprints. */
+  onActivity?(activity: AgentActivity): void;
 }
 
 export interface AgentTurnResponse {
@@ -35,8 +41,7 @@ export class AiError extends Error {
 }
 
 /**
- * A conversation with one local agent CLI. The agent runs inside the workspace
- * with its own read tools, so the plugin never ships source text to it.
+ * A conversation with one coding agent (local CLI or VS Code Copilot LM).
  */
 export interface AgentSession {
   readonly id: string;

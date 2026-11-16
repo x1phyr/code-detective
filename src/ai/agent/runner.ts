@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { agentEnv } from './env';
 import { AgentError, type AgentCli, type AgentReply, type AgentTurn } from './types';
 import { t } from '../../../shared/i18n';
 
@@ -18,14 +19,11 @@ export interface AgentRunResult extends AgentReply {
 }
 
 /**
- * Runs one agent turn.
- *
- * The prompt is written to stdin and `shell` stays disabled, so a topic can
- * never be interpreted as shell syntax or CLI flags. Cancelling or timing out
- * is conveyed by killing the process tree.
+ * Runs one agent turn, forwarding real-time JSONL lines to `cli.onStreamLine`
+ * when available so the UI can display live exploration footprints and streaming text.
  */
 export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  const { cli, prompt, cwd, timeoutMs, cancel, onChunk } = options;
+  const { cli, prompt, cwd, timeoutMs, cancel, onChunk, onDelta, onActivity } = options;
   const resumeArgs = options.sessionId ? cli.resumeArgs?.(options.sessionId) : undefined;
   const args = resumeArgs ?? cli.args();
   const max = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT;
@@ -34,7 +32,21 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
     let settled = false;
     let stdout = '';
     let stderr = '';
+    let lineBuffer = '';
     let child: ReturnType<typeof spawn>;
+
+    const flushLines = (final = false): void => {
+      if (!cli.onStreamLine) return;
+      const parts = lineBuffer.split('\n');
+      lineBuffer = final ? '' : (parts.pop() ?? '');
+      for (const line of parts) {
+        if (line.trim()) {
+          try {
+            cli.onStreamLine(line, { onDelta, onActivity });
+          } catch { /* stream observer errors never abort the turn */ }
+        }
+      }
+    };
 
     const finish = (error?: Error): void => {
       if (settled) return;
@@ -45,6 +57,7 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
         reject(error);
         return;
       }
+      flushLines(true);
       try {
         const reply = cli.parse(stdout, stderr);
         resolve({ ...reply, sessionId: reply.sessionId ?? options.sessionId });
@@ -64,7 +77,7 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
         cwd,
         shell: false,
         windowsHide: true,
-        env: { ...process.env, NO_COLOR: '1', CI: '1' },
+        env: agentEnv(),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (error) {
@@ -88,6 +101,15 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
     child.stdout?.on('data', (chunk: string) => {
       if (stdout.length < max) {
         stdout += chunk;
+        if (cli.onStreamLine) {
+          lineBuffer += chunk;
+          flushLines(false);
+        }
+        if (cli.onStreamChunk) {
+          try {
+            cli.onStreamChunk(chunk, { onDelta, onActivity });
+          } catch { /* stream observer errors never abort the turn */ }
+        }
         onChunk?.(chunk);
       }
     });
@@ -113,7 +135,6 @@ export function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
         t('ai.cliExitCode', { command: String(args[0]), code: code ?? 'null', stderr: stderr.trim().slice(0, 600) })));
     });
 
-    // The process may exit before reading stdin; that is not an error we surface.
     child.stdin?.on('error', () => { /* ignored */ });
     child.stdin?.end(prompt);
   });

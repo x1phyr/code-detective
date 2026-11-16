@@ -18,4 +18,8 @@ export const ai = {
   'ai.cliMissing': { 'zh-CN': '没有找到 {command}，请先安装 {agent} 或修改 codeDetective.ai.cli.command。', en: '{command} not found. Install {agent} or change codeDetective.ai.cli.command.' },
   'ai.cliRunFailed': { 'zh-CN': '无法运行 {command}：{error}', en: 'Cannot run {command}: {error}' },
   'ai.cliExitCode': { 'zh-CN': '{command} 退出码 {code}。{stderr}', en: '{command} exited with code {code}. {stderr}' },
+  'ai.copilotUnavailable': {
+    'zh-CN': '未找到可用的 GitHub Copilot CLI 或 VS Code 语言模型（请安装 copilot CLI、登录 GitHub Copilot，或切换到 agy / codex / claude）。',
+    en: 'No GitHub Copilot CLI or VS Code language model is available (install the copilot CLI, sign in to GitHub Copilot, or switch to agy / codex / claude).',
+  },
 } satisfies Record<`ai.${string}`, Message>;

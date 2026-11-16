@@ -1,18 +1,17 @@
-import type { AgentCli, AgentReply } from './types';
+import type { AgentCli, AgentReply, AgentStreamCallbacks } from './types';
 
 interface CodexEvent {
   type?: unknown;
   thread_id?: unknown;
-  item?: { type?: unknown; text?: unknown };
+  item?: {
+    type?: unknown;
+    text?: unknown;
+    command?: unknown;
+  };
 }
 
 /**
- * Codex CLI in non-interactive mode.
- *
- * Verified against 0.166: `codex exec --json --sandbox read-only` prints JSONL
- * events (`thread.started`, `item.completed`, `turn.completed`) and reads the
- * prompt from stdin. Resuming is `codex exec resume <thread-id>`; that subcommand
- * rejects `--sandbox`, so it is only passed for a fresh turn.
+ * Codex CLI in non-interactive JSONL mode (`codex exec --json --sandbox read-only`).
  */
 export class CodexCli implements AgentCli {
   readonly id = 'codex';
@@ -31,6 +30,24 @@ export class CodexCli implements AgentCli {
     return [this.command, 'exec', 'resume', sessionId, '--json', '--skip-git-repo-check', ...this.extraArgs];
   }
 
+  onStreamLine(line: string, callbacks: AgentStreamCallbacks): void {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) return;
+    let event: CodexEvent;
+    try { event = JSON.parse(trimmed) as CodexEvent; } catch { return; }
+    if ((event.type === 'item.started' || event.type === 'item.completed') && event.item) {
+      if (event.item.type === 'command_execution' && typeof event.item.command === 'string' && event.type === 'item.started') {
+        const cmd = event.item.command.trim().slice(0, 80);
+        const isSearch = /\b(rg|grep|find)\b/.test(cmd);
+        callbacks.onActivity?.({ kind: isSearch ? 'search' : 'read', text: cmd });
+      } else if (event.item.type === 'agent_message' && typeof event.item.text === 'string' && event.type === 'item.completed') {
+        callbacks.onDelta?.(event.item.text);
+      } else if (event.item.type === 'reasoning' && typeof event.item.text === 'string' && event.type === 'item.completed') {
+        callbacks.onActivity?.({ kind: 'think', text: event.item.text.slice(0, 100) });
+      }
+    }
+  }
+
   parse(stdout: string, _stderr: string): AgentReply {
     let text = '';
     let sessionId: string | undefined;
@@ -44,7 +61,6 @@ export class CodexCli implements AgentCli {
       }
       if (event.type === 'item.completed' && event.item?.type === 'agent_message'
         && typeof event.item.text === 'string') {
-        // Keep the last agent message: earlier ones are interim narration.
         text = event.item.text;
       }
     }

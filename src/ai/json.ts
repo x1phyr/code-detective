@@ -43,11 +43,19 @@ export function extractJson(raw: string): string | undefined {
       seen += 1;
     }
   }
+  let firstValid: string | undefined;
   for (const candidate of candidates) {
     try {
       const value: unknown = JSON.parse(candidate);
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) return JSON.stringify(value);
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        const serialized = JSON.stringify(value);
+        const obj = value as Record<string, unknown>;
+        if ('sources' in obj || 'nodes' in obj || 'walkthrough' in obj || 'schemaVersion' in obj) {
+          return serialized;
+        }
+        firstValid ??= serialized;
+      }
     } catch { /* try the next candidate */ }
   }
-  return undefined;
+  return firstValid;
 }

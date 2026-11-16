@@ -5,7 +5,18 @@
  * reads the real files itself. The prompt always goes through stdin — never as a
  * command-line argument — so user text can never be parsed as CLI flags.
  */
-export interface AgentTurn {
+export interface AgentActivity {
+  kind: 'search' | 'read' | 'think' | 'status';
+  text: string;
+  detail?: string;
+}
+
+export interface AgentStreamCallbacks {
+  onDelta?(delta: string): void;
+  onActivity?(activity: AgentActivity): void;
+}
+
+export interface AgentTurn extends AgentStreamCallbacks {
   /** Prompt text written to stdin. */
   prompt: string;
   cwd: string;
@@ -35,6 +46,10 @@ export interface AgentCli {
   args(): string[];
   /** Argv used to continue `sessionId`, or undefined when resuming is unsupported. */
   resumeArgs?(sessionId: string): string[] | undefined;
+  /** Optional real-time JSONL line observer to surface exploration footprints and text deltas. */
+  onStreamLine?(line: string, callbacks: AgentStreamCallbacks): void;
+  /** Optional real-time plain-text chunk observer for CLIs that stream text directly. */
+  onStreamChunk?(chunk: string, callbacks: AgentStreamCallbacks): void;
   /** Turns raw stdout into the reply, extracting a session id when available. */
   parse(stdout: string, stderr: string): AgentReply;
 }
