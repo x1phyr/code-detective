@@ -71,6 +71,10 @@ export const core = {
   'core.draftDuplicateId': { 'zh-CN': '与前面的 {name} 重复使用同一 id', en: 'reuses an id already used in earlier {name}' },
   'core.draftOverLimit': { 'zh-CN': '超出 {name} 数量上限 {limit}', en: 'exceeds the {name} limit of {limit}' },
   'core.draftMapNotObject': { 'zh-CN': '地图必须是 JSON 对象。', en: 'The map must be a JSON object.' },
+  'core.draftMapEmpty': {
+    'zh-CN': '模型返回了空的讲义草稿（输出可能被截断），请重试或缩小话题范围。',
+    en: 'The model returned an empty guide draft (output may have been truncated); retry or narrow the topic.',
+  },
   'core.draftMapNeedsTitle': {
     'zh-CN': '地图需要一个非空的 title（不超过 200 字）。',
     en: 'The map needs a non-empty title (at most 200 characters).',
@@ -160,5 +164,25 @@ export const core = {
   'core.stepBranchNotAside': { 'zh-CN': 'branches 里的步骤 {id} 必须标记 aside: true。', en: 'Step {id} in branches must set aside: true.' },
   'core.draftStepSourceRemoved': { 'zh-CN': '{id}.sourceId 指向不存在的源码，已去掉', en: '{id}.sourceId pointed to a missing source; removed' },
   'core.parentCycle': { 'zh-CN': '节点 {id} 的 parent 链形成了环。', en: 'The parent chain of node {id} forms a cycle.' },
+  'core.parentTooDeep': {
+    'zh-CN': '节点 {id} 的分组 {parent} 本身已有上级分组；脉络图最多只允许 1 层阶段分组。',
+    en: 'Group {parent} of node {id} already has a parent; at most one level of grouping is allowed.',
+  },
+  'core.walkthroughEmpty': {
+    'zh-CN': 'walkthrough 至少需要 1 个主线带读步骤（aside 不为 true）。',
+    en: 'walkthrough must contain at least one main-line step (aside is not true).',
+  },
+  'core.stepNeedsAnchor': {
+    'zh-CN': '步骤必须至少关联 sourceId、nodeIds 或 edgeIds 之一。',
+    en: 'A step must reference at least one of sourceId, nodeIds or edgeIds.',
+  },
   'core.draftParentCycle': { 'zh-CN': '{id}.parent 形成环，已移到上一层', en: '{id}.parent formed a cycle; moved up a level' },
+  'core.draftParentFlattened': {
+    'zh-CN': '{id}.parent 超过 1 层分组，已归并到顶层分组 {target}',
+    en: '{id}.parent exceeded 1 level of grouping; merged into top-level group {target}',
+  },
+  'core.draftWalkthroughSynthesized': {
+    'zh-CN': '模型未给出有效的带读步骤，已按主干节点自动生成基础导读顺序',
+    en: 'No valid walkthrough steps were provided; basic reading steps were synthesized from main nodes',
+  },
 } satisfies Record<`core.${string}`, Message>;

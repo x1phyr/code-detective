@@ -1,5 +1,6 @@
 import type { CodeMap, Selection } from '../../shared/types';
 import { t } from '../../shared/i18n';
+import { mainline } from './tour';
 
 /** End-of-line text is kept short so it never pushes the code off-screen. */
 export const INLINE_NOTE_MAX = 60;
@@ -22,17 +23,13 @@ export function escapeMarkdown(text: string): string {
 }
 
 /**
- * Builds the inline note and hover for one highlighted source.
- *
- * Prefers the source's own `note`. Older maps have no notes, so it falls back
- * to whichever node / edge of the current selection owns the source, using its
- * label and description. The hover also names the walkthrough step, if any.
+ * Builds the inline note and hover for the currently focused source range.
  */
 export function annotateSource(map: CodeMap, sourceId: string, selection?: Selection): SourceAnnotation | undefined {
   const source = Object.hasOwn(map.sources, sourceId) ? map.sources[sourceId] : undefined;
   if (!source) return undefined;
 
-  const step = selection?.kind === 'step' ? map.walkthrough?.find(item => item.id === selection.id) : undefined;
+  const step = selection?.kind === 'step' ? map.walkthrough.find(item => item.id === selection.id) : undefined;
   const nodeIds = selection?.kind === 'node' ? [selection.id] : step?.nodeIds ?? [];
   const edgeIds = selection?.kind === 'edge' ? [selection.id] : step?.edgeIds ?? [];
   const owner = map.nodes.find(node => nodeIds.includes(node.id) && node.sourceIds.includes(sourceId))
@@ -44,9 +41,12 @@ export function annotateSource(map: CodeMap, sourceId: string, selection?: Selec
   const inlineText = note || [ownerLabel, ownerText].filter(Boolean).join(' · ');
   if (!inlineText) return undefined;
 
-  const stepIndex = step && map.walkthrough ? map.walkthrough.indexOf(step) : -1;
+  const main = mainline(map);
+  const mainIndex = step && !step.aside ? main.indexOf(step) : -1;
   const heading = step
-    ? `**${t('core.annotationStepHeading', { index: stepIndex + 1, total: map.walkthrough!.length, title: escapeMarkdown(step.title) })}**`
+    ? (mainIndex >= 0
+      ? `**${t('core.annotationStepHeading', { index: mainIndex + 1, total: main.length, title: escapeMarkdown(step.title) })}**`
+      : `**${escapeMarkdown(step.title)}**`)
     : ownerLabel ? `**${escapeMarkdown(ownerLabel)}**` : `**${t('core.annotationDefaultHeading')}**`;
   const body = [note, ownerText, step?.description?.trim()]
     .filter((text, index, all): text is string => Boolean(text) && all.indexOf(text) === index)

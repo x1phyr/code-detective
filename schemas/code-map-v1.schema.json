@@ -1,10 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Code Detective map v1",
-  "description": "An AI-authored code map. This format describes locations and presentation, not verified program semantics.",
+  "title": "Code Detective Guided Map v1",
+  "description": "An AI-authored guided code walkthrough and coarse-grained call map.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "id", "title", "sources", "nodes", "edges"],
+  "required": ["schemaVersion", "id", "title", "sources", "nodes", "edges", "walkthrough"],
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": 1 },
@@ -35,6 +35,7 @@
     },
     "walkthrough": {
       "type": "array",
+      "minItems": 1,
       "maxItems": 200,
       "items": { "$ref": "#/definitions/step" }
     },
@@ -77,7 +78,7 @@
         "startLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "endLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "anchorText": { "type": "string" },
-        "note": { "$ref": "#/definitions/shortText", "description": "这段代码做了什么，一句话；点击节点时显示在代码行尾" }
+        "note": { "$ref": "#/definitions/shortText", "description": "这段代码做了什么，一句话；定位到该段代码时显示在首行行尾" }
       }
     },
     "node": {
@@ -89,7 +90,7 @@
         "label": { "$ref": "#/definitions/shortText" },
         "description": { "type": "string" },
         "kind": { "enum": ["step", "function", "condition", "event", "exit"] },
-        "parent": { "$ref": "#/definitions/id", "description": "所属功能块（另一个节点的 id）；不写则在顶层" },
+        "parent": { "$ref": "#/definitions/id", "description": "所属顶层阶段分组（另一个顶层节点的 id，最多 1 层分组）" },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
     },
@@ -106,6 +107,17 @@
         "kind": { "enum": ["call", "flow", "event", "related"] },
         "branch": { "$ref": "#/definitions/shortText", "description": "分支条件；写了即为支线（默认折叠），不写为主干" },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
+      }
+    },
+    "noteItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "answer"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "question": { "type": "string" },
+        "answer": { "$ref": "#/definitions/nonEmptyText" },
+        "createdAt": { "type": "string" }
       }
     },
     "step": {
@@ -128,24 +140,26 @@
           "maxItems": 1000,
           "items": { "$ref": "#/definitions/id" }
         },
-        "sourceId": { "$ref": "#/definitions/id", "description": "这一步只看的那段代码（sources 的 id）；不写时取节点 / 连线的第一处源码" },
+        "sourceId": { "$ref": "#/definitions/id", "description": "这一步聚焦阅读的那段代码（sources 的 id）" },
         "why": { "type": "string", "description": "为什么这样写" },
         "watch": { "type": "string", "description": "值得注意、容易踩坑的地方" },
         "skip": { "type": "string", "description": "这一步可以先跳过不看的部分" },
         "example": { "type": "string", "description": "贯穿例子走到这一步时发生了什么" },
-        "aside": { "type": "boolean", "description": "岔路步骤：不在主线上，从某一步的 branches 进入，看完回到出发处" },
+        "aside": { "type": "boolean", "description": "岔路步骤：不在主线上，从主线某一步的 branches 内嵌展开" },
         "branches": {
           "type": "array",
           "uniqueItems": true,
           "maxItems": 10,
           "items": { "$ref": "#/definitions/id" },
           "description": "从这一步可以岔出去看的 aside 步骤 id"
+        },
+        "notes": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/definitions/noteItem" },
+          "description": "用户追问后沉淀在本步的补充笔记"
         }
-      },
-      "anyOf": [
-        { "properties": { "nodeIds": { "type": "array", "minItems": 1 } } },
-        { "properties": { "edgeIds": { "type": "array", "minItems": 1 } } }
-      ]
+      }
     },
     "tour": {
       "type": "object",

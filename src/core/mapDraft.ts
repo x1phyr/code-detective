@@ -1,4 +1,4 @@
-import type { CodeMap, MapEdge, MapNode, SourceRef, TourInfo, WalkthroughStep } from '../../shared/types';
+import type { CodeMap, MapEdge, MapNode, SourceRef, StepNote, TourInfo, WalkthroughStep } from '../../shared/types';
 import { t } from '../../shared/i18n';
 import { sanitizeMapId } from '../ai/mapNaming';
 import { isCanonicalRelativePath } from './paths';
@@ -65,15 +65,30 @@ const drafts = new WeakMap<CodeMap, NormalizeReport>();
 
 type Parsed<T> = { item: T } | { reason: string };
 
-function sourceRef(value: unknown): Parsed<SourceRef> {
-  if (!isRecord(value)) return { reason: t('core.draftNotObject') };
-  if (typeof value.file !== 'string' || value.file.length === 0) return { reason: t('core.draftMissingFile') };
+/**
+ * agent 常见的路径写法：`./src/a.ts`、Windows 反斜杠、工作区内的绝对路径。
+ * 能确定指向工作区内部的就改写成规范的相对路径，其余原样交给校验。
+ */
+export function repairDraftPath(file: string, root?: string): string {
+  let value = file.trim().replace(/\\/g, '/');
+  if (root) {
+    const base = root.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (value === base) return value;
+    if (value.startsWith(`${base}/`)) value = value.slice(base.length + 1);
+  }
+  while (value.startsWith('./')) value = value.slice(2);
+  return value.replace(/\/{2,}/g, '/');
+}
+
+function sourceRef(raw: unknown, root?: string): Parsed<SourceRef> {
+  if (!isRecord(raw)) return { reason: t('core.draftNotObject') };
+  if (typeof raw.file !== 'string' || raw.file.length === 0) return { reason: t('core.draftMissingFile') };
+  const value: Record<string, unknown> & { file: string } = { ...raw, file: repairDraftPath(raw.file, root) };
   if (!isCanonicalRelativePath(value.file)) return { reason: t('core.draftFileNotCanonical', { file: display(value.file) }) };
   const startLine = line(value.startLine);
   const endLine = line(value.endLine);
   if (startLine === undefined || endLine === undefined) return { reason: t('core.draftLinesNotPositive') };
   if (endLine < startLine) return { reason: t('core.draftEndBeforeStart') };
-  // anchorText is always regenerated from the real file, never trusted from the model.
   const note = shortText(value.note);
   return { item: note ? { file: value.file, startLine, endLine, note } : { file: value.file, startLine, endLine } };
 }
@@ -127,6 +142,17 @@ function edge(value: unknown, report: NormalizeReport): Parsed<MapEdge> {
   return { item: output };
 }
 
+function noteItem(value: unknown): StepNote | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = validId(value.id);
+  const answer = typeof value.answer === 'string' ? value.answer.trim() : '';
+  if (!id || !answer) return undefined;
+  const out: StepNote = { id, answer };
+  if (typeof value.question === 'string' && value.question.trim()) out.question = value.question.trim();
+  if (typeof value.createdAt === 'string' && value.createdAt.trim()) out.createdAt = value.createdAt.trim();
+  return out;
+}
+
 function step(value: unknown, report: NormalizeReport): Parsed<WalkthroughStep> {
   if (!isRecord(value)) return { reason: t('core.draftNotObject') };
   const id = validId(value.id);
@@ -150,6 +176,18 @@ function step(value: unknown, report: NormalizeReport): Parsed<WalkthroughStep> 
     const branches = idList(value.branches, id, 'branches', report);
     if (branches.length) output.branches = branches;
   }
+  if (Array.isArray(value.notes)) {
+    const seen = new Set<string>();
+    const notes: StepNote[] = [];
+    for (const raw of value.notes) {
+      const parsed = noteItem(raw);
+      if (parsed && !seen.has(parsed.id) && notes.length < 50) {
+        seen.add(parsed.id);
+        notes.push(parsed);
+      }
+    }
+    if (notes.length) output.notes = notes;
+  }
   return { item: output };
 }
 
@@ -162,10 +200,6 @@ function tourInfo(value: unknown): TourInfo | undefined {
   return Object.keys(output).length ? output : undefined;
 }
 
-/**
- * Parses an id-bearing list, dropping (and reporting) malformed items, items
- * that reuse an earlier id, and anything past the validator's count limit.
- */
 function list<T extends { id: string }>(
   value: unknown,
   name: string,
@@ -193,17 +227,28 @@ function list<T extends { id: string }>(
   return output;
 }
 
-/**
- * Normalizes model-authored JSON into something the strict validator accepts:
- * fills the defaults the writer always provides, coerces ids and text into the
- * schema's shapes, and strips `anchorText`, which is regenerated from the real
- * files instead of trusted from the model. Every item it has to drop is
- * remembered and surfaces later through `fillAnchors` / `describeAdjustments`.
- */
-export function normalizeDraft(input: unknown): CodeMap {
+function unwrapDraft(input: Record<string, unknown>): Record<string, unknown> {
+  if ('sources' in input || 'nodes' in input) return input;
+  for (const key of ['map', 'draft', 'guide', 'input'] as const) {
+    const inner = input[key];
+    if (isRecord(inner)) return inner;
+  }
+  return input;
+}
+
+export function normalizeDraft(
+  input: unknown,
+  options: { root?: string; fallbackTitle?: string } = {},
+): CodeMap {
   if (!isRecord(input)) throw new Error(t('core.draftMapNotObject'));
-  const draft = structuredClone(input) as Record<string, unknown>;
-  const title = shortText(draft.title);
+  const rawDraft = unwrapDraft(input);
+  if (Object.keys(rawDraft).length === 0) {
+    throw new Error(t('core.draftMapEmpty'));
+  }
+  const draft = structuredClone(rawDraft) as Record<string, unknown>;
+  const title = shortText(draft.title)
+    ?? shortText(draft.name)
+    ?? (isRecord(draft.sources) ? shortText(options.fallbackTitle) : undefined);
   if (!title) throw new Error(t('core.draftMapNeedsTitle'));
   if (!isRecord(draft.sources)) {
     throw new Error(t('core.draftSourcesNotObject'));
@@ -218,7 +263,6 @@ export function normalizeDraft(input: unknown): CodeMap {
     anchoredNodes: new Set(),
   };
 
-  // A Map (not a plain object) so ids like `constructor` / `__proto__` are ordinary keys.
   const sources = new Map<string, SourceRef>();
   for (const [key, value] of Object.entries(draft.sources)) {
     const id = validId(key);
@@ -226,7 +270,7 @@ export function normalizeDraft(input: unknown): CodeMap {
       report.droppedSources.push({ id: display(key), reason: t('core.draftSourceIdInvalid') });
       continue;
     }
-    const parsed = sourceRef(value);
+    const parsed = sourceRef(value, options.root);
     if ('reason' in parsed) {
       report.droppedSources.push({ id, reason: parsed.reason });
     } else if (sources.size >= MAP_LIMITS.sources) {
@@ -244,6 +288,10 @@ export function normalizeDraft(input: unknown): CodeMap {
     return parsed;
   }, report.droppedNodes);
 
+  const walkthrough = Array.isArray(draft.walkthrough)
+    ? list(draft.walkthrough, 'walkthrough', MAP_LIMITS.steps, raw => step(raw, report), report.droppedSteps)
+    : [];
+
   const map: CodeMap = {
     schemaVersion: 1,
     id: sanitizeMapId(typeof draft.id === 'string' ? draft.id : title),
@@ -251,30 +299,22 @@ export function normalizeDraft(input: unknown): CodeMap {
     sources: Object.fromEntries(sources),
     nodes,
     edges: list(draft.edges, 'edges', MAP_LIMITS.edges, raw => edge(raw, report), report.droppedEdges),
+    walkthrough,
   };
   if (typeof draft.description === 'string') map.description = draft.description;
-  if (Array.isArray(draft.walkthrough)) {
-    map.walkthrough = list(draft.walkthrough, 'walkthrough', MAP_LIMITS.steps, raw => step(raw, report), report.droppedSteps);
-  }
   const tour = tourInfo(draft.tour);
   if (tour) map.tour = tour;
   drafts.set(map, report);
   return map;
 }
 
-/**
- * Shape the chat model is asked to produce: identical to a v1 map minus
- * `anchorText` (and minus `schemaVersion`, which the host adds). Keeping the
- * anchor text out of the model's hands removes the single most common
- * validation failure — mis-copied source lines.
- */
 export const DRAFT_MAP_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'sources', 'nodes', 'edges'],
+  required: ['title', 'sources', 'nodes', 'edges', 'walkthrough'],
   properties: {
-    id: { type: 'string', description: 'kebab-case 地图 id，可省略' },
-    title: { type: 'string', description: '地图标题，不超过 200 字' },
+    id: { type: 'string', description: 'kebab-case 讲义 id，可省略' },
+    title: { type: 'string', description: '讲义标题，不超过 200 字' },
     description: { type: 'string', description: '可选说明' },
     sources: {
       type: 'object',
@@ -287,7 +327,7 @@ export const DRAFT_MAP_SCHEMA = {
           file: { type: 'string', description: '工作区相对路径，使用 / 分隔' },
           startLine: { type: 'integer', minimum: 1 },
           endLine: { type: 'integer', minimum: 1 },
-          note: { type: 'string', description: '这段代码做了什么，一句话，不超过 200 字；会显示在代码行尾' },
+          note: { type: 'string', description: '这段代码做了什么，一句话，不超过 200 字；会显示在代码首行行尾' },
         },
       },
     },
@@ -303,7 +343,7 @@ export const DRAFT_MAP_SCHEMA = {
           label: { type: 'string' },
           description: { type: 'string' },
           kind: { enum: ['step', 'function', 'condition', 'event', 'exit'] },
-          parent: { type: 'string', description: '所属功能块（另一个节点的 id），不写在顶层' },
+          parent: { type: 'string', description: '所属顶层阶段分组（另一个顶层节点的 id，最多 1 层分组）' },
           sourceIds: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -328,6 +368,7 @@ export const DRAFT_MAP_SCHEMA = {
     },
     walkthrough: {
       type: 'array',
+      minItems: 1,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -338,12 +379,12 @@ export const DRAFT_MAP_SCHEMA = {
           description: { type: 'string' },
           nodeIds: { type: 'array', items: { type: 'string' } },
           edgeIds: { type: 'array', items: { type: 'string' } },
-          sourceId: { type: 'string', description: '这一步只看的那段代码（sources 的 id）' },
+          sourceId: { type: 'string', description: '这一步关联的源码片段 id（对应 sources 的键）' },
           why: { type: 'string', description: '为什么这样写' },
           watch: { type: 'string', description: '值得注意、容易踩坑的地方' },
           skip: { type: 'string', description: '这一步可以先跳过不看的部分' },
           example: { type: 'string', description: '贯穿例子走到这一步时发生了什么' },
-          aside: { type: 'boolean', description: '岔路步骤，从某一步的 branches 进入' },
+          aside: { type: 'boolean', description: '岔路步骤，从主线步骤的 branches 内嵌展开' },
           branches: { type: 'array', items: { type: 'string' }, description: '可以岔出去看的 aside 步骤 id' },
         },
       },
@@ -362,25 +403,32 @@ export const DRAFT_MAP_SCHEMA = {
 
 export interface AnchorFillResult {
   map: CodeMap;
-  /** Sources removed because they were malformed or their file / line range could not be read. */
   droppedSources: DroppedItem[];
   droppedNodes: DroppedItem[];
   droppedEdges: DroppedItem[];
   droppedSteps: DroppedItem[];
-  /** References removed from kept items because the target was invalid or dropped. */
   filteredRefs: string[];
-  /** Sources whose range had to be clamped to the file length. */
   clamped: string[];
 }
 
-/**
- * Rebuilds every source from the real file so `anchorText` always matches the
- * declared range. A source that cannot be resolved is dropped together with the
- * references to it, items reusing an earlier id are dropped, and the resulting
- * map is still schema-valid — the caller can report the drops back to the model
- * instead of failing the whole request. Drops made earlier by `normalizeDraft`
- * on this same map are merged into the result.
- */
+/** Synthesizes basic mainline walkthrough steps when the model omitted or lost all mainline steps. */
+function synthesizeSteps(nodes: readonly MapNode[], existingIds: ReadonlySet<string>): WalkthroughStep[] {
+  const candidates = nodes.filter(n => n.sourceIds.length > 0 && n.kind !== 'exit');
+  const pool = candidates.length > 0 ? candidates : nodes;
+  return pool.slice(0, 12).map((n, index) => {
+    let id = `step.${index + 1}`;
+    while (existingIds.has(id)) id = `step.${index + 1}.${Math.random().toString(36).slice(2, 6)}`;
+    return {
+      id,
+      title: n.label,
+      ...(n.description ? { description: n.description } : {}),
+      nodeIds: [n.id],
+      edgeIds: [],
+      ...(n.sourceIds[0] ? { sourceId: n.sourceIds[0] } : {}),
+    };
+  });
+}
+
 export function fillAnchors(
   input: CodeMap,
   read: (file: string) => string | undefined,
@@ -415,7 +463,6 @@ export function fillAnchors(
       droppedSources.push({ id, reason: t('core.draftFileLinesInvalid', { file: ref.file }) });
       continue;
     }
-    // splitLines already drops the empty element after a trailing newline.
     const last = lines.length;
     if (ref.startLine > last) {
       droppedSources.push({ id, reason: t('core.draftStartBeyondFile', { file: ref.file, last, startLine: ref.startLine }) });
@@ -435,7 +482,6 @@ export function fillAnchors(
     });
   }
 
-  /** Unique refs whose target exists; reports the ones removed. */
   const keep = (
     ids: readonly string[] | undefined,
     known: { has(id: string): boolean },
@@ -469,7 +515,7 @@ export function fillAnchors(
     nodes.push({ ...node, sourceIds });
   }
 
-  // parent 指向被删除的节点、或形成环时，只去掉 parent（节点回到上一层），不丢节点。
+  // parent 指向不存在节点、形成环或超过 1 层分组时，自动修复或拍平到顶层分组。
   const byId = new Map(nodes.map(node => [node.id, node]));
   for (const node of nodes) {
     if (node.parent !== undefined && !byId.has(node.parent)) {
@@ -490,6 +536,18 @@ export function fillAnchors(
       cursor = cursor.parent ? byId.get(cursor.parent) : undefined;
     }
   }
+  // 拍平超过 1 层的嵌套：若 parent 自己也有 parent，则提升到最顶层祖先。
+  for (const node of nodes) {
+    if (!node.parent) continue;
+    let top = byId.get(node.parent);
+    while (top?.parent && byId.has(top.parent)) {
+      top = byId.get(top.parent);
+    }
+    if (top && top.id !== node.parent) {
+      filteredRefs.push(t('core.draftParentFlattened', { id: node.id, target: top.id }));
+      node.parent = top.id;
+    }
+  }
 
   const edges: MapEdge[] = [];
   const edgeIds = new Set<string>();
@@ -506,6 +564,13 @@ export function fillAnchors(
     edges.push({ ...edge, sourceIds: keep(edge.sourceIds, sources, edge.id, 'sourceIds', true) });
   }
 
+  if (nodes.length === 0) {
+    // 把被丢掉的原因带出来（通常是路径读不到或行号越界），重试时 agent 才知道该改哪里。
+    const reasons = [...new Set(droppedSources.map(item => `${item.id}: ${item.reason}`))].slice(0, 5);
+    const detail = reasons.length ? `\n${reasons.map(line => `- ${line}`).join('\n')}` : '';
+    throw new Error(`${t('core.draftNoUsableNodes')}${detail}`);
+  }
+
   const stepIds = new Set<string>();
   const walkthrough: WalkthroughStep[] = [];
   for (const step of input.walkthrough ?? []) {
@@ -513,9 +578,17 @@ export function fillAnchors(
       droppedSteps.push({ id: step.id, reason: t('core.draftDuplicateId', { name: 'walkthrough' }) });
       continue;
     }
-    const nodeRefs = keep(step.nodeIds, nodeIds, step.id, 'nodeIds', false);
+    const validSourceId = step.sourceId !== undefined && sources.has(step.sourceId) ? step.sourceId : undefined;
+    if (step.sourceId !== undefined && !validSourceId) {
+      filteredRefs.push(t('core.draftStepSourceRemoved', { id: step.id }));
+    }
+    let nodeRefs = keep(step.nodeIds, nodeIds, step.id, 'nodeIds', false);
     const edgeRefs = keep(step.edgeIds, edgeIds, step.id, 'edgeIds', false);
-    if (nodeRefs.length === 0 && edgeRefs.length === 0) {
+    if (nodeRefs.length === 0 && validSourceId) {
+      const matchingNode = nodes.find(n => n.sourceIds.includes(validSourceId));
+      if (matchingNode) nodeRefs = [matchingNode.id];
+    }
+    if (!validSourceId && nodeRefs.length === 0 && edgeRefs.length === 0) {
       droppedSteps.push({ id: step.id, reason: t('core.draftStepRefsRemoved') });
       continue;
     }
@@ -523,13 +596,11 @@ export function fillAnchors(
     keep(step.edgeIds, edgeIds, step.id, 'edgeIds', true);
     stepIds.add(step.id);
     const fixed: WalkthroughStep = { ...step, nodeIds: nodeRefs, edgeIds: edgeRefs };
-    if (fixed.sourceId !== undefined && !sources.has(fixed.sourceId)) {
-      filteredRefs.push(t('core.draftStepSourceRemoved', { id: step.id }));
-      delete fixed.sourceId;
-    }
+    if (validSourceId) fixed.sourceId = validSourceId;
+    else delete fixed.sourceId;
     walkthrough.push(fixed);
   }
-  // 岔路只能指向存在的 aside 步骤；指向主线步骤的岔路会让“看完回来”失去意义，直接去掉。
+
   const asides = new Set(walkthrough.filter(step => step.aside).map(step => step.id));
   for (const step of walkthrough) {
     if (!step.branches) continue;
@@ -538,8 +609,10 @@ export function fillAnchors(
     else delete step.branches;
   }
 
-  if (nodes.length === 0) {
-    throw new Error(t('core.draftNoUsableNodes'));
+  if (!walkthrough.some(step => !step.aside)) {
+    const generated = synthesizeSteps(nodes, stepIds);
+    walkthrough.unshift(...generated);
+    filteredRefs.push(t('core.draftWalkthroughSynthesized'));
   }
 
   const map: CodeMap = {
@@ -549,14 +622,13 @@ export function fillAnchors(
     sources: Object.fromEntries(sources),
     nodes,
     edges,
+    walkthrough,
     ...(input.description === undefined ? {} : { description: input.description }),
-    ...(input.walkthrough === undefined ? {} : { walkthrough }),
     ...(input.tour === undefined ? {} : { tour: input.tour }),
   };
   return { map, droppedSources, droppedNodes, droppedEdges, droppedSteps, filteredRefs, clamped };
 }
 
-/** Human-readable summary of everything `normalizeDraft` and `fillAnchors` had to change. */
 export function describeAdjustments(result: AnchorFillResult): string[] {
   const lines: string[] = [];
   const group = (label: string, items: readonly { id: string; reason: string }[]): void => {

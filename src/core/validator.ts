@@ -145,7 +145,7 @@ export function parseMap(text: string): CodeMap {
   const sourceIds = new Set(Object.keys(value.sources));
   const nodeIds = checkUniqueIds(value.nodes, '/nodes');
   const edgeIds = checkUniqueIds(value.edges, '/edges');
-  checkUniqueIds(value.walkthrough ?? [], '/walkthrough');
+  checkUniqueIds(value.walkthrough, '/walkthrough');
 
   for (const [id, source] of Object.entries(value.sources)) {
     const base = `/sources/${pointerPart(id)}`;
@@ -158,6 +158,8 @@ export function parseMap(text: string): CodeMap {
       }
     }
   }
+
+  const nodeMap = new Map(value.nodes.map(node => [node.id, node]));
   value.nodes.forEach((node, index) => {
     checkReferences(node.sourceIds, sourceIds, `/nodes/${index}/sourceIds`);
     if (node.parent !== undefined) {
@@ -167,18 +169,34 @@ export function parseMap(text: string): CodeMap {
   });
   const cycle = findParentCycle(value);
   if (cycle) fail('/nodes', t('core.parentCycle', { id: JSON.stringify(cycle) }));
+  value.nodes.forEach((node, index) => {
+    if (node.parent !== undefined) {
+      const parentNode = nodeMap.get(node.parent);
+      if (parentNode?.parent !== undefined) {
+        fail(`/nodes/${index}/parent`, t('core.parentTooDeep', { id: JSON.stringify(node.id), parent: JSON.stringify(node.parent) }));
+      }
+    }
+  });
+
   value.edges.forEach((edge, index) => {
     if (!nodeIds.has(edge.from)) fail(`/edges/${index}/from`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.from) }));
     if (!nodeIds.has(edge.to)) fail(`/edges/${index}/to`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.to) }));
     checkReferences(edge.sourceIds, sourceIds, `/edges/${index}/sourceIds`);
   });
-  const steps = new Map((value.walkthrough ?? []).map(step => [step.id, step]));
-  value.walkthrough?.forEach((step, index) => {
+
+  if (!value.walkthrough.some(step => !step.aside)) {
+    fail('/walkthrough', t('core.walkthroughEmpty'));
+  }
+  const steps = new Map(value.walkthrough.map(step => [step.id, step]));
+  value.walkthrough.forEach((step, index) => {
     const base = `/walkthrough/${index}`;
     checkReferences(step.nodeIds, nodeIds, `${base}/nodeIds`);
     checkReferences(step.edgeIds, edgeIds, `${base}/edgeIds`);
     if (step.sourceId !== undefined && !sourceIds.has(step.sourceId)) {
       fail(`${base}/sourceId`, t('core.unknownRefId', { id: JSON.stringify(step.sourceId) }));
+    }
+    if (!step.sourceId && step.nodeIds.length === 0 && step.edgeIds.length === 0) {
+      fail(base, t('core.stepNeedsAnchor'));
     }
     step.branches?.forEach((id, at) => {
       const target = steps.get(id);
@@ -186,6 +204,9 @@ export function parseMap(text: string): CodeMap {
       if (id === step.id) fail(`${base}/branches/${at}`, t('core.stepBranchSelf'));
       if (!target.aside) fail(`${base}/branches/${at}`, t('core.stepBranchNotAside', { id: JSON.stringify(id) }));
     });
+    if (step.notes) {
+      checkUniqueIds(step.notes, `${base}/notes`);
+    }
   });
   return value;
 }

@@ -1,32 +1,42 @@
 import type { CodeMap, MapEdge, MapNode } from '../../shared/types';
 
 /**
- * 地图的层级视图。
+ * 脉络图的阶段分组与支线折叠投影（原地展开分组框模型）。
  *
- * - 节点通过 `parent` 归属到某个功能块；没有 parent 的节点在顶层。
- * - 有子节点的节点就是“功能块”，画布一次只画一层：当前功能块的直接子节点。
- * - 跨层的连线会被“提升”到当前层：两端分别找到它们在当前层的祖先，
- *   祖先不同才画；同一对祖先之间的多条连线合并成一条。
+ * - 节点最多有 1 层 `parent`（阶段分组）。
+ * - 分组未展开时：在画布上显示为一个带「展开 · N 步」按钮的阶段块，跨入/跨出该分组的连线提升到该分组节点。
+ * - 分组展开时（Compound Group）：分组变为原地包围框（`CompoundGroup`），其内部子节点与外部上下游节点同屏渲染，告别“钻进子层看不见外面”。
  */
 
-/** 当前层用到的连线：原始连线，或若干条跨层连线合并后的代表。 */
+/** 画布上的一条可见连线：原始连线，或收起分组时提升合并后的代表连线。 */
 export interface LevelEdge {
   id: string;
   from: string;
   to: string;
-  /** 合并进来的原始连线 id；第一个是代表，用于选中与跳转源码。 */
+  /** 包含的所有原始连线 id。 */
   edgeIds: string[];
   /** 代表连线（第一条）。 */
   edge: MapEdge;
-  /** 是否全部是支线（任意一条是主干就算主干）。 */
+  /** 是否全部为支线（只要含一条主干连线就算主干）。 */
   branch: boolean;
 }
 
-export interface MapLevel {
-  /** 当前功能块 id；顶层为 undefined。 */
-  parent?: string;
+export interface CompoundGroup {
+  node: MapNode;
+  childIds: string[];
+}
+
+export interface CompoundProjection {
+  /** 当前在画布上作为普通卡片渲染的节点（含未展开的分组块、已展开分组内的可见子节点、普通顶层节点）。 */
   nodes: MapNode[];
+  /** 当前已原地展开的分组包围框。 */
+  groups: CompoundGroup[];
+  /** 当前可见节点之间的连线。 */
   edges: LevelEdge[];
+  /** 节点 id → 被折叠在它支线后面的节点数量。 */
+  hiddenBranches: Map<string, number>;
+  /** 分组节点 id → 直接子节点数量。 */
+  groupChildCounts: Map<string, number>;
 }
 
 /** id → 节点。 */
@@ -34,7 +44,7 @@ export function nodeIndex(map: CodeMap): Map<string, MapNode> {
   return new Map(map.nodes.map(node => [node.id, node]));
 }
 
-/** 功能块 id → 直接子节点数。 */
+/** 分组块 id → 直接子节点数。 */
 export function childCounts(map: CodeMap): Map<string, number> {
   const counts = new Map<string, number>();
   const known = nodeIndex(map);
@@ -59,68 +69,121 @@ export function findParentCycle(map: CodeMap): string | undefined {
   return undefined;
 }
 
-/** 从顶层到 `id`（含）的功能块路径；`id` 不存在时返回空数组。 */
-export function ancestry(map: CodeMap, id: string | undefined): MapNode[] {
-  if (!id) return [];
-  const known = nodeIndex(map);
-  const chain: MapNode[] = [];
-  const seen = new Set<string>();
-  let cursor = known.get(id);
-  while (cursor && !seen.has(cursor.id)) {
-    seen.add(cursor.id);
-    chain.unshift(cursor);
-    cursor = cursor.parent ? known.get(cursor.parent) : undefined;
+/**
+ * 节点在当前展开态下的可见代表：
+ * - 顶层节点返回自己；
+ * - 子节点若其所属分组已展开，返回自己；若分组未展开，返回分组节点 id。
+ */
+export function visibleRepresentative(
+  map: CodeMap,
+  nodeId: string,
+  expandedGroups: ReadonlySet<string>,
+  known = nodeIndex(map),
+): string | undefined {
+  const node = known.get(nodeId);
+  if (!node) return undefined;
+  if (node.parent && known.has(node.parent)) {
+    return expandedGroups.has(node.parent) ? node.id : node.parent;
   }
-  return chain;
+  return node.id;
 }
 
-/** 节点在 `level` 层的代表：它自己，或它在这一层的祖先功能块。不在这一层下面则返回 undefined。 */
-export function representativeAt(map: CodeMap, id: string, level: string | undefined, known = nodeIndex(map)): string | undefined {
-  const seen = new Set<string>();
-  let cursor = known.get(id);
-  while (cursor && !seen.has(cursor.id)) {
-    seen.add(cursor.id);
-    const parent = cursor.parent && known.has(cursor.parent) ? cursor.parent : undefined;
-    if (parent === level) return cursor.id;
-    cursor = parent ? known.get(parent) : undefined;
-  }
-  return undefined;
-}
-
-/** 计算某一层要画的节点与连线。`level` 不存在时退回顶层。 */
-export function levelOf(map: CodeMap, level: string | undefined): MapLevel {
+/**
+ * 计算当前画布的原地分组与支线折叠投影。
+ */
+export function projectCompoundGraph(
+  map: CodeMap,
+  expandedGroups: ReadonlySet<string>,
+  expandedBranches: ReadonlySet<string>,
+): CompoundProjection {
   const known = nodeIndex(map);
-  const parent = level && known.has(level) ? level : undefined;
-  const nodes = map.nodes.filter(node => {
-    const owner = node.parent && known.has(node.parent) ? node.parent : undefined;
-    return owner === parent;
-  });
+  const groupChildCounts = childCounts(map);
+
+  // 1. 先确定未折叠支线前的候选节点：
+  //    - 已展开的分组作为包围框，不作为普通卡片节点，而是放入其子节点；
+  //    - 未展开的分组本身作为普通卡片节点，其子节点不出现。
+  const candidateNodes: MapNode[] = [];
+  for (const node of map.nodes) {
+    const hasParent = Boolean(node.parent && known.has(node.parent));
+    if (hasParent) {
+      if (expandedGroups.has(node.parent!)) {
+        candidateNodes.push(node);
+      }
+    } else {
+      const isExpandedGroup = (groupChildCounts.get(node.id) ?? 0) > 0 && expandedGroups.has(node.id);
+      if (!isExpandedGroup) {
+        candidateNodes.push(node);
+      }
+    }
+  }
+
+  // 2. 将所有原始连线投影到 candidateNodes：
+  const candidateIds = new Set(candidateNodes.map(n => n.id));
   const merged = new Map<string, LevelEdge>();
   for (const edge of map.edges) {
-    const from = representativeAt(map, edge.from, parent, known);
-    const to = representativeAt(map, edge.to, parent, known);
+    const from = visibleRepresentative(map, edge.from, expandedGroups, known);
+    const to = visibleRepresentative(map, edge.to, expandedGroups, known);
     if (!from || !to || from === to) continue;
-    const direct = from === edge.from && to === edge.to;
-    const key = direct ? `edge:${edge.id}` : `lift:${from}->${to}`;
+    // 若端点本身是一个已展开的分组（比如边直接连在分组节点上），重定向到该分组的入口/出口子节点
+    const resolvedFrom = candidateIds.has(from)
+      ? from
+      : candidateNodes.find(n => n.parent === from)?.id;
+    const resolvedTo = candidateIds.has(to)
+      ? to
+      : candidateNodes.find(n => n.parent === to)?.id;
+    if (!resolvedFrom || !resolvedTo || resolvedFrom === resolvedTo) continue;
+
+    const direct = resolvedFrom === edge.from && resolvedTo === edge.to;
+    const key = direct ? `edge:${edge.id}` : `lift:${resolvedFrom}->${resolvedTo}`;
     const existing = merged.get(key);
     if (existing) {
       existing.edgeIds.push(edge.id);
       existing.branch &&= Boolean(edge.branch);
     } else {
-      merged.set(key, { id: direct ? edge.id : key, from, to, edgeIds: [edge.id], edge, branch: Boolean(edge.branch) });
+      merged.set(key, {
+        id: direct ? edge.id : key,
+        from: resolvedFrom,
+        to: resolvedTo,
+        edgeIds: [edge.id],
+        edge,
+        branch: Boolean(edge.branch),
+      });
     }
   }
-  return { parent, nodes, edges: [...merged.values()] };
+
+  const allEdges = [...merged.values()];
+
+  // 3. 在候选节点图上执行支线折叠：
+  const { visible, hidden } = collapseBranches({ nodes: candidateNodes, edges: allEdges }, expandedBranches);
+  const visibleNodes = candidateNodes.filter(n => visible.has(n.id));
+  const visibleEdges = allEdges.filter(e => visible.has(e.from) && visible.has(e.to));
+
+  // 4. 组装已展开且至少有 1 个可见子节点的分组框：
+  const groups: CompoundGroup[] = [];
+  for (const [groupId, count] of groupChildCounts) {
+    if (count > 0 && expandedGroups.has(groupId)) {
+      const groupNode = known.get(groupId);
+      const childIds = visibleNodes.filter(n => n.parent === groupId).map(n => n.id);
+      if (groupNode && childIds.length > 0) {
+        groups.push({ node: groupNode, childIds });
+      }
+    }
+  }
+
+  return {
+    nodes: visibleNodes,
+    groups,
+    edges: visibleEdges,
+    hiddenBranches: hidden,
+    groupChildCounts,
+  };
 }
 
-/**
- * 支线折叠：从当前层的“主干”出发（入口 = 没有主干入边的节点），只沿主干边能到达的节点默认显示；
- * 只能经由支线到达的节点被折叠到发出该支线的节点上，显示成“+N”。
- * `expanded` 里的节点会把它的支线展开。
- */
-export function collapseBranches(level: MapLevel, expanded: ReadonlySet<string>): {
+export function collapseBranches(
+  level: { nodes: readonly MapNode[]; edges: readonly LevelEdge[] },
+  expanded: ReadonlySet<string>,
+): {
   visible: Set<string>;
-  /** 节点 id → 被折叠在它下面的节点数。 */
   hidden: Map<string, number>;
 } {
   const ids = new Set(level.nodes.map(node => node.id));
@@ -134,7 +197,6 @@ export function collapseBranches(level: MapLevel, expanded: ReadonlySet<string>)
     if (!edge.branch) mainIncoming.add(edge.to);
   }
   const anyIncoming = new Set(level.edges.filter(edge => ids.has(edge.from)).map(edge => edge.to));
-  // 入口：没有任何入边的节点；若全在环里，就取第一个没有主干入边的节点（再不行取第一个节点）。
   let roots = level.nodes.filter(node => !anyIncoming.has(node.id)).map(node => node.id);
   if (roots.length === 0) {
     const first = level.nodes.find(node => !mainIncoming.has(node.id)) ?? level.nodes[0];
@@ -167,7 +229,6 @@ export function collapseBranches(level: MapLevel, expanded: ReadonlySet<string>)
   };
 
   walk(roots);
-  // 兜底：既不可见、也没有被折叠到任何可见节点下的节点，作为新的入口显示，避免节点“消失”。
   for (;;) {
     const covered = new Set<string>();
     for (const id of visible) for (const next of foldedUnder(id)) covered.add(next);
@@ -176,7 +237,6 @@ export function collapseBranches(level: MapLevel, expanded: ReadonlySet<string>)
     walk([orphan.id]);
   }
 
-  // 统计每个可见节点下折叠了多少个节点（从它的支线出发能到、且当前不可见的节点）。
   const hidden = new Map<string, number>();
   for (const id of visible) {
     const size = foldedUnder(id).size;
