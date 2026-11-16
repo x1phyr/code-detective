@@ -130,9 +130,9 @@ body[data-vs-theme] {
   min-height: 0;
   background: var(--vscode-editor-background);
 }
-/* 和真实插件一样：地图在左，源码编辑器在右。源码组更窄，地图有足够空间。 */
-.vs-group-map { flex: 1 1 0; }
-.vs-group-source { flex: 0 1 360px; min-width: 300px; }
+/* 和真实插件一致：左侧为导师带读侧边栏，右侧为干净宽敞的源码编辑器。 */
+.vs-group-map { flex: 0 0 430px; min-width: 340px; max-width: 520px; }
+.vs-group-source { flex: 1 1 0; min-width: 340px; }
 
 .vs-tabs {
   flex: none;
@@ -214,8 +214,29 @@ body[data-vs-theme] {
   background: var(--vscode-editor-background);
   outline: none;
 }
-.vs-code-line { display: flex; }
-.vs-code-line.active { background: var(--vscode-editor-selectionBackground); }
+.vs-code-line { display: flex; cursor: pointer; }
+.vs-code-line:hover { background: var(--vscode-list-hoverBackground); }
+.vs-code-line.active {
+  background: var(--vscode-editor-selectionBackground);
+  box-shadow: inset 3px 0 0 var(--vscode-textLink-foreground);
+}
+.vs-code-line.scope {
+  box-shadow: inset 2px 0 0 rgba(232, 185, 35, 0.45);
+}
+.vs-code-call {
+  background: rgba(232, 185, 35, 0.28);
+  color: inherit;
+  border-bottom: 1px solid #e8b923;
+  border-radius: 3px;
+  font-weight: 600;
+  padding: 0 1px;
+}
+.vs-code-note {
+  color: var(--vscode-editorCodeLens-foreground, var(--vscode-descriptionForeground));
+  font-style: italic;
+  white-space: pre;
+  padding-right: 16px;
+}
 .vs-code-number {
   flex: none;
   width: 48px;

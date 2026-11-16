@@ -6,13 +6,12 @@ import { nodeKindLabel } from '../model';
 import { t } from '../../../shared/i18n';
 
 const props = defineProps<{ data: NodeData; selected: boolean }>();
-const emit = defineEmits<{ action: [{ type: 'enter' | 'branches'; id: string }] }>();
+const emit = defineEmits<{ action: [{ type: 'expandGroup' | 'branches'; id: string }] }>();
 
-function fire(type: 'enter' | 'branches'): void {
+function fire(type: 'expandGroup' | 'branches'): void {
   emit('action', { type, id: props.data.node.id });
 }
 
-/** 只有事件 / 条件 / 出口有图标；普通步骤和函数不额外占位。 */
 const icon = computed(() => ({
   event: 'codicon-zap',
   condition: 'codicon-question',
@@ -24,7 +23,6 @@ const footer = computed(() => {
   return d.children > 0 || d.hidden > 0 || d.expanded || d.sources > 1 || d.warn;
 });
 
-/** 悬停提示给出完整内容：标签和说明在节点上最多显示两行。 */
 const tooltip = computed(() => {
   const node = props.data.node;
   return [`${nodeKindLabel(node.kind)} · ${node.label}`, node.description].filter(Boolean).join('\n');
@@ -36,7 +34,15 @@ const tooltip = computed(() => {
     class="cd-node"
     :class="[
       `kind-${data.node.kind ?? 'default'}`,
-      { active: data.active, related: data.related, dimmed: data.dimmed, block: data.children > 0, warn: data.warn },
+      {
+        active: data.active,
+        peeked: data.peeked,
+        related: data.related,
+        dimmed: data.dimmed,
+        block: data.children > 0,
+        warn: data.warn,
+        'cursor-here': data.cursorHere,
+      },
     ]"
     :style="{ height: `${data.height}px` }"
     :title="tooltip"
@@ -45,19 +51,23 @@ const tooltip = computed(() => {
     <div class="cd-node-label">
       <span v-if="icon" class="cd-node-icon codicon" :class="icon" aria-hidden="true"></span>
       <span class="cd-node-text">{{ data.node.label }}</span>
+      <span v-if="data.cursorHere" class="cd-cursor-dot" :title="t('webview.cursorHere')"></span>
+      <span v-if="data.stepBadge" class="cd-step-chip">{{ data.stepBadge }}</span>
     </div>
     <div v-if="data.node.description" class="cd-node-desc">{{ data.node.description }}</div>
     <div v-if="footer" class="cd-node-footer">
       <button
         v-if="data.children > 0"
+        type="button"
         class="cd-node-action nodrag nopan"
-        :title="t('webview.enterBlock', { count: data.children })"
-        @click.stop="fire('enter')"
+        :title="t('webview.expandGroup', { count: data.children })"
+        @click.stop="fire('expandGroup')"
       >
-        <span class="codicon codicon-chevron-down" aria-hidden="true"></span>{{ t('webview.enterBlockShort', { count: data.children }) }}
+        <span class="codicon codicon-unfold" aria-hidden="true"></span>{{ t('webview.expandGroupShort', { count: data.children }) }}
       </button>
       <button
         v-if="data.hidden > 0 || data.expanded"
+        type="button"
         class="cd-node-action nodrag nopan"
         :title="data.expanded ? t('webview.hideBranches') : t('webview.showBranches', { count: data.hidden })"
         @click.stop="fire('branches')"

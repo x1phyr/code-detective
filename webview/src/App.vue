@@ -3,31 +3,39 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { VueFlow, useVueFlow, type Edge, type Node, type ViewportTransform } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import type {
+  AgentOption,
+  AiStatusPayload,
   CodeMap,
+  ComposeDraftPayload,
+  EditorContextPayload,
   HostMessage,
   MapSnapshot,
-  Selection,
+  MapSummary,
+  QaExchange,
   SourceState,
   SourceStatus,
   ThemeKind,
   ViewState,
+  ViewTab,
 } from '../../shared/types';
 import { DEFAULT_VIEW_STATE, sourceStateLabel } from '../../shared/types';
-import { sourceIdsForSelection } from '../../src/core/selection';
-import { asideOrigin, mainline } from '../../src/core/tour';
-import { ancestry, childCounts, collapseBranches, levelOf, representativeAt, type LevelEdge } from '../../src/core/hierarchy';
+import { activeFocusSelection, sourceIdsForSelection } from '../../src/core/selection';
+import { mainline, stepSource, stepsForNode } from '../../src/core/tour';
+import { projectCompoundGraph, visibleRepresentative, type LevelEdge } from '../../src/core/hierarchy';
 import { t } from '../../shared/i18n';
 import type { HostBridge } from './host';
 import MapNode from './components/MapNode.vue';
+import MapGroup from './components/MapGroup.vue';
 import MapEdge from './components/MapEdge.vue';
+import WalkthroughView from './components/WalkthroughView.vue';
+import ComposerPanel from './components/ComposerPanel.vue';
+import QaDrawer from './components/QaDrawer.vue';
 import { computeLayout, type LayoutResult } from './layout';
 import { edgeLabelSize, nodeShape, nodeSize } from './measure';
-import { edgeText, relatedSelection, statusTone } from './model';
+import { edgeText, formatStepBadge, relatedSelection, statusTone } from './model';
 
 const props = defineProps<{ host: HostBridge }>();
 
-const snapshot = shallowRef<MapSnapshot>();
-/** 在宿主的 `theme` 消息到达前，先按 VS Code 注入的 body class 选主题，避免亮色主题下闪一下暗色。 */
 function initialTheme(): ThemeKind {
   const classes = document.body.classList;
   if (classes.contains('vscode-high-contrast-light')) return 'high-contrast-light';
@@ -38,110 +46,187 @@ function initialTheme(): ThemeKind {
 }
 
 const theme = ref<ThemeKind>(initialTheme());
+const maps = ref<MapSummary[]>([]);
+const snapshot = shallowRef<MapSnapshot>();
+const agents = ref<AgentOption[]>([
+  { id: 'copilot', label: 'GitHub Copilot', kind: 'cli', available: true, badge: 'CLI' },
+  { id: 'agy', label: 'Antigravity (agy)', kind: 'cli', available: true, badge: 'CLI' },
+  { id: 'codex', label: 'Codex CLI', kind: 'cli', available: true, badge: 'CLI' },
+  { id: 'claude', label: 'Claude Code', kind: 'cli', available: true, badge: 'CLI' },
+]);
+const currentAgentId = ref('copilot');
+const aiStatus = ref<AiStatusPayload>({ busy: false, traces: [] });
+const editorContext = ref<EditorContextPayload>({ matchedStepIds: [], matchedNodeIds: [] });
+const qaExchanges = ref<QaExchange[]>([]);
+const composeDraft = ref<ComposeDraftPayload>({ open: false });
+const standaloneMap = ref(false);
+
 const notice = ref<{ message: string; severity: string }>();
-const layout = shallowRef<LayoutResult>({ nodes: {}, edges: {} });
-/** 与 `layout` 对应的地图；画布只渲染已布局好的版本，避免新节点在布局完成前堆在原点。 */
+const layout = shallowRef<LayoutResult>({ nodes: {}, groups: {}, edges: {} });
 const layoutMap = shallowRef<CodeMap>();
-/** 当前所在的功能块（顶层为 undefined）。只在 webview 本地，不写回宿主。 */
-const level = ref<string>();
-/** 已展开支线的节点。 */
-const expanded = ref<Set<string>>(new Set());
-/** 多源码节点的选择菜单。 */
 const sourceMenu = ref<{ kind: 'node' | 'edge'; id: string; x: number; y: number }>();
-/** 布局对应的“层 + 展开状态”，变化时重新布局。 */
-let layoutKey = '';
 const ready = ref(false);
-const activeSourceId = ref<string>();
+const canvasEl = ref<HTMLElement | null>(null);
 const flow = useVueFlow('code-detective-map');
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+let layoutKey = '';
 
 const map = computed(() => snapshot.value?.map);
 const ui = computed<ViewState>(() => snapshot.value?.ui ?? DEFAULT_VIEW_STATE);
 const statuses = computed<Record<string, SourceStatus>>(() => snapshot.value?.statuses ?? {});
-const selection = computed<Selection | undefined>(() => ui.value.selection);
 
-const currentLevel = computed(() => (layoutMap.value ? levelOf(layoutMap.value, level.value) : undefined));
-const collapsed = computed(() => (currentLevel.value
-  ? collapseBranches(currentLevel.value, expanded.value)
-  : { visible: new Set<string>(), hidden: new Map<string, number>() }));
-const blocks = computed(() => (map.value ? childCounts(map.value) : new Map<string, number>()));
-const breadcrumb = computed(() => (map.value ? ancestry(map.value, level.value) : []));
+const showComposer = computed(() =>
+  !standaloneMap.value && (aiStatus.value.busy || composeDraft.value.open || (!map.value && maps.value.length === 0)),
+);
 
-/**
- * 选中对象投影到当前层：深层节点被选中时，高亮它在这一层的祖先功能块；
- * 连线高亮所有包含了被选中原始连线的合并连线。
- */
+const effectiveTab = computed<ViewTab>(() => (standaloneMap.value ? 'map' : ui.value.activeTab));
+
+const regenerateTitle = computed(() => {
+  const key = composeDraft.value.overwriteKey;
+  if (!key) return undefined;
+  return maps.value.find(m => m.key === key)?.title ?? map.value?.title;
+});
+
+const expandedGroups = computed(() => new Set(ui.value.expandedGroupIds ?? []));
+const expandedBranches = computed(() => new Set(ui.value.expandedBranchIds ?? []));
+
+const projection = computed(() =>
+  layoutMap.value
+    ? projectCompoundGraph(layoutMap.value, expandedGroups.value, expandedBranches.value)
+    : undefined,
+);
+
+const focusSel = computed(() => (map.value ? activeFocusSelection(map.value, ui.value) : undefined));
+
 const related = computed(() => {
   const current = map.value;
-  const base = current ? relatedSelection(current, selection.value) : { nodes: new Set<string>(), edges: new Set<string>() };
-  if (!current) return base;
+  const proj = projection.value;
+  const base = current ? relatedSelection(current, focusSel.value) : { nodes: new Set<string>(), edges: new Set<string>() };
+  if (!current || !proj) return base;
   const nodes = new Set<string>();
   for (const id of base.nodes) {
-    const rep = representativeAt(current, id, level.value);
+    const rep = visibleRepresentative(current, id, expandedGroups.value);
     if (rep) nodes.add(rep);
   }
   const edges = new Set<string>();
-  for (const edge of currentLevel.value?.edges ?? []) {
+  for (const edge of proj.edges) {
     if (edge.edgeIds.some(id => base.edges.has(id))) edges.add(edge.id);
   }
   return { nodes, edges };
 });
 
-const activeNodeId = computed(() => {
+const stepNodeRepIds = computed(() => {
   const current = map.value;
-  const chosen = selection.value;
-  if (!current || chosen?.kind !== 'node') return undefined;
-  return representativeAt(current, chosen.id, level.value);
+  if (!current) return new Set<string>();
+  const stepId = ui.value.openAsideId ?? ui.value.activeStepId;
+  const step = stepId ? current.walkthrough.find(s => s.id === stepId) : undefined;
+  const out = new Set<string>();
+  for (const nid of step?.nodeIds ?? []) {
+    const rep = visibleRepresentative(current, nid, expandedGroups.value);
+    if (rep) out.add(rep);
+  }
+  return out;
 });
 
-/** 节点的附加信息（子节点数、折叠数、源码数……），布局和渲染共用，保证尺寸一致。 */
-function nodeExtras(node: CodeMap['nodes'][number], hidden: Map<string, number>) {
+const peekedNodeRepId = computed(() => {
+  const current = map.value;
+  if (!current || ui.value.peek?.kind !== 'node') return undefined;
+  return visibleRepresentative(current, ui.value.peek.id, expandedGroups.value);
+});
+
+const cursorNodeRepSet = computed(() => {
+  const current = map.value;
+  if (!current) return new Set<string>();
+  const set = new Set<string>();
+  for (const nid of editorContext.value.matchedNodeIds ?? []) {
+    const rep = visibleRepresentative(current, nid, expandedGroups.value);
+    if (rep) set.add(rep);
+  }
+  return set;
+});
+
+function badgeForNode(current: CodeMap, nodeId: string, includeChildren: boolean): string | undefined {
+  const steps = stepsForNode(current, nodeId, includeChildren);
+  return formatStepBadge(steps.numbers);
+}
+
+function nodeExtras(current: CodeMap, node: CodeMap['nodes'][number], proj: NonNullable<typeof projection.value>) {
+  const children = proj.groupChildCounts.get(node.id) ?? 0;
   return {
-    children: blocks.value.get(node.id) ?? 0,
-    hidden: hidden.get(node.id) ?? 0,
-    expanded: expanded.value.has(node.id),
+    children,
+    hidden: proj.hiddenBranches.get(node.id) ?? 0,
+    expanded: expandedBranches.value.has(node.id),
     sources: node.sourceIds.length,
     warn: node.sourceIds.some(id => {
       const state = statuses.value[id]?.state;
       return state !== undefined && state !== 'pending' && state !== 'matched';
     }),
+    stepBadge: badgeForNode(current, node.id, children > 0),
   };
 }
 
-const nodes = computed<Node[]>(() => {
-  const current = currentLevel.value;
-  if (!current) return [];
-  const boxes = layout.value.nodes;
-  const { visible, hidden } = collapsed.value;
-  return current.nodes.filter(node => visible.has(node.id)).map(node => {
-    const box = boxes[node.id];
-    const extras = nodeExtras(node, hidden);
+const flowNodes = computed<Node[]>(() => {
+  const current = layoutMap.value;
+  const proj = projection.value;
+  if (!current || !proj) return [];
+
+  const groupElements: Node[] = proj.groups.map(group => {
+    const box = layout.value.groups[group.node.id];
+    const hasActiveChild = group.childIds.some(cid => stepNodeRepIds.value.has(cid) || peekedNodeRepId.value === cid);
+    return {
+      id: `group:${group.node.id}`,
+      type: 'group',
+      position: { x: Math.round(box?.x ?? 0), y: Math.round(box?.y ?? 0) },
+      selectable: false,
+      draggable: false,
+      zIndex: -1,
+      data: {
+        node: group.node,
+        width: Math.round(box?.width ?? 260),
+        height: Math.round(box?.height ?? 140),
+        stepBadge: badgeForNode(current, group.node.id, true),
+        active: hasActiveChild,
+        dimmed: Boolean(focusSel.value) && !hasActiveChild && !related.value.nodes.has(group.node.id),
+      },
+    };
+  });
+
+  const cardElements: Node[] = proj.nodes.map(node => {
+    const box = layout.value.nodes[node.id];
+    const extras = nodeExtras(current, node, proj);
+    const isStepActive = stepNodeRepIds.value.has(node.id);
+    const isPeeked = peekedNodeRepId.value === node.id;
     return {
       id: node.id,
       type: 'detective',
       position: { x: Math.round(box?.x ?? 0), y: Math.round(box?.y ?? 0) },
+      zIndex: 2,
       data: {
         node,
         ...extras,
         height: box?.height ?? nodeSize(node, nodeShape(node, extras)).height,
-        active: activeNodeId.value === node.id,
+        active: isStepActive,
+        peeked: isPeeked,
+        cursorHere: cursorNodeRepSet.value.has(node.id),
         related: related.value.nodes.has(node.id),
-        dimmed: Boolean(selection.value) && !related.value.nodes.has(node.id),
+        dimmed: Boolean(focusSel.value) && !related.value.nodes.has(node.id) && !isStepActive && !isPeeked,
       },
     };
   });
+
+  return [...groupElements, ...cardElements];
 });
 
-const edges = computed<Edge[]>(() => {
-  const current = currentLevel.value;
-  if (!current) return [];
-  const { visible } = collapsed.value;
-  const chosen = selection.value;
-  return current.edges.filter(edge => visible.has(edge.from) && visible.has(edge.to)).map((edge: LevelEdge) => ({
+const flowEdges = computed<Edge[]>(() => {
+  const proj = projection.value;
+  if (!proj) return [];
+  const chosen = focusSel.value;
+  return proj.edges.map((edge: LevelEdge) => ({
     id: edge.id,
     source: edge.from,
     target: edge.to,
     type: 'detective',
+    zIndex: 1,
     markerEnd: 'url(#cd-arrow)',
     data: {
       edge: edge.edge,
@@ -156,30 +241,30 @@ const edges = computed<Edge[]>(() => {
   }));
 });
 
-/** 步骤条只列主线；岔路步骤在编辑器里的讲解面板中进入。 */
-const mainSteps = computed(() => (map.value ? mainline(map.value) : []));
-
-/** 当前高亮的主线步骤：在岔路里时，高亮出发的那一步。 */
-const stepIndex = computed(() => {
+/** Info for the non-destructive Peek Banner on the call graph. */
+const peekInfo = computed(() => {
   const current = map.value;
-  const active = selection.value;
-  if (!current || active?.kind !== 'step') return -1;
-  const step = current.walkthrough?.find(item => item.id === active.id);
-  const anchor = step?.aside ? asideOrigin(current, step.id) : step;
-  return mainSteps.value.findIndex(item => item.id === anchor?.id);
-});
-
-// 侧栏很窄时步骤条会横向滚动：切换步骤后把当前步骤滚进可见区域。
-const stepsBar = ref<HTMLElement>();
-watch(stepIndex, async index => {
-  if (index < 0) return;
-  await nextTick();
-  stepsBar.value?.querySelectorAll('.cd-step')[index]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-});
-
-const activeSource = computed<SourceStatus | undefined>(() => {
-  const id = activeSourceId.value;
-  return id ? statuses.value[id] : undefined;
+  const pk = ui.value.peek;
+  if (!current || !pk) return undefined;
+  if (pk.kind === 'node') {
+    const node = current.nodes.find(n => n.id === pk.id);
+    if (!node) return undefined;
+    const steps = stepsForNode(current, node.id, true);
+    return {
+      label: node.label,
+      firstStep: steps.firstStepId
+        ? { stepId: steps.firstStepId, index: steps.numbers[0] ?? 1 }
+        : undefined,
+    };
+  }
+  const edge = current.edges.find(e => e.id === pk.id);
+  if (!edge) return undefined;
+  const main = mainline(current);
+  const idx = main.findIndex(s => s.edgeIds.includes(edge.id));
+  return {
+    label: edge.branch ?? edge.label ?? `${edge.from} -> ${edge.to}`,
+    firstStep: idx >= 0 ? { stepId: main[idx]!.id, index: idx + 1 } : undefined,
+  };
 });
 
 function labelFor(status: SourceStatus | undefined): string {
@@ -194,115 +279,175 @@ function post<T>(type: string, payload: T, extra?: { mapKey?: string; mapRevisio
 function showNotice(message: string, severity = 'info'): void {
   notice.value = { message, severity };
   if (noticeTimer) clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => { notice.value = undefined; }, 5200);
+  noticeTimer = setTimeout(() => { notice.value = undefined; }, 5000);
 }
 
-function select(kind: Selection['kind'], id: string): void {
-  post('ui.patch', { selection: { kind, id } });
-}
-
-function reveal(kind: 'node' | 'edge' | 'step', id: string, sourceId: string): void {
-  activeSourceId.value = sourceId;
-  post('source.reveal', { targetKind: kind, targetId: id, sourceId });
-}
-
-/**
- * 点图上的对象 = 选中它 + 打开源码（高亮 + 行尾注释）。
- * 只有一处源码时直接打开；有多处时在点击位置弹出菜单让用户挑。
- */
-function selectAndReveal(kind: 'node' | 'edge', id: string, at?: { x: number; y: number }): void {
-  select(kind, id);
+function switchTab(tab: ViewTab): void {
+  composeDraft.value = { open: false };
   sourceMenu.value = undefined;
-  const current = map.value;
-  const ids = current ? sourceIdsForSelection(current, { kind, id }) : [];
-  if (ids.length === 1) reveal(kind, id, ids[0]!);
-  else if (ids.length > 1 && at) sourceMenu.value = { kind, id, ...at };
-  else if (ids.length > 1) reveal(kind, id, ids[0]!);
-}
-
-function pointer(event: MouseEvent | TouchEvent): { x: number; y: number } {
-  const point = 'touches' in event ? event.touches[0] ?? event.changedTouches[0] : event;
-  const box = document.querySelector('.cd-canvas')?.getBoundingClientRect();
-  canvasSize.value = { width: box?.width ?? 0, height: box?.height ?? 0 };
-  return { x: (point?.clientX ?? 0) - (box?.left ?? 0), y: (point?.clientY ?? 0) - (box?.top ?? 0) };
-}
-
-function onNodeClick(event: { node: { id: string }; event: MouseEvent | TouchEvent }): void {
-  selectAndReveal('node', event.node.id, pointer(event.event));
-}
-
-function onEdgeClick(event: { edge: { id: string }; event: MouseEvent | TouchEvent }): void {
-  // 合并后的跨层连线以第一条原始连线为代表。
-  const edge = currentLevel.value?.edges.find(item => item.id === event.edge.id);
-  selectAndReveal('edge', edge?.edgeIds[0] ?? event.edge.id, pointer(event.event));
-}
-
-function onPaneClick(): void {
-  sourceMenu.value = undefined;
-  // JSON 会丢掉 undefined 键，必须用 null 明确表示“清除选择”。
-  post('ui.patch', { selection: null });
-}
-
-/** 进入功能块 / 回到某一层。 */
-function enter(id: string | undefined): void {
-  sourceMenu.value = undefined;
-  flushViewportPatch();
-  level.value = id;
-  expanded.value = new Set();
-}
-
-function toggleBranches(id: string): void {
-  const next = new Set(expanded.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  expanded.value = next;
-}
-
-function onNodeAction(action: { type: 'enter' | 'branches'; id: string }): void {
-  if (action.type === 'enter') enter(action.id);
-  else toggleBranches(action.id);
-}
-
-/** 让一组节点进入当前层并可见：必要时切换层、展开支线。返回它们在当前层的代表 id。 */
-function bringIntoView(nodeIds: readonly string[]): string[] {
-  const current = map.value;
-  if (!current || nodeIds.length === 0) return [];
-  // 切到这些节点最深的公共父功能块，让它们本身（而不是所在的功能块）出现在画布上。
-  const chains = nodeIds
-    .map(id => ancestry(current, id).slice(0, -1).map(node => node.id))
-    .filter((chain, index) => current.nodes.some(node => node.id === nodeIds[index]));
-  let target: string | undefined;
-  if (chains.length) {
-    for (let depth = 0; ; depth++) {
-      const id = chains[0]![depth];
-      if (!id || chains.some(chain => chain[depth] !== id)) break;
-      target = id;
-    }
+  if (tab === 'walkthrough') {
+    post('ui.patch', { activeTab: 'walkthrough', peek: null });
+  } else {
+    post('ui.patch', { activeTab: 'map' });
   }
-  if (target !== level.value) {
-    level.value = target;
-    expanded.value = new Set();
-  }
-  const reps = [...new Set(nodeIds.map(id => representativeAt(current, id, level.value)).filter((id): id is string => Boolean(id)))];
-  // 目标被折叠在支线里：逐层展开带“+N”的节点，直到目标都露出来。
-  for (let guard = 0; guard < 20 && reps.some(id => !collapsed.value.visible.has(id)); guard++) {
-    const more = [...collapsed.value.hidden.keys()].filter(id => !expanded.value.has(id));
-    if (more.length === 0) break;
-    expanded.value = new Set([...expanded.value, ...more]);
-  }
-  return reps;
+}
+
+function onSelectMap(event: Event): void {
+  const key = (event.target as HTMLSelectElement).value;
+  if (!key) return;
+  composeDraft.value = { open: false };
+  post('map.open', {}, { mapKey: key });
+}
+
+function openNewComposer(): void {
+  composeDraft.value = { open: true };
+}
+
+function openRegenerateComposer(): void {
+  if (!snapshot.value || !map.value) return;
+  composeDraft.value = {
+    open: true,
+    topic: map.value.title,
+    overwriteKey: snapshot.value.key,
+  };
+}
+
+function deleteCurrentMap(): void {
+  if (!snapshot.value) return;
+  post('map.delete', {}, { mapKey: snapshot.value.key });
+}
+
+function onChangeAgent(agentId: string): void {
+  currentAgentId.value = agentId;
+  post('ai.setAgent', { agentId });
+}
+
+function onComposerSubmit(payload: {
+  topic: string;
+  agentId: string;
+  anchorFile?: string;
+  anchorSymbol?: string;
+  startLine?: number;
+  endLine?: number;
+  overwriteKey?: string;
+}): void {
+  post('ai.generate', payload);
 }
 
 function gotoStep(stepId: string): void {
   sourceMenu.value = undefined;
+  composeDraft.value = { open: false };
   post('tour.goto', { stepId });
 }
 
+function stepDelta(delta: 1 | -1): void {
+  post('tour.step', { delta });
+}
+
+function toggleAside(asideId: string | null): void {
+  post('ui.patch', { openAsideId: asideId });
+}
+
+function revealStepSource(payload: { stepId: string; sourceId: string }): void {
+  post('source.reveal', {
+    targetKind: 'step',
+    targetId: payload.stepId,
+    sourceId: payload.sourceId,
+    focusEditor: false,
+  });
+}
+
+function revealCurrentStep(): void {
+  const current = map.value;
+  if (!current) return;
+  const stepId = ui.value.openAsideId ?? ui.value.activeStepId ?? mainline(current)[0]?.id;
+  if (!stepId) return;
+  const step = current.walkthrough.find(s => s.id === stepId);
+  const srcId = step ? stepSource(current, step) : undefined;
+  if (srcId) {
+    post('source.reveal', { targetKind: 'step', targetId: stepId, sourceId: srcId, focusEditor: false });
+  }
+}
+
+function openLocation(loc: { file: string; startLine: number; endLine: number }): void {
+  post('source.openLocation', loc);
+}
+
+// Call Graph interactions (non-destructive Peek)
+const canvasSize = ref({ width: 0, height: 0 });
+
+function pointer(event: MouseEvent | TouchEvent): { x: number; y: number } {
+  const point = 'touches' in event ? event.touches[0] ?? event.changedTouches[0] : event;
+  const box = canvasEl.value?.getBoundingClientRect();
+  canvasSize.value = { width: box?.width ?? 0, height: box?.height ?? 0 };
+  return { x: (point?.clientX ?? 0) - (box?.left ?? 0), y: (point?.clientY ?? 0) - (box?.top ?? 0) };
+}
+
+function peekAndReveal(kind: 'node' | 'edge', id: string, at?: { x: number; y: number }): void {
+  post('ui.patch', { peek: { kind, id } });
+  sourceMenu.value = undefined;
+  const current = map.value;
+  const ids = current ? sourceIdsForSelection(current, { kind, id }) : [];
+  if (ids.length === 1) {
+    post('source.reveal', { targetKind: kind, targetId: id, sourceId: ids[0]! });
+  } else if (ids.length > 1 && at) {
+    sourceMenu.value = { kind, id, ...at };
+  } else if (ids.length > 1) {
+    post('source.reveal', { targetKind: kind, targetId: id, sourceId: ids[0]! });
+  }
+}
+
+function onNodeClick(event: { node: { id: string; type?: string }; event: MouseEvent | TouchEvent }): void {
+  if (event.node.type === 'group' || event.node.id.startsWith('group:')) return;
+  peekAndReveal('node', event.node.id, pointer(event.event));
+}
+
+function onEdgeClick(event: { edge: { id: string }; event: MouseEvent | TouchEvent }): void {
+  const edge = projection.value?.edges.find(item => item.id === event.edge.id);
+  peekAndReveal('edge', edge?.edgeIds[0] ?? event.edge.id, pointer(event.event));
+}
+
+function onPaneClick(): void {
+  sourceMenu.value = undefined;
+  if (ui.value.peek) {
+    post('ui.patch', { peek: null });
+  }
+}
+
+function clearPeek(): void {
+  sourceMenu.value = undefined;
+  post('ui.patch', { peek: null });
+}
+
+function toggleGroup(id: string): void {
+  const next = new Set(expandedGroups.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  post('ui.patch', { expandedGroupIds: [...next] });
+}
+
+function toggleBranches(id: string): void {
+  const next = new Set(expandedBranches.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  post('ui.patch', { expandedBranchIds: [...next] });
+}
+
+function onNodeAction(action: { type: 'expandGroup' | 'branches'; id: string }): void {
+  if (action.type === 'expandGroup') toggleGroup(action.id);
+  else toggleBranches(action.id);
+}
+
+// Viewport management
 const VIEWPORT_DEBOUNCE_MS = 300;
 let viewportTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingViewport: { x: number; y: number; zoom: number } | undefined;
-/** 程序化改视口（fitView / 恢复视口）期间为 true，此时不回传视口。 */
 let applyingViewport = false;
+let autoFit = true;
+let resizeObserver: ResizeObserver | undefined;
+let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+let initialView: { key: string; viewport?: { x: number; y: number; zoom: number } } | undefined;
+let mountViewport = { x: 0, y: 0, zoom: 1 };
 
 function cancelViewportPatch(): void {
   if (viewportTimer) clearTimeout(viewportTimer);
@@ -313,7 +458,6 @@ function cancelViewportPatch(): void {
 function flushViewportPatch(): void {
   const viewport = pendingViewport;
   cancelViewportPatch();
-  // 宿主只保存纯视口补丁、不回 snapshot，所以这里发完即可，不等回声。
   if (viewport) post('ui.patch', { viewport });
 }
 
@@ -335,80 +479,65 @@ async function applyViewport(change: () => Promise<unknown>, auto = true): Promi
   }
 }
 
-/**
- * 适配整层：侧栏通常又窄又高，按宽度适配、水平居中、顶部对齐。
- * 内容太高时不再继续缩小（最小 0.6），而是让用户上下拖动，避免字小到看不清。
- */
 function fitContent(duration = 0): Promise<unknown> {
-  const boxes = Object.values(layout.value.nodes);
-  const pane = document.querySelector('.cd-canvas')?.getBoundingClientRect();
-  if (!boxes.length || !pane?.width) return flow.fitView({ padding: 0.1, maxZoom: 1 });
-  const pad = 16;
+  const allBoxes = [
+    ...Object.values(layout.value.nodes),
+    ...Object.values(layout.value.groups),
+  ];
+  const pane = canvasEl.value?.getBoundingClientRect();
+  if (!allBoxes.length || !pane?.width) return flow.fitView({ padding: 0.1, maxZoom: 1 });
+  const pad = 20;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const box of boxes) {
+  for (const box of allBoxes) {
     minX = Math.min(minX, box.x);
     minY = Math.min(minY, box.y);
     maxX = Math.max(maxX, box.x + box.width + 4);
     maxY = Math.max(maxY, box.y + box.height + 4);
   }
-  const width = maxX - minX;
-  const height = maxY - minY;
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
   const fitWidth = (pane.width - pad * 2) / width;
   const fitHeight = (pane.height - pad * 2) / height;
-  const zoom = Math.min(1, fitWidth, Math.max(fitHeight, Math.min(0.6, fitWidth)));
+  const zoom = Math.min(1, fitWidth, Math.max(fitHeight, Math.min(0.62, fitWidth)));
   const x = (pane.width - width * zoom) / 2 - minX * zoom;
-  // 顶部对齐：侧栏里从上往下读，不在上方留一大块空白。
   const y = pad - minY * zoom;
   return flow.setViewport({ x, y, zoom }, { duration });
-}
-
-/** 视口还是程序适配出来的（用户没手动拖动/缩放过）：面板尺寸变化时自动重新适配。 */
-let autoFit = true;
-let resizeObserver: ResizeObserver | undefined;
-let resizeTimer: ReturnType<typeof setTimeout> | undefined;
-
-function watchCanvasSize(element: Element | null): void {
-  resizeObserver?.disconnect();
-  if (!element || typeof ResizeObserver === 'undefined') return;
-  resizeObserver = new ResizeObserver(() => {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      if (autoFit && ready.value) void applyViewport(() => fitContent());
-    }, 80);
-  });
-  resizeObserver.observe(element);
 }
 
 function fitToView(): void {
   void applyViewport(() => fitContent(200));
 }
 
-/** 切到新地图后待执行的首次视口：有保存的视口就恢复，否则适配整张图。只执行一次。 */
-let initialView: { key: string; viewport?: { x: number; y: number; zoom: number } } | undefined;
-/** 画布挂载时的初始视口，只在换地图时更新，避免首帧先画在原点再跳。 */
-let mountViewport = { x: 0, y: 0, zoom: 1 };
-
 function onNodesInitialized(): void {
   const pending = initialView;
-  if (!pending || pending.key !== snapshot.value?.key) return;
+  if (!pending || pending.key !== snapshot.value?.key) {
+    if (autoFit) void applyViewport(() => fitContent(0));
+    return;
+  }
   initialView = undefined;
   const saved = pending.viewport;
   void applyViewport(() => (saved ? flow.setViewport(saved) : fitContent()), !saved);
 }
 
-function openSource(sourceId: string): void {
-  const menu = sourceMenu.value;
-  sourceMenu.value = undefined;
-  if (menu) reveal(menu.kind, menu.id, sourceId);
-}
+watch(canvasEl, element => {
+  resizeObserver?.disconnect();
+  if (!element || typeof ResizeObserver === 'undefined') return;
+  resizeObserver = new ResizeObserver(() => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (autoFit && ready.value && effectiveTab.value === 'map') {
+        void applyViewport(() => fitContent());
+      }
+    }, 80);
+  });
+  resizeObserver.observe(element);
+});
 
-/** 菜单出现在点击处，但不超出画布：靠右时向左展开，靠下时向上展开。 */
-const canvasSize = ref({ width: 0, height: 0 });
 const menuStyle = computed(() => {
   const menu = sourceMenu.value;
   if (!menu) return {};
   const { width, height } = canvasSize.value;
-  const menuWidth = Math.min(280, width - 16);
+  const menuWidth = Math.min(280, Math.max(180, width - 16));
   const left = Math.max(8, Math.min(menu.x, width - menuWidth - 8));
   const below = menu.y + 8 < height * 0.6;
   return below
@@ -430,49 +559,29 @@ const menuSources = computed(() => {
   return sourceIdsForSelection(current, { kind: menu.kind, id: menu.id });
 });
 
-/** 选中变化时（例如阅读顺序切到下一步），把画布移到相关节点上。 */
-async function focusNodes(ids: string[]): Promise<void> {
-  if (ids.length === 0 || !ready.value) return;
-  await nextTick();
-  void applyViewport(() => flow.fitView({ nodes: ids, padding: 0.25, maxZoom: 1, duration: 240 }), false);
-}
-
-function handle(message: HostMessage): void {
-  switch (message.type) {
-    case 'initialize':
-      if (message.payload.current) snapshot.value = message.payload.current;
-      break;
-    case 'maps':
-      break;
-    case 'view.fit':
-      fitToView();
-      break;
-    case 'snapshot':
-      snapshot.value = message.payload.snapshot;
-      break;
-    case 'notice':
-      showNotice(message.payload.message, message.payload.severity ?? 'info');
-      break;
-    case 'theme':
-      theme.value = message.payload.kind;
-      break;
+function openSourceFromMenu(sourceId: string): void {
+  const menu = sourceMenu.value;
+  sourceMenu.value = undefined;
+  if (menu) {
+    post('source.reveal', { targetKind: menu.kind, targetId: menu.id, sourceId });
   }
 }
 
-
-/** 每次请求布局递增；较慢的旧布局返回时代号对不上就丢弃，不把旧坐标套到新节点上。 */
 let layoutGeneration = 0;
 
 async function prepareLayout(current: CodeMap): Promise<void> {
   const generation = ++layoutGeneration;
-  const view = levelOf(current, level.value);
-  const { visible, hidden } = collapseBranches(view, expanded.value);
+  const proj = projectCompoundGraph(current, expandedGroups.value, expandedBranches.value);
   const positions = await computeLayout({
-    nodes: view.nodes.filter(node => visible.has(node.id)).map(node => ({
+    nodes: proj.nodes.map(node => ({
       id: node.id,
-      ...nodeSize(node, nodeShape(node, nodeExtras(node, hidden))),
+      ...nodeSize(node, nodeShape(node, nodeExtras(current, node, proj))),
     })),
-    edges: view.edges.filter(edge => visible.has(edge.from) && visible.has(edge.to)).map(edge => ({
+    groups: proj.groups.map(g => ({
+      id: g.node.id,
+      childIds: g.childIds,
+    })),
+    edges: proj.edges.map(edge => ({
       id: edge.id,
       from: edge.from,
       to: edge.to,
@@ -483,66 +592,109 @@ async function prepareLayout(current: CodeMap): Promise<void> {
   if (generation !== layoutGeneration) return;
   layout.value = positions;
   layoutMap.value = current;
-  layoutKey = `${level.value ?? ''}|${[...expanded.value].sort().join(',')}`;
+  layoutKey = `${[...expandedGroups.value].sort().join(',')}|${[...expandedBranches.value].sort().join(',')}`;
   ready.value = true;
 }
 
-/** 换层或展开/收起支线后重新布局，并把视口适配到新的一层。 */
-watch([level, expanded], async () => {
-  const current = map.value;
-  if (!current) return;
-  const key = `${level.value ?? ''}|${[...expanded.value].sort().join(',')}`;
-  if (key === layoutKey) return;
-  const levelChanged = key.split('|')[0] !== layoutKey.split('|')[0];
-  await prepareLayout(current);
-  await nextTick();
-  // 换层：重新适配；展开/收起支线：如果用户没手动调整过视口，也重新适配，避免新出现的支线跑出画布。
-  if (levelChanged || autoFit) void applyViewport(() => fitContent(levelChanged ? 0 : 200));
-});
+watch(
+  () => [
+    snapshot.value?.key,
+    snapshot.value?.revision,
+    [...expandedGroups.value].sort().join(','),
+    [...expandedBranches.value].sort().join(','),
+  ] as const,
+  async ([key, rev, grpKey, brKey], prev) => {
+    const current = snapshot.value;
+    if (!current || !key) return;
+    const mapChanged = key !== prev?.[0];
+    if (mapChanged) {
+      cancelViewportPatch();
+      ready.value = false;
+      layoutMap.value = undefined;
+      sourceMenu.value = undefined;
+      initialView = { key, viewport: current.ui.viewport };
+      mountViewport = current.ui.viewport ?? { x: 0, y: 0, zoom: 1 };
+      props.host.saveState({ mapKey: key });
+    }
+    const nextLayoutKey = `${grpKey}|${brKey}`;
+    if (mapChanged || rev !== prev?.[1] || nextLayoutKey !== layoutKey) {
+      await prepareLayout(current.map);
+      if (!mapChanged && nextLayoutKey !== prev?.[2] + '|' + prev?.[3] && effectiveTab.value === 'map') {
+        await nextTick();
+        if (autoFit) void applyViewport(() => fitContent(180));
+      }
+    }
+  },
+);
 
-/**
- * 换地图（key 变化）时卸载画布并在布局完成后恢复/适配视口；
- * 同一地图只换 revision 时保持画布挂载和当前视口，只重算布局（否则新节点会堆在原点）。
- */
-watch(() => [snapshot.value?.key, snapshot.value?.revision] as const, async ([key], previous) => {
-  const current = snapshot.value;
-  if (!current || !key) return;
-  if (key !== previous?.[0]) {
-    cancelViewportPatch();
-    ready.value = false;
-    layoutMap.value = undefined;
-    level.value = undefined;
-    expanded.value = new Set();
-    sourceMenu.value = undefined;
-    initialView = { key, viewport: current.ui.viewport };
-    mountViewport = current.ui.viewport ?? { x: 0, y: 0, zoom: 1 };
-    props.host.saveState({ mapKey: key });
-  }
-  activeSourceId.value = current.ui.sourceId;
-  // 地图内容变化后，之前所在的功能块可能已被删除。
-  if (level.value && !current.map.nodes.some(node => node.id === level.value)) level.value = undefined;
-  await prepareLayout(current.map);
-});
-
-watch(() => ui.value.selection, (current, previous) => {
-  if (!current || !map.value) return;
-  if (current.kind === 'step') activeSourceId.value = sourceIdsForSelection(map.value, current)[0];
-  if (previous && previous.kind === current.kind && previous.id === current.id) return;
-  // 阅读顺序或外部命令切换了选中：确保目标在画布上可见并移过去。画布上的点击不需要移动。
-  if (current.kind === 'step') {
-    const step = map.value.walkthrough?.find(item => item.id === current.id);
-    const reps = bringIntoView(step?.nodeIds ?? []);
-    void focusNodes(reps);
-  } else if (current.kind === 'node' && !collapsed.value.visible.has(current.id)) {
-    void focusNodes(bringIntoView([current.id]));
+watch(effectiveTab, async tab => {
+  if (tab === 'map' && map.value) {
+    if (!ready.value) await prepareLayout(map.value);
+    await nextTick();
+    if (autoFit) void applyViewport(() => fitContent(0));
   }
 });
+
+function handle(message: HostMessage): void {
+  switch (message.type) {
+    case 'initialize':
+      maps.value = message.payload.maps;
+      snapshot.value = message.payload.current;
+      agents.value = message.payload.agents;
+      currentAgentId.value = message.payload.currentAgentId;
+      aiStatus.value = message.payload.aiStatus;
+      editorContext.value = message.payload.editorContext;
+      qaExchanges.value = message.payload.qa;
+      standaloneMap.value = Boolean(message.payload.standaloneMap);
+      break;
+    case 'maps':
+      maps.value = message.payload.maps;
+      break;
+    case 'snapshot': {
+      const prevKey = snapshot.value?.key;
+      snapshot.value = message.payload.snapshot;
+      if (message.payload.snapshot && message.payload.snapshot.key !== prevKey && !aiStatus.value.busy) {
+        composeDraft.value = { open: false };
+      }
+      break;
+    }
+    case 'agents':
+      agents.value = message.payload.agents;
+      currentAgentId.value = message.payload.currentAgentId;
+      break;
+    case 'ai.status': {
+      const wasBusy = aiStatus.value.busy;
+      aiStatus.value = message.payload;
+      if (wasBusy && !message.payload.busy && message.payload.phase === 'done') {
+        composeDraft.value = { open: false };
+      }
+      break;
+    }
+    case 'ai.compose':
+      composeDraft.value = message.payload;
+      break;
+    case 'editor.context':
+      editorContext.value = message.payload;
+      break;
+    case 'qa.state':
+      qaExchanges.value = message.payload.exchanges;
+      break;
+    case 'view.fit':
+      fitToView();
+      break;
+    case 'notice':
+      showNotice(message.payload.message, message.payload.severity ?? 'info');
+      break;
+    case 'theme':
+      theme.value = message.payload.kind;
+      break;
+  }
+}
 
 onMounted(() => {
   props.host.onMessage(handle);
   window.addEventListener('pagehide', flushViewportPatch);
   post('view.ready', {});
-  watchCanvasSize(document.querySelector('.cd-canvas'));
 });
 
 onBeforeUnmount(() => resizeObserver?.disconnect());
@@ -550,49 +702,162 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 <template>
   <div class="cd-root" :data-theme="theme">
-
-    <div class="cd-body">
-      <nav v-if="map && (breadcrumb.length || mainSteps.length)" class="cd-bar">
-        <ol v-if="breadcrumb.length" class="cd-crumbs" :aria-label="t('webview.breadcrumbLabel')">
-          <li>
-            <button class="cd-crumb" @click="enter(undefined)">
-              <span class="codicon codicon-home" aria-hidden="true"></span>{{ t('webview.overview') }}
-            </button>
-          </li>
-          <li v-for="(block, index) in breadcrumb" :key="block.id">
-            <span class="codicon codicon-chevron-right" aria-hidden="true"></span>
-            <button class="cd-crumb" :disabled="index === breadcrumb.length - 1" @click="enter(block.id)">{{ block.label }}</button>
-          </li>
-        </ol>
-        <button
-          v-if="mainSteps.length && stepIndex < 0"
-          class="cd-tour-start"
-          :title="t('webview.startTourHint')"
-          @click="gotoStep(mainSteps[0]!.id)"
+    <!--Zone 1: Top Bookshelf & Mode Header-->
+    <header v-if="!standaloneMap" class="cd-topbar">
+      <div class="cd-bookshelf">
+        <select
+          class="cd-book-select"
+          :aria-label="t('webview.bookPickerAria')"
+          :value="snapshot?.key ?? ''"
+          :disabled="maps.length === 0"
+          @change="onSelectMap"
         >
-          <span class="codicon codicon-play" aria-hidden="true"></span>{{ t('webview.startTour') }}
+          <option v-if="maps.length === 0" value="">{{ t('webview.noMapsOption') }}</option>
+          <option v-for="item in maps" :key="item.key" :value="item.key">
+            {{ item.title }}{{ item.stepCount ? ` · ${t('webview.stepCountBadge', { count: item.stepCount })}` : '' }}
+          </option>
+        </select>
+        <button type="button" class="cd-icon-button" :title="t('webview.newGuide')" @click="openNewComposer">
+          <span class="codicon codicon-add" aria-hidden="true"></span>
         </button>
-        <ol v-if="mainSteps.length" ref="stepsBar" class="cd-steps" :aria-label="t('webview.readingOrder')">
-          <li v-for="(step, index) in mainSteps" :key="step.id">
-            <button
-              class="cd-step"
-              :class="{ current: stepIndex === index }"
-              :title="step.description || step.title"
-              @click="gotoStep(step.id)"
-            >
-              <span class="cd-index">{{ index + 1 }}</span>
-              <span class="cd-step-title">{{ step.title }}</span>
-              <span v-if="step.branches?.length" class="codicon codicon-git-branch cd-step-branch" aria-hidden="true"></span>
-            </button>
-          </li>
-        </ol>
-      </nav>
-      <main class="cd-canvas">
+        <button
+          v-if="snapshot"
+          type="button"
+          class="cd-icon-button"
+          :title="t('webview.regenerateGuide')"
+          @click="openRegenerateComposer"
+        >
+          <span class="codicon codicon-refresh" aria-hidden="true"></span>
+        </button>
+        <button
+          v-if="snapshot"
+          type="button"
+          class="cd-icon-button"
+          :title="t('webview.deleteGuide')"
+          @click="deleteCurrentMap"
+        >
+          <span class="codicon codicon-trash" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <!--Mode Segmented Switch (Walkthrough vs Call Graph)-->
+      <div v-if="map && !showComposer" class="cd-mode-row">
+        <div class="cd-segmented" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            class="cd-seg-btn"
+            :class="{ active: effectiveTab === 'walkthrough' }"
+            :aria-selected="effectiveTab === 'walkthrough'"
+            @click="switchTab('walkthrough')"
+          >
+            <span class="codicon codicon-book" aria-hidden="true"></span>{{ t('webview.tabWalkthrough') }}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="cd-seg-btn"
+            :class="{ active: effectiveTab === 'map' }"
+            :aria-selected="effectiveTab === 'map'"
+            @click="switchTab('map')"
+          >
+            <span class="codicon codicon-type-hierarchy" aria-hidden="true"></span>{{ t('webview.tabMap') }}
+          </button>
+        </div>
+
+        <div class="cd-mode-tools">
+          <button
+            v-if="effectiveTab === 'map'"
+            type="button"
+            class="cd-icon-button"
+            :title="t('webview.fitViewButton')"
+            @click="fitToView"
+          >
+            <span class="codicon codicon-screen-full" aria-hidden="true"></span>
+          </button>
+          <button
+            type="button"
+            class="cd-icon-button"
+            :title="t('webview.popoutMap')"
+            @click="post('map.popout', {})"
+          >
+            <span class="codicon codicon-link-external" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!--Standalone Map Tab Header-->
+    <header v-else-if="map" class="cd-standalone-bar">
+      <div class="cd-standalone-title">
+        <span class="codicon codicon-type-hierarchy" aria-hidden="true"></span>
+        <strong>{{ map.title }}</strong>
+      </div>
+      <div class="cd-mode-tools">
+        <button type="button" class="cd-button" @click="fitToView">
+          <span class="codicon codicon-screen-full" aria-hidden="true"></span>{{ t('webview.fitViewButton') }}
+        </button>
+      </div>
+    </header>
+
+    <!--Zone 2: Main Content Area-->
+    <main class="cd-main">
+      <!--Authoring Composer / Live Exploration Footprints-->
+      <ComposerPanel
+        v-if="showComposer"
+        :has-existing-map="Boolean(map)"
+        :regenerate-title="regenerateTitle"
+        :draft="composeDraft"
+        :agents="agents"
+        :current-agent-id="currentAgentId"
+        :ai-status="aiStatus"
+        :editor-context="editorContext"
+        @submit="onComposerSubmit"
+        @change-agent="onChangeAgent"
+        @refresh-agents="post('ai.refreshAgents', {})"
+        @open-settings="post('ai.openSettings', {})"
+        @cancel-ai="post('ai.cancel', {})"
+        @close="composeDraft = { open: false }"
+        @copy-prompt="post('prompt.copy', {})"
+      />
+
+      <!--Primary Protagonist: Narrative Guided Walkthrough-->
+      <WalkthroughView
+        v-else-if="map && effectiveTab === 'walkthrough'"
+        :map="map"
+        :ui="ui"
+        :statuses="statuses"
+        :editor-context="editorContext"
+        @goto-step="gotoStep"
+        @toggle-aside="toggleAside"
+        @reveal-step-source="revealStepSource"
+        @open-location="openLocation"
+        @delete-note="p => post('note.delete', p)"
+      />
+
+      <!--Auxiliary Global Overview: Coarse-Grained Compound Call Graph-->
+      <div v-else-if="map && effectiveTab === 'map'" ref="canvasEl" class="cd-canvas">
+        <!--Non-destructive Peek Banner-->
+        <div v-if="peekInfo" class="cd-peek-banner">
+          <span class="cd-peek-title">{{ t('webview.peekBannerTitle', { label: peekInfo.label }) }}</span>
+          <button
+            v-if="peekInfo.firstStep"
+            type="button"
+            class="cd-mini-btn primary"
+            @click="gotoStep(peekInfo.firstStep.stepId)"
+          >
+            {{ t('webview.peekJumpToStep', { index: peekInfo.firstStep.index }) }}
+          </button>
+          <button type="button" class="cd-icon-button" :title="t('webview.peekClear')" @click="clearPeek">
+            <span class="codicon codicon-close" aria-hidden="true"></span>
+          </button>
+        </div>
+
         <VueFlow
-          v-if="map && layoutMap && ready"
+          v-if="layoutMap && ready"
           id="code-detective-map"
-          :nodes="nodes"
-          :edges="edges"
+          :nodes="flowNodes"
+          :edges="flowEdges"
           :default-viewport="mountViewport"
           :min-zoom="0.25"
           :max-zoom="2.5"
@@ -609,6 +874,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
           @pane-click="onPaneClick"
           @viewport-change-end="onViewportChange"
         >
+          <template #node-group="groupProps">
+            <MapGroup :data="groupProps.data" @collapse="toggleGroup" />
+          </template>
           <template #node-detective="nodeProps">
             <MapNode :data="nodeProps.data" :selected="false" @action="onNodeAction" />
           </template>
@@ -628,22 +896,13 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
           <Background :gap="24" :size="1.2" color="var(--cd-canvas-dot)" />
         </VueFlow>
 
-        <div v-else-if="map" class="cd-empty">
+        <div v-else class="cd-empty">
           <span class="codicon codicon-loading codicon-modifier-spin" aria-hidden="true"></span>
           <h2>{{ t('webview.preparingTitle') }}</h2>
           <p>{{ t('webview.preparingBody') }}</p>
         </div>
 
-        <div v-else class="cd-empty">
-          <span class="codicon codicon-map" aria-hidden="true"></span>
-          <h2>{{ t('webview.emptyTitle') }}</h2>
-          <p>{{ t('webview.emptyBodyBefore') }}<code>.code-detective/maps/</code>{{ t('webview.emptyBodyAfter') }}</p>
-          <div class="cd-empty-actions">
-            <button class="cd-button primary" @click="post('ai.open', {})">{{ t('webview.generateWithAi') }}</button>
-            <button class="cd-button" @click="post('prompt.copy', {})">{{ t('webview.copyPrompt') }}</button>
-            <button class="cd-button" @click="post('maps.refresh', {})">{{ t('webview.rescan') }}</button>
-          </div>
-        </div>
+        <!--Multi-source disambiguation popup-->
         <ul
           v-if="sourceMenu && menuSources.length"
           class="cd-popup"
@@ -652,7 +911,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
         >
           <li class="cd-popup-title" role="presentation">{{ t('webview.chooseSource') }}</li>
           <li v-for="id in menuSources" :key="id" role="none">
-            <button role="menuitem" class="cd-source" :class="{ chosen: activeSourceId === id }" @click="openSource(id)">
+            <button role="menuitem" class="cd-source" :class="{ chosen: ui.sourceId === id }" @click="openSourceFromMenu(id)">
               <span class="cd-dot" :class="statusTone(statuses[id]?.state)"></span>
               <span class="cd-source-text">
                 <strong>{{ map?.sources[id]?.note || sourceLocation(id) }}</strong>
@@ -663,18 +922,43 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
             </button>
           </li>
         </ul>
-      </main>
+      </div>
 
-    </div>
+      <!--Fallback Empty State when maps exist on disk but none accepted-->
+      <div v-else class="cd-empty">
+        <span class="codicon codicon-book" aria-hidden="true"></span>
+        <h2>{{ t('webview.emptyTitle') }}</h2>
+        <p>{{ t('webview.emptyBodyBefore') }}<code>.code-detective/maps/</code>{{ t('webview.emptyBodyAfter') }}</p>
+        <div class="cd-empty-actions">
+          <button type="button" class="cd-button primary" @click="openNewComposer">{{ t('webview.generateWithAi') }}</button>
+          <button type="button" class="cd-button" @click="post('maps.refresh', {})">{{ t('webview.rescan') }}</button>
+        </div>
+      </div>
+    </main>
 
+    <!--Zone 3: Sticky Step Navigator & Mentor Q&A Dock-->
+    <QaDrawer
+      v-if="map && !showComposer && !standaloneMap"
+      :map="map"
+      :ui="ui"
+      :editor-context="editorContext"
+      :exchanges="qaExchanges"
+      :agents="agents"
+      :current-agent-id="currentAgentId"
+      @step-delta="stepDelta"
+      @goto-step="gotoStep"
+      @reveal-current-step="revealCurrentStep"
+      @ask="p => post('qa.ask', p)"
+      @cancel-qa="post('qa.cancel', {})"
+      @save-note="id => post('qa.saveNote', { exchangeId: id })"
+      @save-aside="id => post('qa.saveAside', { exchangeId: id })"
+      @open-location="openLocation"
+      @change-agent="onChangeAgent"
+      @refresh-agents="post('ai.refreshAgents', {})"
+      @open-settings="post('ai.openSettings', {})"
+    />
 
-    <footer v-if="activeSource" class="cd-statusbar">
-      <span class="cd-dot" :class="statusTone(activeSource.state)"></span>
-      {{ activeSource.file }}:{{ activeSource.startLine }}–{{ activeSource.endLine }}
-      <span class="cd-muted">{{ labelFor(activeSource) }}</span>
-      <span v-if="activeSource.message" class="cd-muted">· {{ activeSource.message }}</span>
-    </footer>
-
+    <!--Toast Notice-->
     <div v-if="notice" class="cd-notice" :class="notice.severity" role="status">
       {{ notice.message }}
     </div>

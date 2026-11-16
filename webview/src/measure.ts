@@ -1,9 +1,5 @@
 /**
  * 节点与连线标签的尺寸估算。
- *
- * 布局（ELK）需要在渲染前知道每个节点有多高，连线才能准确地接到节点边上；
- * 这里用 canvas 按当前字体测量文字宽度，模拟 CSS 的换行与行数截断。
- * 节点渲染时使用同样的固定高度，保证布局与画面一致。
  */
 import type { MapNode } from '../../shared/types';
 import { NODE_WIDTH, type Size } from './layout';
@@ -14,6 +10,7 @@ export const NODE_METRICS = {
   paddingY: 8,
   border: 1,
   icon: 18,
+  badgeReserve: 36,
   labelFont: 13,
   labelLine: 18,
   labelLines: 2,
@@ -46,7 +43,7 @@ function measure(text: string, size: number, weight = 400): number {
 /** 按 CSS 的断行方式（中文逐字、英文按词）估算行数。 */
 export function lineCount(text: string, width: number, size: number, weight = 400): number {
   if (!text) return 0;
-  const tokens = text.match(/[⺀-￿]|[^\s⺀-￿]+|\s+/g) ?? [];
+  const tokens = text.match(/[\u2e80-\uffff]|[^\s\u2e80-\uffff]+|\s+/g) ?? [];
   let lines = 1;
   let used = 0;
   for (const token of tokens) {
@@ -68,12 +65,17 @@ export function lineCount(text: string, width: number, size: number, weight = 40
 
 export interface NodeShape {
   hasIcon: boolean;
+  hasBadge: boolean;
   footer: boolean;
 }
 
-export function nodeShape(node: MapNode, extras: { children: number; hidden: number; expanded: boolean; sources: number; warn: boolean }): NodeShape {
+export function nodeShape(
+  node: MapNode,
+  extras: { children: number; hidden: number; expanded: boolean; sources: number; warn: boolean; stepBadge?: string },
+): NodeShape {
   return {
     hasIcon: node.kind === 'event' || node.kind === 'condition' || node.kind === 'exit',
+    hasBadge: Boolean(extras.stepBadge),
     footer: extras.children > 0 || extras.hidden > 0 || extras.expanded || extras.sources > 1 || extras.warn,
   };
 }
@@ -81,7 +83,8 @@ export function nodeShape(node: MapNode, extras: { children: number; hidden: num
 export function nodeSize(node: MapNode, shape: NodeShape): Size {
   const m = NODE_METRICS;
   const inner = NODE_WIDTH - 2 * (m.paddingX + m.border);
-  const labelLines = Math.min(m.labelLines, Math.max(1, lineCount(node.label, inner - (shape.hasIcon ? m.icon : 0), m.labelFont, 600)));
+  const labelAvail = inner - (shape.hasIcon ? m.icon : 0) - (shape.hasBadge ? m.badgeReserve : 0);
+  const labelLines = Math.min(m.labelLines, Math.max(1, lineCount(node.label, Math.max(80, labelAvail), m.labelFont, 600)));
   const descLines = node.description ? Math.min(m.descLines, lineCount(node.description, inner, m.descFont)) : 0;
   const height = 2 * (m.paddingY + m.border)
     + labelLines * m.labelLine

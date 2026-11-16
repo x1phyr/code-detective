@@ -1,22 +1,28 @@
 import type { HostMessage, MapSnapshot } from '../../shared/types';
+import { planFocusHighlight, type CallTokenSpan, type FocusHighlightPlan } from '../../src/core/calls';
+import { activeFocusSelection, sourceIdsForSelection } from '../../src/core/selection';
+import { splitLines } from '../../src/core/text';
 import type { HostBridge } from './bridge';
-import { demoSourceText } from './preview-data';
+import { PREVIEW_BUNDLES } from './preview-data';
 import { THEME_LABELS, currentPreviewTheme } from './preview-theme';
 import { t } from '../../shared/i18n';
 import './preview-shell.css';
 
 interface SourceView {
+  key: string;
   file: string;
   startLine: number;
   endLine: number;
+  note?: string;
+  highlightEnabled: boolean;
+  plan?: FocusHighlightPlan;
 }
 
-// 按调用时的语言取文案，因此做成函数而非模块级常量。
 const activityItems = (): { icon: string; title: string; active?: boolean }[] => [
-  { icon: 'files', title: t('webview.shellExplorer'), active: true },
+  { icon: 'compass', title: t('webview.shellAppName'), active: true },
+  { icon: 'files', title: t('webview.shellExplorer') },
   { icon: 'search', title: t('webview.shellSearch') },
   { icon: 'source-control', title: t('webview.shellSourceControl') },
-  { icon: 'debug-alt', title: t('webview.shellRunDebug') },
   { icon: 'extensions', title: t('webview.shellExtensions') },
 ];
 
@@ -54,8 +60,8 @@ function shellHtml(): string {
           <span class="vs-light maximize"></span>
         </div>
         <div class="vs-commandcenter">
-          <span class="codicon codicon-map" aria-hidden="true"></span>
-          <span>examples/bag-demo</span>
+          <span class="codicon codicon-compass" aria-hidden="true"></span>
+          <span data-role="workspace-title">examples/login-demo</span>
         </div>
         <div class="vs-titlebar-right">
           <button class="vs-title-button" title="${escapeHtml(t('webview.shellToggleTheme'))}" data-action="theme">
@@ -71,19 +77,9 @@ function shellHtml(): string {
         <section class="vs-group vs-group-map">
           <div class="vs-tabs">
             <div class="vs-tab active">
-              <span class="codicon codicon-map" aria-hidden="true"></span>
+              <span class="codicon codicon-compass" aria-hidden="true"></span>
               <span class="vs-tab-label" data-role="map-tab">${escapeHtml(t('webview.shellAppName'))}</span>
-              <span class="codicon codicon-close vs-tab-close" aria-hidden="true"></span>
             </div>
-            <div class="vs-tabs-actions">
-              <span class="codicon codicon-split-horizontal" aria-hidden="true"></span>
-              <span class="codicon codicon-ellipsis" aria-hidden="true"></span>
-            </div>
-          </div>
-          <div class="vs-breadcrumbs">
-            <span>examples</span><span class="vs-sep">›</span>
-            <span>bag-demo</span><span class="vs-sep">›</span>
-            <span class="vs-crumb-current">${escapeHtml(t('webview.shellAppName'))}</span>
           </div>
           <div class="vs-map-slot" data-role="map-slot"></div>
         </section>
@@ -131,43 +127,122 @@ function shellHtml(): string {
 
 function sourceView(snapshot: MapSnapshot | undefined): SourceView | undefined {
   if (!snapshot) return undefined;
-  const id = snapshot.ui.sourceId
-    ?? (snapshot.ui.selection
-      ? snapshot.map.nodes.find(node => node.id === snapshot.ui.selection!.id)?.sourceIds[0]
-      : undefined);
+  const focus = activeFocusSelection(snapshot.map, snapshot.ui);
+  const focusSourceIds = focus ? sourceIdsForSelection(snapshot.map, focus) : [];
+  const id = snapshot.ui.sourceId && snapshot.map.sources[snapshot.ui.sourceId]
+    ? snapshot.ui.sourceId
+    : focusSourceIds[0];
   if (!id) return undefined;
   const ref = snapshot.map.sources[id];
   if (!ref) return undefined;
   const status = snapshot.statuses[id];
+  const file = status?.file ?? ref.file;
+  const startLine = status?.startLine ?? ref.startLine;
+  const endLine = status?.endLine ?? ref.endLine;
+  const fileLines = splitLines(sourceTextFor(snapshot.key, file));
+  const slice = startLine >= 1 && endLine >= startLine
+    ? fileLines.slice(startLine - 1, endLine)
+    : [];
+  const plan = slice.length > 0
+    ? planFocusHighlight({
+      startLine,
+      lines: slice,
+      map: snapshot.map,
+      sourceId: id,
+      focus,
+    })
+    : undefined;
   return {
-    file: status?.file ?? ref.file,
-    startLine: status?.startLine ?? ref.startLine,
-    endLine: status?.endLine ?? ref.endLine,
+    key: snapshot.key,
+    file,
+    startLine,
+    endLine,
+    note: ref.note,
+    highlightEnabled: snapshot.ui.highlightEnabled,
+    plan,
   };
 }
 
-function renderCode(container: HTMLElement, view: SourceView | undefined): void {
+function sourceTextFor(key: string, file: string): string {
+  const bundle = PREVIEW_BUNDLES.find(item => item.key === key);
+  return bundle?.sources[file] ?? '';
+}
+
+function appendLineContent(container: HTMLElement, line: string, tokens: readonly CallTokenSpan[]): void {
+  if (line.length === 0) {
+    container.textContent = '\u00a0';
+    return;
+  }
+  if (tokens.length === 0) {
+    container.textContent = line;
+    return;
+  }
+  const sorted = [...tokens].sort((a, b) => a.startCol - b.startCol);
+  let cursor = 0;
+  for (const token of sorted) {
+    const start = Math.max(cursor, Math.min(token.startCol, line.length));
+    const end = Math.max(start, Math.min(token.endCol, line.length));
+    if (end <= start) continue;
+    if (start > cursor) {
+      container.append(document.createTextNode(line.slice(cursor, start)));
+    }
+    const mark = document.createElement('mark');
+    mark.className = 'vs-code-call';
+    mark.textContent = line.slice(start, end);
+    container.append(mark);
+    cursor = end;
+  }
+  if (cursor < line.length) {
+    container.append(document.createTextNode(line.slice(cursor)));
+  }
+}
+
+function renderCode(container: HTMLElement, view: SourceView | undefined, host: HostBridge): void {
   if (!view) {
     container.innerHTML = `<p class="vs-code-empty">${escapeHtml(t('webview.shellCodeEmpty'))}</p>`;
     return;
   }
-  const text = demoSourceText[view.file] ?? '';
+  const text = sourceTextFor(view.key, view.file);
+  const plan = view.highlightEnabled ? view.plan : undefined;
+  const tokensByLine = new Map<number, CallTokenSpan[]>();
+  if (plan) {
+    for (const token of plan.callTokens) {
+      const list = tokensByLine.get(token.line) ?? [];
+      list.push(token);
+      tokensByLine.set(token.line, list);
+    }
+  }
   const fragment = document.createDocumentFragment();
-  text.split('\n').forEach((line, index) => {
+  splitLines(text).forEach((line, index) => {
     const number = index + 1;
+    const isActive = plan
+      ? plan.spotlightLines.some(span => number >= span.startLine && number <= span.endLine)
+      : view.highlightEnabled && number >= view.startLine && number <= view.endLine;
+    const isScope = !isActive && Boolean(plan?.scopeLines && number >= plan.scopeLines.startLine && number <= plan.scopeLines.endLine);
     const row = document.createElement('div');
-    row.className = number >= view.startLine && number <= view.endLine ? 'vs-code-line active' : 'vs-code-line';
+    row.className = isActive ? 'vs-code-line active' : isScope ? 'vs-code-line scope' : 'vs-code-line';
+    row.addEventListener('click', () => {
+      host.post('preview.cursor', { file: view.file, line: number });
+    });
     const gutter = document.createElement('span');
     gutter.className = 'vs-code-number';
     gutter.textContent = String(number);
     const content = document.createElement('span');
     content.className = 'vs-code-text';
-    content.textContent = line.length > 0 ? line : '\u00a0';
+    appendLineContent(content, line, isActive ? (tokensByLine.get(number) ?? []) : []);
     row.append(gutter, content);
+    const noteLine = plan?.noteLine ?? view.startLine;
+    if (isActive && number === noteLine && view.note) {
+      const note = document.createElement('span');
+      note.className = 'vs-code-note';
+      note.textContent = `  ← ${view.note}`;
+      row.append(note);
+    }
     fragment.append(row);
   });
   container.replaceChildren(fragment);
-  container.scrollTop = Math.max(0, (view.startLine - 3) * 19);
+  const scrollTarget = plan?.noteLine ?? view.startLine;
+  container.scrollTop = Math.max(0, (scrollTarget - 3) * 19);
 }
 
 function renderBreadcrumbs(container: HTMLElement | null, file: string | undefined): void {
@@ -185,14 +260,9 @@ function renderBreadcrumbs(container: HTMLElement | null, file: string | undefin
 }
 
 export interface PreviewShell {
-  /** 地图 Webview 的挂载点。 */
   mount: HTMLElement;
 }
 
-/**
- * 在浏览器预览里重建 VS Code 工作台外壳，让 Webview 处在和真实插件
- * 相同的编辑器区域中，而不是孤零零地铺满整个页面。
- */
 export function createPreviewShell(root: HTMLElement, host: HostBridge): PreviewShell {
   root.innerHTML = shellHtml();
   const query = (selector: string): HTMLElement | null => root.querySelector<HTMLElement>(selector);
@@ -206,6 +276,7 @@ export function createPreviewShell(root: HTMLElement, host: HostBridge): Preview
   const sourceTabLabel = query('[data-role="source-tab-label"]');
   const sourceBreadcrumbs = query('[data-role="source-breadcrumbs"]');
   const mapTabLabel = query('[data-role="map-tab"]');
+  const workspaceTitle = query('[data-role="workspace-title"]');
 
   root.querySelectorAll<HTMLElement>('[data-action="theme"]').forEach(button => {
     button.addEventListener('click', () => host.post('preview.theme', {}));
@@ -213,11 +284,12 @@ export function createPreviewShell(root: HTMLElement, host: HostBridge): Preview
 
   const applySnapshot = (snapshot: MapSnapshot | undefined): void => {
     if (snapshot) {
-      if (mapTabLabel) mapTabLabel.textContent = snapshot.map.title;
+      if (mapTabLabel) mapTabLabel.textContent = `${t('webview.shellAppName')} · ${snapshot.map.title}`;
+      if (workspaceTitle) workspaceTitle.textContent = `examples/${snapshot.map.id}`;
       document.title = t('webview.shellDocTitle', { title: snapshot.map.title });
     }
     const view = sourceView(snapshot);
-    if (code) renderCode(code, view);
+    if (code) renderCode(code, view, host);
     renderBreadcrumbs(sourceBreadcrumbs, view?.file);
     if (sourceTabLabel) sourceTabLabel.textContent = view?.file.split('/').pop() ?? t('webview.shellPickSource');
     if (statusFile) statusFile.textContent = view ? view.file : '';

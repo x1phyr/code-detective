@@ -4,10 +4,13 @@ import { t, type MessageKey } from '../../shared/i18n';
 export interface NodeData {
   node: MapNode;
   active: boolean;
+  peeked: boolean;
   related: boolean;
-  /** 有选中对象时，与之无关的节点淡出，而不是换颜色。 */
   dimmed: boolean;
-  /** 功能块的直接子节点数；0 表示普通节点。 */
+  cursorHere: boolean;
+  /** 关联的主线带读步骤徽章，例如 `#1` 或 `#3–4`。 */
+  stepBadge?: string;
+  /** 阶段块的直接子节点数；0 表示普通节点。 */
   children: number;
   /** 折叠在它支线后面的节点数。 */
   hidden: number;
@@ -21,6 +24,26 @@ export interface NodeData {
   height: number;
 }
 
+export interface GroupNodeData {
+  node: MapNode;
+  width: number;
+  height: number;
+  stepBadge?: string;
+  active: boolean;
+  dimmed: boolean;
+}
+
+/** 格式化步骤编号列表为短徽章，例如 [3, 4, 5] -> "#3–5"，[1, 4] -> "#1,#4"。 */
+export function formatStepBadge(indices: readonly number[]): string | undefined {
+  if (indices.length === 0) return undefined;
+  if (indices.length === 1) return `#${indices[0]}`;
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  const contiguous = sorted.every((val, idx) => idx === 0 || val === sorted[idx - 1]! + 1);
+  if (contiguous) return `#${sorted[0]}–${sorted.at(-1)}`;
+  if (sorted.length <= 2) return sorted.map(n => `#${n}`).join(',');
+  return `#${sorted[0]}..#${sorted.at(-1)}`;
+}
+
 /** 连线上显示的文字：合并的跨层连线显示“N 条调用”，支线显示分支条件，其余显示 label。 */
 export function edgeText(edge: { edge: MapEdge; edgeIds: readonly string[] }): string | undefined {
   if (edge.edgeIds.length > 1) return t('webview.mergedEdges', { count: edge.edgeIds.length });
@@ -32,13 +55,9 @@ export interface EdgeData {
   active: boolean;
   related: boolean;
   dimmed: boolean;
-  /** 合并进这条线的原始连线数（跨层连线会合并）。 */
   merged: number;
-  /** 是否为支线。 */
   branch: boolean;
-  /** 显示在线上的文字。 */
   label?: string;
-  /** ELK 给出的折线路由；兜底布局时没有，由画布直接连接两端。 */
   route?: import('./layout').EdgeRoute;
 }
 
@@ -51,7 +70,6 @@ const NODE_KIND_KEYS = {
   default: 'webview.nodeKindDefault',
 } as const satisfies Record<NonNullable<MapNode['kind']> | 'default', MessageKey>;
 
-/** 节点类型的显示名；按调用时的语言取文案，因此不能做成模块级常量。 */
 export function nodeKindLabel(kind: MapNode['kind']): string {
   return t(NODE_KIND_KEYS[kind ?? 'default']);
 }
@@ -77,20 +95,11 @@ export function relatedSelection(map: CodeMap, selection?: Selection): { nodes: 
       nodes.add(edge.to);
     }
   } else {
-    const step = map.walkthrough?.find(item => item.id === selection.id);
+    const step = map.walkthrough.find(item => item.id === selection.id);
     step?.nodeIds.forEach(id => nodes.add(id));
     step?.edgeIds.forEach(id => edges.add(id));
   }
   return { nodes, edges };
-}
-
-export function selectedEdgeIds(map: CodeMap, selection?: Selection): Set<string> {
-  if (!selection) return new Set();
-  if (selection.kind === 'edge') return new Set([selection.id]);
-  if (selection.kind === 'step') {
-    return new Set(map.walkthrough?.find(step => step.id === selection.id)?.edgeIds ?? []);
-  }
-  return new Set();
 }
 
 export function statusTone(state: SourceState | undefined): 'ok' | 'warn' | 'error' | 'idle' {
@@ -98,14 +107,4 @@ export function statusTone(state: SourceState | undefined): 'ok' | 'warn' | 'err
   if (state === 'matched') return 'ok';
   if (state === 'range-only' || state === 'relocated') return 'warn';
   return 'error';
-}
-
-export function edgeKindLabel(edge: MapEdge): string {
-  switch (edge.kind) {
-    case 'call': return t('webview.edgeKindCall');
-    case 'flow': return t('webview.edgeKindFlow');
-    case 'event': return t('webview.edgeKindEvent');
-    case 'related': return t('webview.edgeKindRelated');
-    default: return '';
-  }
 }
