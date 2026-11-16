@@ -10,10 +10,15 @@ import { mapFromResponse } from '../src/ai/response';
 import { freeMapName, sanitizeMapId } from '../src/ai/mapNaming';
 import { ClaudeCli } from '../src/ai/agent/claude';
 import { CodexCli } from '../src/ai/agent/codex';
+import { CopilotCli } from '../src/ai/agent/copilot';
+import { AgyCli } from '../src/ai/agent/agy';
+import { augmentedPath, resolveExecutable } from '../src/ai/agent/env';
 import { runAgent } from '../src/ai/agent/runner';
 import { AgentError } from '../src/ai/agent/types';
-import { createSession, agentCli, agentCatalog, AGENTS } from '../src/ai/index';
+import { createSession, agentCli, agentCatalog, AGENTS, DEFAULT_AGENT } from '../src/ai/index';
 import { generateMap } from '../src/ai/mapGenerator';
+import { renderMentorMarkdown } from '../webview/src/markdown';
+import { getLocale, setLocale } from '../shared/i18n';
 import type { AiConfig } from '../src/ai/config';
 import type { AgentCancel } from '../src/ai/types';
 
@@ -57,9 +62,13 @@ test('extractJson 处理围栏、前后缀解释与无 JSON 响应', () => {
   assert.equal(extractJson('{"broken": '), undefined);
 });
 
-test('extractJson 忽略字符串里的花括号', () => {
+test('extractJson 忽略字符串里的花括号并优先选取包含地图结构的 JSON 对象', () => {
   const text = '说明 {"note": "使用 { 和 } 组成", "values": [1, 2]} 结束';
   assert.equal(extractJson(text), '{"note":"使用 { 和 } 组成","values":[1,2]}');
+
+  const mapBody = exampleJson();
+  const mixed = `先说明参数 {"foo": 1}，再输出最终地图：\n${mapBody}`;
+  assert.equal(extractJson(mixed), JSON.stringify(JSON.parse(mapBody)));
 });
 
 test('mapFromResponse 校验通过并保留原始出处的结构', () => {
@@ -73,13 +82,22 @@ test('mapFromResponse 在无 JSON 或校验失败时抛出错误', () => {
   assert.throws(() => mapFromResponse('{ "schemaVersion": 2 }'), /地图校验失败/);
 });
 
-test('prompt 要求 agent 自己读源码并只输出 JSON', () => {
+test('prompt 让 agent 自由探索源码并仅约束 JSON 输出格式', () => {
   const prompt = explorePrompt({ rootName: 'bag-demo', topic: '背包流程', priorityFiles: ['src/a.ts'] });
-  assert.match(prompt, /直接用你的读文件/);
+  assert.match(prompt, /自由发挥/);
   assert.match(prompt, /src\/a\.ts/);
-  assert.match(outputContract(), /不要 Markdown 围栏/);
+  assert.match(outputContract(), /不要加 Markdown 代码块围栏/);
   assert.match(outputContract(), /不要写 anchorText/);
-  assert.match(retryPrompt(['/nodes/0/sourceIds：引用不存在']), /没能通过校验/);
+  assert.doesNotMatch(outputContract(), /禁止把整个函数/);
+  const previous = getLocale();
+  try {
+    setLocale('en');
+    assert.match(outputContract(), /JSON schema contract only/);
+    assert.doesNotMatch(outputContract(), /NEVER wrap an entire function/);
+  } finally {
+    setLocale(previous);
+  }
+  assert.match(retryPrompt(['/nodes/0/sourceIds：引用不存在']), /没能通过格式校验/);
   assert.match(retryPrompt(['/nodes/0/sourceIds：引用不存在']), /sourceIds/);
 });
 
@@ -95,13 +113,17 @@ test('Claude CLI 把 is_error 与不可解析输出变成错误', () => {
   assert.throws(() => cli.parse('not json', 'boom'), /无法解析/);
 });
 
-test('Claude CLI 使用只读工具并支持 --resume', () => {
+test('Claude CLI 放开探索与子智能体工具、硬禁写工具并支持 --resume', () => {
   const cli = new ClaudeCli('claude');
   const args = cli.args();
   assert.equal(args[0], 'claude');
   assert.ok(args.includes('-p'));
   assert.ok(args.includes('--output-format'));
-  assert.ok(args.includes('Read,Grep,Glob,LS'));
+  const allowed = args[args.indexOf('--allowedTools') + 1]!;
+  assert.ok(allowed.includes('Read'));
+  assert.ok(allowed.includes('Agent'));
+  assert.ok(allowed.includes('Skill'));
+  assert.equal(args[args.indexOf('--disallowedTools') + 1], 'Edit,Write,NotebookEdit');
   assert.deepEqual(cli.resumeArgs('sid'), [...args, '--resume', 'sid']);
 });
 
@@ -124,15 +146,135 @@ test('Codex CLI 的 resume 不带 --sandbox（该子命令不接受）', () => {
   assert.deepEqual(cli.resumeArgs('tid').slice(0, 3), ['codex', 'exec', 'resume']);
 });
 
-test('agent 目录包含内置 claude / codex，并可扩展自定义 agent', () => {
-  assert.deepEqual(AGENTS.map(item => item.id), ['claude', 'codex']);
+test('agent 目录按 copilot -> agy -> codex -> claude 顺位排列，且默认 copilot，支持扩展自定义 agent', () => {
+  assert.equal(DEFAULT_AGENT, 'copilot');
+  assert.deepEqual(AGENTS.map(item => item.id), ['copilot', 'agy', 'codex', 'claude']);
   const cfg = config({
     agent: 'my-agent',
     customAgents: [{ id: 'my-agent', label: 'My Agent', command: '/bin/echo', args: ['--json'] }],
   });
-  assert.deepEqual(agentCatalog(cfg).map(item => item.id), ['claude', 'codex', 'my-agent']);
+  assert.deepEqual(agentCatalog(cfg).map(item => item.id), ['copilot', 'agy', 'codex', 'claude', 'my-agent']);
   assert.equal(agentCli(cfg).label, 'My Agent');
   assert.throws(() => agentCli(config({ agent: 'nope' })), /未知的 agent/);
+});
+
+test('CopilotCli 只读限制、ANSI 清理、流式增量与多格式解析', () => {
+  const cli = new CopilotCli('copilot', ['--model', 'gpt-5']);
+  const args = cli.args();
+  assert.equal(args[0], 'copilot');
+  assert.ok(args.includes('-p'));
+  assert.ok(args.includes('-s'));
+  assert.ok(args.includes('--allow-all-tools'));
+  assert.ok(args.includes('write'));
+  assert.ok(args.includes('shell'));
+  assert.deepEqual(args.slice(-2), ['--model', 'gpt-5']);
+  assert.deepEqual(cli.resumeArgs('cp-1')?.slice(-2), ['--resume', 'cp-1']);
+
+  const deltas: string[] = [];
+  cli.onStreamChunk('\x1b[32m第一段内容\x1b[0m', { onDelta: d => deltas.push(d) });
+  assert.deepEqual(deltas, ['第一段内容']);
+
+  assert.deepEqual(cli.parse('\x1b[36m普通回复\x1b[0m', ''), { text: '普通回复' });
+  const rawMap = '{"schemaVersion":1,"id":"demo","title":"Demo"}';
+  assert.deepEqual(cli.parse(rawMap, ''), { text: rawMap });
+  assert.deepEqual(
+    cli.parse(JSON.stringify({ result: 'ok', session_id: 'cp-2' }), ''),
+    { text: 'ok', sessionId: 'cp-2' },
+  );
+  assert.throws(() => cli.parse(JSON.stringify({ is_error: true, result: '未登录' }), ''), /未登录/);
+});
+
+test('AgyCli 参数、流式 step_update 解析与 --conversation 续接', () => {
+  const cli = new AgyCli('agy', ['--effort', 'high']);
+  const args = cli.args();
+  assert.equal(args[0], 'agy');
+  assert.ok(args.includes('-p'));
+  assert.ok(args.includes('--output-format'));
+  assert.ok(args.includes('stream-json'));
+  assert.ok(!args.includes('--disable-slash-commands'), '保留工作区 skills 与探索能力');
+  assert.ok(!args.includes('--sandbox'), '不嵌套 sandbox 避免 IDE 内沙箱冲突');
+  assert.deepEqual(args.slice(-2), ['--effort', 'high']);
+  assert.deepEqual(cli.resumeArgs('conv-1')?.slice(-2), ['--conversation', 'conv-1']);
+
+  const activities: string[] = [];
+  const deltas: string[] = [];
+  cli.onStreamLine(
+    JSON.stringify({ event: 'step_update', tool_info: { name: 'read_file', arguments: { file_path: '/ws/src/app.ts' } } }),
+    { onActivity: act => activities.push(`${act.kind}:${act.text}`), onDelta: d => deltas.push(d) },
+  );
+  cli.onStreamLine(
+    JSON.stringify({ event: 'step_update', tool_info: { name: 'grep_search', input: { query: 'loginHandler' } } }),
+    { onActivity: act => activities.push(`${act.kind}:${act.text}`) },
+  );
+  cli.onStreamLine(
+    JSON.stringify({ event: 'step_update', delta: '流式片段', thinking: '分析入口调用链' }),
+    { onActivity: act => activities.push(`${act.kind}:${act.text}`), onDelta: d => deltas.push(d) },
+  );
+  assert.deepEqual(activities, ['read:src/app.ts', 'search:loginHandler', 'think:分析入口调用链']);
+  assert.deepEqual(deltas, ['流式片段']);
+
+  const ndjson = [
+    JSON.stringify({ event: 'init', conversation_id: 'conv-42' }),
+    JSON.stringify({ event: 'result', result: { conversation_id: 'conv-42', status: 'SUCCESS', response: '{"ok":true}' } }),
+  ].join('\n');
+  assert.deepEqual(cli.parse(ndjson, ''), { text: '{"ok":true}', sessionId: 'conv-42' });
+
+  assert.throws(
+    () => cli.parse(JSON.stringify({ event: 'result', result: { status: 'ERROR', error: 'quota exceeded' } }), ''),
+    /quota exceeded/,
+  );
+});
+
+test('env 补充常用用户 PATH 并准确探测可执行文件', () => {
+  const pathStr = augmentedPath({ PATH: '/usr/bin' }, 'darwin', '/Users/tester');
+  const parts = pathStr.split(':');
+  assert.equal(parts[0], '/usr/bin');
+  assert.ok(parts.includes('/Users/tester/.local/bin'));
+  assert.ok(parts.includes('/opt/homebrew/bin'));
+
+  const dir = mkdtempSync(path.join(tmpdir(), 'cd-env-'));
+  try {
+    const bin = fakeCli(dir, 'echo ok');
+    const nonExec = path.join(dir, 'plain-file');
+    writeFileSync(nonExec, 'not executable', 'utf8');
+    chmodSync(nonExec, 0o644);
+
+    assert.equal(resolveExecutable('fake-agent', { PATH: dir }), bin);
+    if (process.platform !== 'win32') {
+      assert.equal(resolveExecutable('plain-file', { PATH: dir }), undefined);
+    }
+    assert.equal(resolveExecutable('definitely-missing-cli-xyz', { PATH: dir }), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('无 sessionId 的无状态 CLI 重试时会带上完整任务与输出约束', async () => {
+  const seenPrompts: string[] = [];
+  const good = exampleJson();
+  let calls = 0;
+  const statelessSession = {
+    id: 'copilot',
+    label: 'GitHub Copilot',
+    send: async (req: { prompt: string }) => {
+      calls += 1;
+      seenPrompts.push(req.prompt);
+      return { text: calls === 1 ? 'not valid json' : good };
+    },
+  };
+  const result = await generateMap(statelessSession as never, {
+    topic: '背包流程',
+    rootName: 'bag-demo',
+    priorityFiles: [],
+    cwd: '/',
+    timeoutMs: 5_000,
+    cancel: never,
+  }, { retries: 1 });
+  assert.equal(result.attempts, 2);
+  assert.equal(seenPrompts.length, 2);
+  assert.match(seenPrompts[1]!, /背包流程/);
+  assert.match(seenPrompts[1]!, /schemaVersion/);
+  assert.match(seenPrompts[1]!, /没能通过.*校验/);
 });
 
 test('runAgent 通过 stdin 传提示词，绝不放进 argv', async () => {
@@ -331,15 +473,15 @@ test('cli.extraArgs 追加到内置 agent 的参数之后（含 resume）', () =
   assert.ok(codex.args().includes('--sandbox'), 'extraArgs 不应替换只读沙箱');
 });
 
-test('cli.allowedTools 生效，但只保留只读工具', () => {
+test('cli.allowedTools 生效，允许探索/子智能体工具并过滤写与执行工具', () => {
   const tools = (allowedTools: string): string => {
     const args = agentCli(config({ allowedTools })).args();
     return args[args.indexOf('--allowedTools') + 1]!;
   };
-  assert.equal(tools('Read,Grep'), 'Read,Grep');
+  assert.equal(tools('Read,Grep,Agent'), 'Read,Grep,Agent');
   assert.equal(tools('Read, Bash, Edit,Write,Grep'), 'Read,Grep');
-  assert.equal(tools('Bash'), 'Read,Grep,Glob,LS', '全部被过滤时回落到默认只读集合');
-  assert.equal(tools(''), 'Read,Grep,Glob,LS');
+  assert.ok(tools('Bash').includes('Agent'), '全部被过滤时回落到完整只读探索工具集');
+  assert.ok(tools('').includes('Agent'));
 });
 
 test('提供 readFile 时，命令行生成的地图按真实文件补锚点、保留 note 并容错', async () => {
@@ -367,4 +509,41 @@ test('提供 readFile 时，命令行生成的地图按真实文件补锚点、�
   assert.ok(!('far' in result.map.sources), '起始行越界的来源被丢弃');
   assert.deepEqual(result.map.nodes.map(node => node.id), ['n1']);
   assert.ok(result.adjustments.length > 0, '丢弃项应被报告');
+});
+
+test('ClaudeCli 与 CodexCli 实时解析工具足迹与流式文本增量', () => {
+  const activities: string[] = [];
+  const deltas: string[] = [];
+  const claude = new ClaudeCli();
+  claude.onStreamLine(
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'Read', input: { file_path: '/ws/src/auth-service.ts' } },
+          { type: 'text', text: '正在梳理认证链路' },
+        ],
+      },
+    }),
+    {
+      onActivity: act => activities.push(`${act.kind}:${act.text}`),
+      onDelta: chunk => deltas.push(chunk),
+    },
+  );
+  assert.deepEqual(activities, ['read:src/auth-service.ts']);
+  assert.deepEqual(deltas, ['正在梳理认证链路']);
+
+  const codexDeltas: string[] = [];
+  new CodexCli().onStreamLine(
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '分析完成' } }),
+    { onDelta: chunk => codexDeltas.push(chunk) },
+  );
+  assert.deepEqual(codexDeltas, ['分析完成']);
+});
+
+test('renderMentorMarkdown 转义恶意 HTML 并把源码坐标转为可点击引用按钮', () => {
+  const html = renderMentorMarkdown('请看 `src/validate.ts:5-8` 与 <img src=x onerror=alert(1)>，还有裸引用 src/router.ts:11。');
+  assert.ok(!html.includes('<img'), 'HTML 标签必须被严格转义');
+  assert.match(html, /data-cite-file="src\/validate\.ts" data-cite-start="5" data-cite-end="8"/);
+  assert.match(html, /data-cite-file="src\/router\.ts" data-cite-start="11" data-cite-end="11"/);
 });

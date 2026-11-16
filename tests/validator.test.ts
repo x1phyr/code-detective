@@ -32,9 +32,11 @@ test('示例地图通过完整校验', () => {
   const map = example();
   assert.equal(map.schemaVersion, 1);
   assert.equal(map.id, 'bag-demo');
-  assert.equal(map.nodes.length, 5);
-  assert.equal(map.edges.length, 5);
-  assert.equal(Object.keys(map.sources).length, 7);
+  assert.equal(map.nodes.length, 7);
+  assert.equal(map.edges.length, 6);
+  assert.equal(Object.keys(map.sources).length, 8);
+  // 试用时提问会把岔路沉淀进示例地图，这里只数主线。
+  assert.equal(map.walkthrough.filter(step => !step.aside).length, 6);
 });
 
 test('拒绝非法 JSON 与重复键', () => {
@@ -61,15 +63,15 @@ test('拒绝重复 ID 与悬空引用', () => {
 
 test('拒绝绝对路径、URI、父目录与回溯路径', () => {
   for (const file of ['/etc/passwd', 'C:/windows', 'file:///tmp/a.ts', '../outside.ts', 'src/../../x.ts', 'src//a.ts', 'src\\a.ts']) {
-    const text = withChange(map => { map.sources['button.id']!.file = file; });
+    const text = withChange(map => { map.sources['button.bind']!.file = file; });
     assert.match(codeOf(() => parseMap(text)), /file/, `expected rejection for ${file}`);
   }
 });
 
 test('拒绝行号顺序颠倒与锚点行数不符', () => {
   const inverted = withChange(map => {
-    map.sources['button.id']!.startLine = 9;
-    map.sources['button.id']!.endLine = 3;
+    map.sources['button.bind']!.startLine = 9;
+    map.sources['button.bind']!.endLine = 3;
   });
   assert.match(codeOf(() => parseMap(inverted)), /endLine 必须大于或等于 startLine/);
 
@@ -109,7 +111,7 @@ test('拒绝重复的导读步骤 ID', () => {
 
 test('拒绝空白路径段与带下划线的 scheme', () => {
   for (const file of [' ', 'src/ /a.ts', 'src/', 'my_dir:x/a.ts']) {
-    const text = withChange(map => { map.sources['button.id']!.file = file; });
+    const text = withChange(map => { map.sources['button.bind']!.file = file; });
     assert.match(codeOf(() => parseMap(text)), /file/, `expected rejection for ${JSON.stringify(file)}`);
   }
 });
@@ -127,7 +129,7 @@ test('数量上限：恰好达到上限时通过，超过一个时拒绝', () =>
       sources,
       nodes: Array.from({ length: nodeCount }, (_, index) => ({ id: `n${index}`, label: 'N', sourceIds: ['s0'] })),
       edges: Array.from({ length: counts.edges ?? 0 }, (_, index) => ({ id: `e${index}`, from: 'n0', to: 'n1', sourceIds: [] })),
-      walkthrough: Array.from({ length: counts.steps ?? 0 }, (_, index) => ({ id: `w${index}`, title: 'W', nodeIds: ['n0'], edgeIds: [] })),
+      walkthrough: Array.from({ length: counts.steps ?? 1 }, (_, index) => ({ id: `w${index}`, title: 'W', nodeIds: ['n0'], edgeIds: [] })),
     };
     return JSON.stringify(map);
   };
@@ -145,7 +147,7 @@ test('数量上限：恰好达到上限时通过，超过一个时拒绝', () =>
 
 test('anchorText 中的单独 CR 按换行计算行数', () => {
   const text = withChange(map => {
-    map.sources['button.id'] = { file: 'a.ts', startLine: 1, endLine: 2, anchorText: 'a\rb' };
+    map.sources['button.bind'] = { file: 'a.ts', startLine: 1, endLine: 2, anchorText: 'a\rb' };
   });
   assert.doesNotThrow(() => parseMap(text));
 });
@@ -184,4 +186,26 @@ test('导读字段：sourceId 必须存在，branches 只能指向别的 aside �
     map.walkthrough![0]!.branches = [map.walkthrough![0]!.id];
   }))), /不能指向自己/);
   assert.match(codeOf(() => parseMap(withChange(map => { (map.tour as Record<string, unknown>) = { other: 1 }; }))), /other/);
+});
+
+test('带读步骤必填且至少包含一条主线，parent 最多一层，支持持久化 notes', () => {
+  assert.match(codeOf(() => parseMap(withChange(map => { map.walkthrough = []; }))), /fewer than 1 items|至少/);
+  assert.match(codeOf(() => parseMap(withChange(map => {
+    map.walkthrough = map.walkthrough.map(step => ({ ...step, aside: true, branches: undefined }));
+  }))), /主线/);
+
+  assert.match(codeOf(() => parseMap(withChange(map => {
+    map.nodes[1]!.parent = map.nodes[0]!.id;
+    map.nodes[2]!.parent = map.nodes[1]!.id;
+  }))), /1 层阶段分组/);
+
+  const withNotes = parseMap(withChange(map => {
+    map.walkthrough[0]!.notes = [{
+      id: 'n.1',
+      question: '为什么用 void？',
+      answer: '点击监听不等待异步返回，详见 `src/bag-button.ts:5`。',
+      createdAt: '2026-11-15T12:00:00Z',
+    }];
+  }));
+  assert.equal(withNotes.walkthrough[0]!.notes?.[0]?.id, 'n.1');
 });

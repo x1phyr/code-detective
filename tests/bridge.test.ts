@@ -40,9 +40,11 @@ test('拒绝未定义字段与超大消息', () => {
   assert.equal(codeOf(() => parseBridgeMessage(huge)), 'INVALID_MESSAGE');
 });
 
-test('map.open 必须携带 mapKey', () => {
+test('map.open 与 map.delete 必须携带 mapKey', () => {
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'map.open' }))), 'INVALID_MESSAGE');
   assert.equal(parseBridgeMessage(message({ type: 'map.open', mapKey: 'root::a' })).mapKey, 'root::a');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'map.delete' }))), 'INVALID_MESSAGE');
+  assert.equal(parseBridgeMessage(message({ type: 'map.delete', mapKey: 'root::a' })).mapKey, 'root::a');
 });
 
 test('全局消息不能携带地图字段', () => {
@@ -53,7 +55,7 @@ test('校验地图版本标识格式', () => {
   assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'map.open', mapKey: 'k', mapRevision: 'abc' }))), 'INVALID_MESSAGE');
 });
 
-test('source.reveal 参数校验', () => {
+test('source.reveal 与 source.openLocation 参数校验', () => {
   const valid = message({
     type: 'source.reveal',
     payload: { targetKind: 'node', targetId: 'n1', focusEditor: true },
@@ -63,11 +65,26 @@ test('source.reveal 参数校验', () => {
     type: 'source.reveal',
     payload: { targetKind: 'pane', targetId: 'n1' },
   }))), 'INVALID_MESSAGE');
+
+  assert.equal(parseBridgeMessage(message({
+    type: 'source.openLocation',
+    payload: { file: 'src/a.ts', startLine: 12, endLine: 15 },
+  })).type, 'source.openLocation');
+  assert.equal(codeOf(() => parseBridgeMessage(message({
+    type: 'source.openLocation',
+    payload: { file: 'src/a.ts', startLine: 0 },
+  }))), 'INVALID_MESSAGE');
 });
 
-test('ui.patch 只接受声明的字段与有限数值', () => {
+test('ui.patch 只接受声明的字段与有限数值，支持 null 清空 peek / openAsideId', () => {
   assert.deepEqual(validateUiPatch({ highlightEnabled: false }), { highlightEnabled: false });
+  assert.deepEqual(validateUiPatch({ peek: null, openAsideId: null }), { peek: null, openAsideId: null });
+  assert.deepEqual(validateUiPatch({ activeTab: 'map', peek: { kind: 'edge', id: 'e1' } }), {
+    activeTab: 'map',
+    peek: { kind: 'edge', id: 'e1' },
+  });
   assert.equal(codeOf(() => validateUiPatch({ unknown: 1 })), 'INVALID_MESSAGE');
+  assert.equal(codeOf(() => validateUiPatch({ peek: { kind: 'step', id: 's1' } })), 'INVALID_MESSAGE');
   assert.equal(codeOf(() => validateUiPatch({ viewport: { x: 0, y: 0, zoom: 0 } })), 'INVALID_MESSAGE');
   assert.equal(codeOf(() => validateUiPatch({ viewport: { x: 0, y: 0, zoom: 1e9 } })), 'INVALID_MESSAGE');
 });
@@ -77,8 +94,8 @@ test('节点位置固定，拒绝坐标补丁', () => {
 });
 
 test('取消类消息识别', () => {
-  const stop = parseBridgeMessage(message({ type: 'tour.stop' }));
-  assert.equal(isCancellation(stop), true);
+  assert.equal(isCancellation(parseBridgeMessage(message({ type: 'ai.cancel' }))), true);
+  assert.equal(isCancellation(parseBridgeMessage(message({ type: 'qa.cancel' }))), true);
   assert.equal(isCancellation(parseBridgeMessage(message({
     type: 'highlight.setEnabled',
     payload: { enabled: false },
@@ -102,23 +119,42 @@ test('工作区边界判定不会把前缀相同的兄弟目录当作内部', ()
   assert.equal(resolveWithinRoot('/root/project', 'src/a.ts'), '/root/project/src/a.ts');
 });
 
-test('ai.* 生成消息已移除，只保留全局的 ai.open', () => {
-  assert.equal(parseBridgeMessage(message({ type: 'ai.open' })).type, 'ai.open');
-  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.open', mapKey: 'k' }))), 'INVALID_MESSAGE');
-  for (const type of ['ai.generate', 'ai.select', 'ai.status', 'ai.cancel']) {
-    assert.equal(codeOf(() => parseBridgeMessage(message({ type, payload: {} }))), 'INVALID_MESSAGE');
-  }
+test('校验内嵌发起框与流式追问协议消息', () => {
+  assert.equal(parseBridgeMessage(message({
+    type: 'ai.generate',
+    payload: { topic: '登录主流程', anchorFile: 'src/login.ts', startLine: 6, endLine: 14 },
+  })).type, 'ai.generate');
+  assert.equal(codeOf(() => parseBridgeMessage(message({
+    type: 'ai.generate',
+    payload: { topic: '   ' },
+  }))), 'INVALID_MESSAGE');
+
+  assert.equal(parseBridgeMessage(message({
+    type: 'qa.ask',
+    mapKey: 'root::demo',
+    payload: { stepId: 's1', question: '这里为什么不重试？', includeSelection: true },
+  })).type, 'qa.ask');
+  assert.equal(parseBridgeMessage(message({
+    type: 'qa.saveNote',
+    mapKey: 'root::demo',
+    payload: { exchangeId: 'qa-1' },
+  })).type, 'qa.saveNote');
+  assert.equal(parseBridgeMessage(message({
+    type: 'qa.saveAside',
+    mapKey: 'root::demo',
+    payload: { exchangeId: 'qa-1', title: '补充岔路' },
+  })).type, 'qa.saveAside');
 });
 
-test('ui.patch 用 selection: null 表示清空选中（JSON 会丢掉 undefined）', () => {
-  assert.deepEqual(validateUiPatch({ selection: null }), { selection: null });
-  const parsed = parseBridgeMessage(JSON.parse(JSON.stringify(message({ type: 'ui.patch', payload: { selection: null } }))));
-  assert.equal(parsed.payload.selection, null);
-  assert.equal(codeOf(() => validateUiPatch({ selection: 'node' })), 'INVALID_MESSAGE');
+test('接受 ai.refreshAgents 与 ai.openSettings 空载荷全局消息并拒绝多余字段', () => {
+  assert.equal(parseBridgeMessage(message({ type: 'ai.refreshAgents' })).type, 'ai.refreshAgents');
+  assert.equal(parseBridgeMessage(message({ type: 'ai.openSettings' })).type, 'ai.openSettings');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.refreshAgents', payload: { extra: 1 } }))), 'INVALID_MESSAGE');
+  assert.equal(codeOf(() => parseBridgeMessage(message({ type: 'ai.openSettings', mapKey: 'root::a' }))), 'INVALID_MESSAGE');
 });
 
-test('不再接受 webview 从未发送的 map.openFile / highlight.clear', () => {
-  for (const type of ['map.openFile', 'highlight.clear']) {
+test('不再接受已废弃的旧消息类型', () => {
+  for (const type of ['map.openFile', 'highlight.clear', 'tour.stop']) {
     assert.equal(codeOf(() => parseBridgeMessage(message({ type }))), 'INVALID_MESSAGE');
   }
 });

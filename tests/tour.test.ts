@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asideOrigin, mainline, moveTo, stepBy, stepSource, tourView } from '../src/core/tour';
+import { asideOrigin, mainline, moveTo, stepBy, stepSource, stepsForNode, tourView } from '../src/core/tour';
 import { questionPrompt } from '../src/ai/question';
 import { setLocale } from '../shared/i18n';
 import type { CodeMap } from '../shared/types';
@@ -105,10 +105,13 @@ test('提问提示词带上地图、步骤、代码位置、贯穿例子和之�
     index: 2,
     total: 3,
     history: [{ question: '之前的问题', answer: '之前的回答' }],
+    selection: { file: 'b.ts', startLine: 3, endLine: 4, preview: 'const x = 1;' },
     question: '为什么要这样？',
   });
   assert.match(prompt, /当前步骤（2\/3）：第二步/);
   assert.match(prompt, /b\.ts 第 3–4 行/);
+  assert.match(prompt, /const x = 1;/);
+  assert.match(prompt, /路径\/文件\.ts:行号/);
   assert.match(prompt, /贯穿例子：alice 登录/);
   assert.match(prompt, /Q: 之前的问题/);
   assert.match(prompt, /用户的问题：为什么要这样？/);
@@ -116,4 +119,10 @@ test('提问提示词带上地图、步骤、代码位置、贯穿例子和之�
   setLocale('en');
   assert.match(questionPrompt({ map: m, step: m.walkthrough![0]!, index: 1, total: 3, history: [], question: 'q' }), /Current step \(1\/3\)/);
   setLocale('zh-CN');
+});
+
+test('stepsForNode 返回节点关联的主线步号与首步 ID', () => {
+  const m = map();
+  assert.deepEqual(stepsForNode(m, 'n1'), { numbers: [1], firstStepId: 's1' });
+  assert.deepEqual(stepsForNode(m, 'n3'), { numbers: [3], firstStepId: 's3' });
 });

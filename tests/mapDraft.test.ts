@@ -36,7 +36,7 @@ test('草稿 schema 与 v1 地图字段一致，但不接受 anchorText 与 sche
     required: readonly string[];
     properties: Record<string, any>;
   };
-  assert.deepEqual([...schema.required].sort(), ['edges', 'nodes', 'sources', 'title']);
+  assert.deepEqual([...schema.required].sort(), ['edges', 'nodes', 'sources', 'title', 'walkthrough']);
   assert.equal(schema.properties.schemaVersion, undefined);
   const source = schema.properties.sources.additionalProperties;
   assert.deepEqual([...source.required].sort(), ['endLine', 'file', 'startLine']);
@@ -103,7 +103,7 @@ test('normalizeDraft 补默认值并剥掉 anchorText 与 $schema', () => {
   assert.equal(normalized.schemaVersion, 1);
   assert.equal(normalized.id, 'my-flow');
   assert.equal(normalized.sources.s1?.anchorText, undefined);
-  assert.equal(normalized.$schema, undefined);
+  assert.equal((normalized as unknown as Record<string, unknown>).$schema, undefined);
 });
 
 test('模型给的 id 一律规范化为 schema 形式', () => {
@@ -147,7 +147,7 @@ test('畸形的来源、节点与步骤被丢弃而不是抛 TypeError', () => {
   });
   assert.deepEqual(Object.keys(normalized.sources).sort(), ['good', 'stringLines']);
   assert.deepEqual(normalized.nodes.map(node => node.id), ['n1']);
-  assert.equal(normalized.walkthrough, undefined);
+  assert.deepEqual(normalized.walkthrough, []);
 });
 
 test('重复的 sourceIds 会被去重，避免 uniqueItems 校验失败', () => {
@@ -162,9 +162,28 @@ test('重复的 sourceIds 会被去重，避免 uniqueItems 校验失败', () =>
   assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
 });
 
-test('缺少 title 时给出可读错误', () => {
+test('缺少 title 时给出可读错误；空草稿、外层包装与 fallbackTitle 均按规则处理', () => {
+  assert.throws(() => normalizeDraft({}), /空的讲义草稿/);
+  assert.throws(() => normalizeDraft({ map: {} }), /空的讲义草稿/);
   assert.throws(() => normalizeDraft({ title: '   ', sources: {}, nodes: [], edges: [] }), /title/);
   assert.throws(() => normalizeDraft({ sources: {}, nodes: [], edges: [] }), /title/);
+
+  const unwrapped = normalizeDraft({
+    map: {
+      title: '外层包装',
+      sources: { s1: { file: 'a.ts', startLine: 1, endLine: 1 } },
+      nodes: [{ id: 'n1', label: 'N', sourceIds: ['s1'] }],
+      edges: [],
+    },
+  });
+  assert.equal(unwrapped.title, '外层包装');
+
+  const withFallback = normalizeDraft({
+    sources: { s1: { file: 'a.ts', startLine: 1, endLine: 1 } },
+    nodes: [{ id: 'n1', label: 'N', sourceIds: ['s1'] }],
+    edges: [],
+  }, { fallbackTitle: '登录链路' });
+  assert.equal(withFallback.title, '登录链路');
 });
 
 const oneLine = (): string => 'line\n';
@@ -438,4 +457,39 @@ test('草稿保留导读字段，去掉悬空的 sourceId 和指向非岔路的 
   assert.equal(side!.sourceId, undefined);
   assert.deepEqual(filled.map.tour, { example: '例子' });
   parseMap(JSON.stringify(filled.map));
+});
+
+test('缺少带读主线时自动按节点兜底生成，并拍平超过 1 层的嵌套 parent', () => {
+  const input = draft();
+  input.walkthrough = [];
+  input.nodes.push({ id: 'top', label: '顶层阶段', sourceIds: [] });
+  input.nodes[0]!.parent = 'top';
+  input.nodes[1]!.parent = 'click';
+  const filled = fillAnchors(normalizeDraft(input), readDemo);
+  assert.ok(filled.map.walkthrough.length >= 1, '应自动兜底生成主线带读步骤');
+  const byId = new Map(filled.map.nodes.map(node => [node.id, node]));
+  assert.equal(byId.get('click')!.parent, 'top');
+  assert.equal(byId.get('render')!.parent, 'top', '超过 1 层的嵌套应拍平到顶层分组');
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
+});
+
+test('agent 写的 ./ 前缀、反斜杠和工作区内绝对路径会被改成相对路径', async () => {
+  const { repairDraftPath } = await import('../src/core/mapDraft');
+  assert.equal(repairDraftPath('./src/a.ts'), 'src/a.ts');
+  assert.equal(repairDraftPath('src\\a.ts'), 'src/a.ts');
+  assert.equal(repairDraftPath('/work/proj/src/a.ts', '/work/proj'), 'src/a.ts');
+  assert.equal(repairDraftPath('/work/proj/src/a.ts', '/work/proj/'), 'src/a.ts');
+  assert.equal(repairDraftPath('/elsewhere/a.ts', '/work/proj'), '/elsewhere/a.ts');
+});
+
+test('全部节点都不可用时，错误里带上源码被丢掉的原因', async () => {
+  const { fillAnchors, normalizeDraft } = await import('../src/core/mapDraft');
+  const draft = normalizeDraft({
+    title: '空',
+    sources: { s1: { file: 'missing.ts', startLine: 1, endLine: 2 } },
+    nodes: [{ id: 'n1', label: '一', sourceIds: ['s1'] }],
+    edges: [],
+    walkthrough: [{ id: 'w1', title: '一', nodeIds: ['n1'], edgeIds: [] }],
+  });
+  assert.throws(() => fillAnchors(draft, () => undefined), /s1: .*missing\.ts/);
 });

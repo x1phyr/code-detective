@@ -3,23 +3,22 @@ const vscode = require('vscode');
 
 const COMMANDS = [
   'codeDetective.openMap',
+  'codeDetective.openMapPanel',
   'codeDetective.refreshMaps',
   'codeDetective.startWalkthrough',
   'codeDetective.nextStep',
   'codeDetective.previousStep',
-  'codeDetective.stopWalkthrough',
   'codeDetective.clearHighlights',
   'codeDetective.toggleHighlights',
   'codeDetective.copyAuthoringPrompt',
   'codeDetective.openHelp',
   'codeDetective.generateMap',
+  'codeDetective.generateFromCursor',
   'codeDetective.chooseAiProvider',
   'codeDetective.cancelAi',
   'codeDetective.fitView',
   'codeDetective.highlightsOn',
   'codeDetective.highlightsOff',
-  'codeDetective.tourBranch',
-  'codeDetective.tourReply',
 ];
 
 const TOOLS = ['codeDetective_searchSources', 'codeDetective_readSource', 'codeDetective_createMap'];

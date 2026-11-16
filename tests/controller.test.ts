@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import type { CodeMap, SourceStatus, ViewState } from '../shared/types';
-import { sanitizeViewState } from '../src/core/selection';
+import { sanitizeViewState, sourceIdsForSelection } from '../src/core/selection';
+import { mainline } from '../src/core/tour';
 import { resolveSourceText } from '../src/core/source';
 import { parseMap } from '../src/core/validator';
-import { parseBridgeMessage } from '../src/host/bridge';
+import { parseBridgeMessage, validateUiPatch } from '../src/host/bridge';
 import { isCanonicalRelativePath } from '../src/core/paths';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -48,21 +49,33 @@ class FakeController {
     const message = parseBridgeMessage(raw);
     this.posted.push({ type: message.type, payload: message.payload });
     switch (message.type) {
-      case 'ui.patch':
-        this.ui = sanitizeViewState(this.map, { ...this.ui, ...(message.payload as Partial<ViewState>) });
+      case 'ui.patch': {
+        const patch = validateUiPatch(message.payload);
+        const { openAsideId, peek, sourceId, ...rest } = patch;
+        const next: Partial<ViewState> = { ...this.ui, ...rest };
+        if (openAsideId === null) delete next.openAsideId;
+        else if (openAsideId !== undefined) next.openAsideId = openAsideId;
+        if (peek === null) delete next.peek;
+        else if (peek !== undefined) next.peek = peek;
+        if (sourceId === null) delete next.sourceId;
+        else if (sourceId !== undefined) next.sourceId = sourceId;
+        this.ui = sanitizeViewState(this.map, next);
         return;
-      case 'tour.goto':
-        this.ui = sanitizeViewState(this.map, {
-          ...this.ui,
-          selection: { kind: 'step', id: String(message.payload.stepId) },
-          stepId: String(message.payload.stepId),
-        });
+      }
+      case 'tour.goto': {
+        const stepId = String((message.payload as { stepId: string }).stepId);
+        const step = this.map.walkthrough.find(s => s.id === stepId);
+        if (!step) return;
+        const firstSource = sourceIdsForSelection(this.map, { kind: 'step', id: stepId })[0];
+        if (step.aside) {
+          this.ui = sanitizeViewState(this.map, { ...this.ui, openAsideId: stepId, peek: undefined, sourceId: firstSource });
+        } else {
+          this.ui = sanitizeViewState(this.map, { ...this.ui, activeStepId: stepId, openAsideId: undefined, peek: undefined, sourceId: firstSource });
+        }
         return;
+      }
       case 'highlight.setEnabled':
-        this.ui = sanitizeViewState(this.map, { ...this.ui, highlightEnabled: message.payload.enabled === true });
-        return;
-      case 'tour.stop':
-        this.ui = sanitizeViewState(this.map, { ...this.ui, stepId: undefined, selection: undefined });
+        this.ui = sanitizeViewState(this.map, { ...this.ui, highlightEnabled: (message.payload as { enabled?: boolean }).enabled === true });
         return;
       default:
         return;
@@ -85,40 +98,77 @@ test('示例地图的所有来源都能在真实文件中定位', () => {
   }
 });
 
-test('选中节点会同步视图状态并保留高亮开关', () => {
+test('login-demo 的所有来源同样能在真实文件中精确匹配', () => {
+  const loginRoot = path.join(here, '..', 'examples', 'login-demo');
+  const loginMap = parseMap(readFileSync(path.join(loginRoot, '.code-detective', 'maps', 'login-demo.json'), 'utf8'));
+  for (const [id, ref] of Object.entries(loginMap.sources)) {
+    const text = readFileSync(path.join(loginRoot, ref.file), 'utf8');
+    const status = resolveSourceText(ref, text);
+    assert.equal(status.state, 'matched', `login-demo ${id} 期望 matched，实际 ${status.state}`);
+  }
+});
+
+test('closebagpanel 与各示例地图的所有来源精确匹配且保持在 5 行以内', () => {
+  const cases = [
+    { root: exampleRoot, file: path.join(exampleRoot, '.code-detective', 'maps', 'bag-demo.json'), name: 'bag-demo' },
+    { root: exampleRoot, file: path.join(exampleRoot, '.code-detective', 'maps', 'closebagpanel.json'), name: 'closebagpanel' },
+    {
+      root: path.join(here, '..', 'examples', 'login-demo'),
+      file: path.join(here, '..', 'examples', 'login-demo', '.code-detective', 'maps', 'login-demo.json'),
+      name: 'login-demo',
+    },
+  ];
+  for (const item of cases) {
+    const parsed = parseMap(readFileSync(item.file, 'utf8'));
+    for (const [id, ref] of Object.entries(parsed.sources)) {
+      const text = readFileSync(path.join(item.root, ref.file), 'utf8');
+      const status = resolveSourceText(ref, text);
+      assert.equal(status.state, 'matched', `${item.name} ${id} 期望 matched，实际 ${status.state}`);
+      assert.ok(ref.endLine - ref.startLine + 1 <= 5, `${item.name} ${id} 应聚焦关键语句（<= 5 行），实际 ${ref.endLine - ref.startLine + 1} 行`);
+    }
+  }
+});
+
+test('脉络图窥探节点会保留当前带读步骤与高亮开关', () => {
   const controller = loadDemo();
-  controller.receive(envelope('ui.patch', { selection: { kind: 'node', id: 'open' } }));
-  assert.deepEqual(controller.ui.selection, { kind: 'node', id: 'open' });
+  const initialStep = controller.ui.activeStepId;
+  controller.receive(envelope('ui.patch', { activeTab: 'map', peek: { kind: 'node', id: 'openBagPanel' } }));
+  assert.deepEqual(controller.ui.peek, { kind: 'node', id: 'openBagPanel' });
+  assert.equal(controller.ui.activeStepId, initialStep);
   assert.equal(controller.ui.highlightEnabled, true);
+
+  controller.receive(envelope('ui.patch', { peek: null }));
+  assert.equal(controller.ui.peek, undefined);
 });
 
-test('未知选择会被丢弃而不是写入持久状态', () => {
+test('未知 peek 目标会被丢弃而不是写入持久状态', () => {
   const controller = loadDemo();
-  controller.receive(envelope('ui.patch', { selection: { kind: 'node', id: 'ghost' } }));
-  assert.equal(controller.ui.selection, undefined);
+  controller.receive(envelope('ui.patch', { peek: { kind: 'node', id: 'ghost' } }));
+  assert.equal(controller.ui.peek, undefined);
 });
 
-test('导读步骤可以前进、后退并停止', () => {
+test('导读步骤可以在主线间跳转并就地展开岔路', () => {
   const controller = loadDemo();
-  const steps = controller.map.walkthrough ?? [];
-  assert.equal(steps.length, 3);
+  const steps = mainline(controller.map);
+  assert.equal(steps.length, 6);
 
-  controller.receive(envelope('tour.goto', { stepId: steps[0]!.id }));
-  assert.equal(controller.ui.stepId, steps[0]!.id);
-  assert.deepEqual(controller.ui.selection, { kind: 'step', id: steps[0]!.id });
+  controller.receive(envelope('tour.goto', { stepId: 'w.read' }));
+  assert.equal(controller.ui.activeStepId, 'w.read');
+  assert.equal(controller.ui.openAsideId, undefined);
 
-  controller.receive(envelope('tour.goto', { stepId: steps[2]!.id }));
-  assert.equal(controller.ui.stepId, steps[2]!.id);
+  controller.receive(envelope('tour.goto', { stepId: 'w.fallback' }));
+  assert.equal(controller.ui.activeStepId, 'w.read');
+  assert.equal(controller.ui.openAsideId, 'w.fallback');
 
-  controller.receive(envelope('tour.stop'));
-  assert.equal(controller.ui.stepId, undefined);
-  assert.equal(controller.ui.selection, undefined);
+  controller.receive(envelope('tour.goto', { stepId: 'w.refresh' }));
+  assert.equal(controller.ui.activeStepId, 'w.refresh');
+  assert.equal(controller.ui.openAsideId, undefined);
 });
 
 test('拒绝节点位置补丁，布局保持固定', () => {
   const controller = loadDemo();
   assert.throws(
-    () => controller.receive(envelope('ui.patch', { positions: { open: { x: 120, y: 40 } } })),
+    () => controller.receive(envelope('ui.patch', { positions: { openBagPanel: { x: 120, y: 40 } } })),
     /未定义字段/,
   );
   assert.equal('positions' in controller.ui, false);
@@ -128,7 +178,7 @@ test('关闭高亮后状态保持关闭', () => {
   const controller = loadDemo();
   controller.receive(envelope('highlight.setEnabled', { enabled: false }));
   assert.equal(controller.ui.highlightEnabled, false);
-  controller.receive(envelope('ui.patch', { selection: { kind: 'node', id: 'click' } }));
+  controller.receive(envelope('ui.patch', { peek: { kind: 'node', id: 'bindBagButton' } }));
   assert.equal(controller.ui.highlightEnabled, false);
 });
 
@@ -145,4 +195,3 @@ test('拒绝伪造的消息与越界视图数据', () => {
   assert.throws(() => controller.receive(envelope('ui.patch', { viewport: { x: 0, y: 0, zoom: 99 } })));
   assert.throws(() => controller.receive(envelope('view.ready', { extra: true })));
 });
-
