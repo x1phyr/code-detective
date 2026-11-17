@@ -24,7 +24,7 @@ const COMMANDS = [
 const TOOLS = ['codeDetective_searchSources', 'codeDetective_readSource', 'codeDetective_createMap'];
 
 exports.run = async function run() {
-  const extension = vscode.extensions.getExtension('x1phyr.code-detective-guide');
+  const extension = vscode.extensions.getExtension('x1phyr.code-detective');
   assert.ok(extension, '扩展应已加载');
   await extension.activate();
 
