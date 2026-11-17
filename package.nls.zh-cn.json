@@ -1,4 +1,5 @@
 {
+  "schema.codeMap.url": "./schemas/code-map-v1.zh-cn.schema.json",
   "displayName": "代码侦探 🕵️",
   "description": "熟手坐旁边手把手带你读代码：叙事式分步带读讲义、流式追问沉淀笔记、粗粒度全景脉络图。",
   "viewsContainers.activitybar.0.title": "代码侦探",
@@ -19,7 +20,7 @@
   "command.copyAuthoringPrompt": "复制 AI 带读生成提示词",
   "command.openHelp": "查看讲义格式与使用说明",
   "command.generateMap": "新建 AI 带读讲义",
-  "command.generateFromCursor": "代码侦探：从此处开始带读",
+  "command.generateFromCursor": "从此处开始带读",
   "command.chooseAiProvider": "选择带读 AI 引擎",
   "command.cancelAi": "取消 AI 任务",
   "chatParticipants.0.fullName": "代码侦探",

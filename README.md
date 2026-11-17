@@ -1,3 +1,5 @@
+简体中文 | [English](README.en.md)
+
 <p align="center">
   <img src="media/icon.png" alt="Code Detective Logo" width="112" height="112">
 </p>
@@ -10,7 +12,7 @@ AI-powered code walkthroughs, call graphs, and contextual Q&A in VS Code.
 
 Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了解当前步骤，点击跳转到真实源码，遇到不懂的地方直接追问，再用调用脉络图确认全局位置。
 
-[快速开始](#快速开始) · [AI 引擎](#ai-引擎) · [数据与隐私](#数据与隐私) · [开发与验证](#开发与验证)
+[快速开始](#快速开始) · [语言支持](#语言支持) · [AI 引擎](#ai-引擎) · [数据与隐私](#数据与隐私) · [开发与验证](#开发与验证)
 
 ![分步带读讲义与源码联动](media/screenshots/walkthrough.jpg)
 
@@ -49,7 +51,7 @@ Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了�
 
 扩展安装标识为 **`x1phyr.code-detective-ai`**，英文显示名称为 **Code Detective AI**，中文名为 **代码侦探**。
 
-可安装构建产物 `artifacts/code-detective-ai-0.2.0.vsix`：在 VS Code 命令面板运行 **Extensions: Install from VSIX...**，选择安装包。
+可从 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=x1phyr.code-detective-ai) 安装；本地构建也可安装 `artifacts/code-detective-ai-0.2.1.vsix`：在 VS Code 命令面板运行 **Extensions: Install from VSIX...**，选择安装包。
 
 想先体验示例，可以克隆本仓库后，用 VS Code 打开 `examples/login-demo` 或 `examples/bag-demo`，从左侧 **代码侦探** 面板选择已有讲义。
 
@@ -69,6 +71,14 @@ Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了�
 - 点开步骤下的岔路了解异常或旁路，阅读后返回主线。
 - 将有价值的解答保存为本步笔记或新岔路。
 - 从标题栏打开独立页签，宽屏查看调用脉络图。
+
+## 语言支持
+
+命令、设置、通知、来源状态、JSON 字段提示与插件界面自动跟随编辑器的 **显示语言（Display Language）**：中文环境使用简体中文，其他语言环境使用英文。修改编辑器显示语言并重载窗口即可切换。
+
+讲义和追问回答跟随主题或问题的语言。问题只有代码符号或路径时，优先使用当前讲义语言，无法判断时跟随界面语言。已有讲义与笔记保留原文，不会自动翻译。
+
+浏览器预览可用 `?lang=zh-CN` / `?lang=en` 切换；两个内置示例均提供英文预览文案，源文件内容保持原样。
 
 ## AI 引擎
 
@@ -110,7 +120,7 @@ Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了�
 <details>
 <summary>手写讲义或接入其他工具时，查看协议与示例</summary>
 
-讲义保存在 `.code-detective/maps/<id>.json`（Schema 见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）：
+讲义保存在 `.code-detective/maps/<id>.json`（Schema 见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.zh-cn.schema.json)）：
 
 - `sources`：`file`（工作区规范相对路径）、`startLine`、`endLine`，可选 `anchorText`（整行锚点文本，代码行号漂移时自动重定位）、`note`（首行行尾批注）、`symbol`（所属函数或类方法）、`variantLabel`（并列实现标签）。
 - `walkthrough`（必填，至少 1 条主线步骤）：每步包含 `id`、`title`、`nodeIds`、`edgeIds`，推荐填写 `sourceId`、`description`、`why`、`watch`、`skip`、`example`；`aside: true` 表示支线岔路（由主线步骤的 `branches` 引用）；`notes` 保存用户沉淀的问答笔记。
@@ -132,7 +142,7 @@ Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了�
 npm ci
 npm run check        # 类型检查 + 单元测试 + 生产构建
 npm run dev          # 浏览器内交互预览（默认 login-demo，加 ?map=bag 切换背包示例）
-npm run package      # 打包 artifacts/code-detective-ai-0.2.0.vsix
+npm run package      # 打包 artifacts/code-detective-ai-0.2.1.vsix
 ```
 
 | 目录 | 职责 |

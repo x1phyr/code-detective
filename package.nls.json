@@ -1,4 +1,5 @@
 {
+  "schema.codeMap.url": "./schemas/code-map-v1.schema.json",
   "displayName": "Code Detective AI",
   "description": "Hand-holding AI code walkthroughs: narrative step-by-step mentor guides, inline Q&A, and coarse-grained call graphs.",
   "viewsContainers.activitybar.0.title": "Code Detective",
@@ -19,7 +20,7 @@
   "command.copyAuthoringPrompt": "Copy AI Guide Authoring Prompt",
   "command.openHelp": "Guide Format & Usage Help",
   "command.generateMap": "New AI Code Guide",
-  "command.generateFromCursor": "Code Detective: Start Walkthrough from Here",
+  "command.generateFromCursor": "Start Walkthrough from Here",
   "command.chooseAiProvider": "Choose AI Engine",
   "command.cancelAi": "Cancel AI Task",
   "chatParticipants.0.fullName": "Code Detective",

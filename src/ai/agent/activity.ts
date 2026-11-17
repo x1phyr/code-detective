@@ -1,4 +1,5 @@
 import type { AgentStreamCallbacks } from './types';
+import { t } from '../../../shared/i18n';
 
 export function shortPath(raw: unknown): string {
   if (typeof raw !== 'string' || !raw) return '';
@@ -18,7 +19,7 @@ export function emitToolActivity(
 
   if (name === 'Read' || name === 'read_file' || name === 'view_file') {
     const target = shortPath(input.file_path ?? input.path ?? input.Path ?? input.target_file ?? input.file);
-    callbacks.onActivity?.({ kind: 'read', text: target || 'source file' });
+    callbacks.onActivity?.({ kind: 'read', text: target || t('ai.sourceFile') });
     return;
   }
 
@@ -30,7 +31,7 @@ export function emitToolActivity(
         : typeof input.Query === 'string'
           ? input.Query
           : '';
-    callbacks.onActivity?.({ kind: 'search', text: pattern || 'pattern' });
+    callbacks.onActivity?.({ kind: 'search', text: pattern || t('ai.searchPattern') });
     return;
   }
 

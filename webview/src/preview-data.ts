@@ -1,4 +1,6 @@
 import type { CodeMap } from '../../shared/types';
+import { getLocale } from '../../shared/i18n';
+import { localizePreviewMap } from './preview-i18n';
 import bagButton from '../../examples/bag-demo/src/bag-button.ts?raw';
 import bagPanel from '../../examples/bag-demo/src/bag-panel.ts?raw';
 import bagRepository from '../../examples/bag-demo/src/bag-repository.ts?raw';
@@ -11,7 +13,7 @@ import loginRawMap from '../../examples/login-demo/.code-detective/maps/login-de
 
 function stripSchema(raw: unknown): CodeMap {
   const { $schema: _schema, ...rest } = raw as CodeMap & { $schema?: string };
-  return structuredClone(rest);
+  return localizePreviewMap(rest, getLocale());
 }
 
 export interface PreviewBundle {

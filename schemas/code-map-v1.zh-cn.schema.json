@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "代码侦探带读地图 v1",
+  "description": "由 AI 编写的带读讲义与粗粒度调用脉络图。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "title", "sources", "nodes", "edges", "walkthrough"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "title": { "$ref": "#/definitions/shortText" },
+    "description": { "type": "string" },
+    "sources": {
+      "type": "object",
+      "maxProperties": 2000,
+      "propertyNames": { "$ref": "#/definitions/id" },
+      "additionalProperties": { "$ref": "#/definitions/source" }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": { "$ref": "#/definitions/node" }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/definitions/edge" }
+    },
+    "walkthrough": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/definitions/step" }
+    },
+    "tour": { "$ref": "#/definitions/tour" }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "shortText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
+    },
+    "sourceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 2000,
+      "items": { "$ref": "#/definitions/id" }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "startLine", "endLine"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z][\\w+.-]*:)(?!\\.\\.?(?:/|$))[^\\S\\u0000-\\u001F\\u007F]*[^/\\\\\\s\\u0000-\\u001F\\u007F][^/\\\\\\u0000-\\u001F\\u007F]*(?:/(?!\\.\\.?(?:/|$))[^\\S\\u0000-\\u001F\\u007F]*[^/\\\\\\s\\u0000-\\u001F\\u007F][^/\\\\\\u0000-\\u001F\\u007F]*)*$"
+        },
+        "startLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "endLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "anchorText": { "type": "string" },
+        "symbol": { "$ref": "#/definitions/shortText" },
+        "variantLabel": { "$ref": "#/definitions/shortText" },
+        "note": { "$ref": "#/definitions/shortText", "description": "这段代码做了什么，一句话；定位到该段代码时显示在首行行尾" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "sourceIds"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "label": { "$ref": "#/definitions/shortText" },
+        "description": { "type": "string" },
+        "kind": { "enum": ["step", "function", "condition", "event", "exit"] },
+        "parent": { "$ref": "#/definitions/id", "description": "所属顶层阶段分组（另一个顶层节点的 id，最多 1 层分组）" },
+        "sourceMode": { "enum": ["slices", "variants"] },
+        "sourceIds": { "$ref": "#/definitions/sourceIds" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "sourceIds"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "from": { "$ref": "#/definitions/id" },
+        "to": { "$ref": "#/definitions/id" },
+        "label": { "$ref": "#/definitions/nonEmptyText" },
+        "description": { "type": "string" },
+        "kind": { "enum": ["call", "delegated", "dispatch", "event", "flow", "related"] },
+        "branch": { "$ref": "#/definitions/shortText", "description": "分支条件；写了即为支线（默认折叠），不写为主干" },
+        "via": { "$ref": "#/definitions/sourceIds" },
+        "sourceIds": { "$ref": "#/definitions/sourceIds" }
+      }
+    },
+    "noteItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "answer"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "question": { "type": "string" },
+        "answer": { "$ref": "#/definitions/nonEmptyText" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "nodeIds", "edgeIds"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "title": { "$ref": "#/definitions/nonEmptyText" },
+        "description": { "type": "string" },
+        "nodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 500,
+          "items": { "$ref": "#/definitions/id" }
+        },
+        "edgeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "items": { "$ref": "#/definitions/id" }
+        },
+        "sourceId": { "$ref": "#/definitions/id", "description": "这一步聚焦阅读的那段代码（sources 的 id）" },
+        "why": { "type": "string", "description": "为什么这样写" },
+        "watch": { "type": "string", "description": "值得注意、容易踩坑的地方" },
+        "skip": { "type": "string", "description": "这一步可以先跳过不看的部分" },
+        "example": { "type": "string", "description": "贯穿例子走到这一步时发生了什么" },
+        "aside": { "type": "boolean", "description": "岔路步骤：不在主线上，从主线某一步的 branches 内嵌展开" },
+        "branches": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 10,
+          "items": { "$ref": "#/definitions/id" },
+          "description": "从这一步可以岔出去看的 aside 步骤 id"
+        },
+        "notes": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/definitions/noteItem" },
+          "description": "用户追问后沉淀在本步的补充笔记"
+        }
+      }
+    },
+    "tour": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "example": { "type": "string", "description": "贯穿全程的具体例子，例如“用户 alice 输错密码三次后再登录”" },
+        "recap": { "type": "string", "description": "看完后的总结" },
+        "exercise": { "type": "string", "description": "一个动手验证理解的小练习" }
+      }
+    }
+  }
+}

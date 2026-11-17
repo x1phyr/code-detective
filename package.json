@@ -2,7 +2,7 @@
   "name": "code-detective-ai",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "x1phyr",
   "icon": "media/icon.png",
   "private": true,
@@ -586,7 +586,7 @@
         "fileMatch": [
           "**/.code-detective/maps/*.json"
         ],
-        "url": "./schemas/code-map-v1.schema.json"
+        "url": "%schema.codeMap.url%"
       }
     ],
     "configuration": [

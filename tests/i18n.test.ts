@@ -7,9 +7,20 @@ const placeholders = (text: string): string[] => [...text.matchAll(/\{(\w+)\}/g)
 test('语言标签归一到 zh-CN / en', () => {
   assert.equal(resolveLocale('zh-cn'), 'zh-CN');
   assert.equal(resolveLocale('zh-TW'), 'zh-CN');
+  assert.equal(resolveLocale(' zh_CN '), 'zh-CN');
+  assert.equal(resolveLocale('ZH_hant_HK'), 'zh-CN');
+  assert.equal(resolveLocale('zhx'), 'en');
   assert.equal(resolveLocale('en-US'), 'en');
   assert.equal(resolveLocale('ja'), 'en');
   assert.equal(resolveLocale(undefined), 'en');
+});
+
+test('预览问答和工具足迹按所选语言渲染，插值不被当作模板再次替换', () => {
+  assert.match(t('webview.previewAnswer', { title: 'Read {record}', cite: '`src/example.ts:3`' }, 'en'), /Read \{record\}/);
+  assert.equal(t('ai.sourceFile', undefined, 'en'), 'source file');
+  assert.equal(t('ai.sourceFile', undefined, 'zh-CN'), '源码文件');
+  assert.doesNotMatch(t('webview.appTitle', undefined, 'en'), /\p{Script=Han}/u);
+  assert.match(t('webview.appTitle', undefined, 'zh-CN'), /代码侦探/);
 });
 
 test('每条文案两种语言都非空，且占位符一致', () => {
@@ -58,6 +69,11 @@ test('detectPromptLocale 根据用户发起的对话文本识别语言，纯代�
     assert.equal(detectPromptLocale('Explain closeBagPanel'), 'en');
     assert.equal(detectPromptLocale('Why does `refreshList` check `!panel`?'), 'en');
     assert.equal(detectPromptLocale('Why?'), 'en');
+    assert.equal(detectPromptLocale('Explain src/登录.ts'), 'en');
+    assert.equal(detectPromptLocale('Why: src/登录.ts'), 'en');
+    assert.equal(detectPromptLocale('解释 src/login.ts 的流程'), 'zh-CN');
+    assert.equal(detectPromptLocale('为什么src/login.ts会失败？'), 'zh-CN');
+    assert.equal(detectPromptLocale('Explain src/用户/login.ts'), 'en');
     assert.equal(detectPromptLocale('バッグパネルを閉じる流れ'), 'en');
     assert.equal(detectPromptLocale('가방 패널 닫기 흐름'), 'en');
     assert.equal(detectPromptLocale('closeBagPanel'), 'zh-CN');

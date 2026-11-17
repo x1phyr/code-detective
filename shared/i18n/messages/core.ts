@@ -121,6 +121,15 @@ export const core = {
   'core.adjustClamped': { 'zh-CN': '已按文件长度裁剪行号：{items}', en: 'Line numbers clamped to file length: {items}' },
 
   // validator.ts
+  'core.schemaType': { 'zh-CN': '{path}：必须为 {type} 类型', en: '{path}: must be of type {type}' },
+  'core.schemaMinLength': { 'zh-CN': '{path}：至少需要 {limit} 个字符', en: '{path}: minimum length is {limit}' },
+  'core.schemaMaxLength': { 'zh-CN': '{path}：不能超过 {limit} 个字符', en: '{path}: maximum length is {limit}' },
+  'core.schemaMinItems': { 'zh-CN': '{path}：至少需要 {limit} 项', en: '{path}: minimum item count is {limit}' },
+  'core.schemaMinProperties': { 'zh-CN': '{path}：至少需要 {limit} 个字段', en: '{path}: minimum property count is {limit}' },
+  'core.schemaMinimum': { 'zh-CN': '{path}：不能小于 {limit}', en: '{path}: must be at least {limit}' },
+  'core.schemaMaximum': { 'zh-CN': '{path}：不能大于 {limit}', en: '{path}: must be at most {limit}' },
+  'core.schemaPattern': { 'zh-CN': '{path}：必须匹配格式 {pattern}', en: '{path}: must match pattern {pattern}' },
+  'core.schemaConstraint': { 'zh-CN': '{path}：不满足 {constraint} 约束', en: '{path}: does not satisfy the {constraint} constraint' },
   'core.validateFailedAt': { 'zh-CN': '地图校验失败 {path}：{message}', en: 'Map validation failed at {path}: {message}' },
   'core.validateFailed': { 'zh-CN': '地图校验失败：\n{details}', en: 'Map validation failed:\n{details}' },
   'core.location': { 'zh-CN': '第 {line} 行，第 {column} 列', en: 'line {line}, column {column}' },

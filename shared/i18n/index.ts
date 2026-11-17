@@ -28,7 +28,7 @@ let current: Locale = 'zh-CN';
 
 /** 把 VS Code / 浏览器的语言标签（`zh-cn`、`zh-TW`、`en-US`…）归一到支持的语言。 */
 export function resolveLocale(tag: string | undefined): Locale {
-  return tag && /^zh\b/i.test(tag) ? 'zh-CN' : 'en';
+  return tag && /^zh(?:-|$)/i.test(tag.trim().replaceAll('_', '-')) ? 'zh-CN' : 'en';
 }
 
 export function setLocale(locale: Locale): void {
@@ -60,21 +60,24 @@ const OTHER_NON_LATIN_RE = /[\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Hebre
  */
 export function detectPromptLocale(input: string | undefined, fallback: Locale = current): Locale {
   if (!input || !input.trim()) return fallback;
-  const prose = input.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ');
+  const prose = input.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ')
+    // Keep prose adjacent to a path, e.g. 为什么src/login.ts会失败？
+    .replace(/(?:[A-Za-z]:)?[A-Za-z0-9_@~.-]+[/\\](?:[^/\\\s`"'()[\]{}:;!?，。！？]+[/\\])*[^/\\\s`"'()[\]{}:;!?，。！？]+\.[A-Za-z0-9]+(?::\d+(?:-\d+)?)?/g, ' ')
+    .replace(/\S*(?:[/\\]|\w\.\w|\.\w)\S*/g, ' ');
   if (KANA_OR_HANGUL_RE.test(prose)) return 'en';
   if (HAN_RE.test(prose)) return 'zh-CN';
   if (OTHER_NON_LATIN_RE.test(prose)) return 'en';
 
   const cleaned = prose
     .replace(/\([^)]*:\d+(?:-\d+)?\)/g, ' ')
-    .replace(/\S*(?:[/:\\]|\w\.\w|\.\w)\S*/g, ' ')
+    .replace(/\b[A-Za-z_$][\w$]*:\d+(?:-\d+)?\b/g, ' ')
     .replace(/\b[A-Za-z_$][\w$]*\([^)]*\)/g, ' ')
     .replace(/\b[A-Za-z]*[a-z][A-Z]\w*\b/g, ' ')
     .replace(/\b[A-Z]{2,}[a-z]\w*\b/g, ' ')
     .replace(/\b\w*[_0-9]\w*\b/g, ' ')
     .replace(/\b[A-Za-z]+(?:-[A-Za-z0-9]+)+\b/g, ' ');
   const words = cleaned.match(/[A-Za-zÀ-ÖØ-öø-ÿ]{2,}/g) ?? [];
-  const hasPhrase = /\s|[?!,;]/.test(prose.trim());
+  const hasPhrase = /\s|[?!,;:]/.test(input.trim());
   if (words.length >= 2 || (words.length >= 1 && hasPhrase)) return 'en';
   return fallback;
 }

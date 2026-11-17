@@ -32,6 +32,7 @@ function draft(): CodeMap {
 }
 
 test('草稿 schema 与 v1 地图字段一致，但不接受 anchorText 与 schemaVersion', () => {
+  assert.doesNotMatch(JSON.stringify(DRAFT_MAP_SCHEMA), /\p{Script=Han}/u);
   const schema = DRAFT_MAP_SCHEMA as unknown as {
     required: readonly string[];
     properties: Record<string, any>;

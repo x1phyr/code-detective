@@ -2,6 +2,8 @@ import type { Message } from '../index';
 
 /** ai 区域的文案。key 统一以 `ai.` 开头。 */
 export const ai = {
+  'ai.sourceFile': { 'zh-CN': '源码文件', en: 'source file' },
+  'ai.searchPattern': { 'zh-CN': '搜索模式', en: 'pattern' },
   'ai.unknownAgent': { 'zh-CN': '未知的 agent：{agent}。可选：{options}。', en: 'Unknown agent: {agent}. Available: {options}.' },
   'ai.listSeparator': { 'zh-CN': '、', en: ', ' },
   'ai.noJsonInResponse': { 'zh-CN': '没有在响应中找到合法的 JSON 对象。', en: 'No valid JSON object found in the response.' },

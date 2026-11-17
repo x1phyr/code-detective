@@ -5,13 +5,15 @@ import '@vscode/codicons/dist/codicon.css';
 import './styles.css';
 import App from './App.vue';
 import { createHost, hasVsCodeApi, type HostBridge } from './host';
-import { resolveLocale, setLocale, t } from '../../shared/i18n';
+import { getLocale, resolveLocale, setLocale, t } from '../../shared/i18n';
 
 // 宿主把 VS Code 显示语言写在 <html lang>；浏览器预览则跟随浏览器语言（可用 ?lang=en 覆盖）。
 setLocale(resolveLocale(
   new URLSearchParams(location.search).get('lang')
     ?? (hasVsCodeApi() ? document.documentElement.lang : navigator.language),
 ));
+document.documentElement.lang = getLocale();
+document.title = t('webview.appTitle');
 
 async function mount(): Promise<void> {
   const host: HostBridge = await createHost();

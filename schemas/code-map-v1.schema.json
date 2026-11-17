@@ -80,7 +80,7 @@
         "anchorText": { "type": "string" },
         "symbol": { "$ref": "#/definitions/shortText" },
         "variantLabel": { "$ref": "#/definitions/shortText" },
-        "note": { "$ref": "#/definitions/shortText", "description": "这段代码做了什么，一句话；定位到该段代码时显示在首行行尾" }
+        "note": { "$ref": "#/definitions/shortText", "description": "One sentence explaining these lines, shown as an inline source annotation." }
       }
     },
     "node": {
@@ -92,7 +92,7 @@
         "label": { "$ref": "#/definitions/shortText" },
         "description": { "type": "string" },
         "kind": { "enum": ["step", "function", "condition", "event", "exit"] },
-        "parent": { "$ref": "#/definitions/id", "description": "所属顶层阶段分组（另一个顶层节点的 id，最多 1 层分组）" },
+        "parent": { "$ref": "#/definitions/id", "description": "Top-level stage node ID; at most one level of grouping." },
         "sourceMode": { "enum": ["slices", "variants"] },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
@@ -108,7 +108,7 @@
         "label": { "$ref": "#/definitions/nonEmptyText" },
         "description": { "type": "string" },
         "kind": { "enum": ["call", "delegated", "dispatch", "event", "flow", "related"] },
-        "branch": { "$ref": "#/definitions/shortText", "description": "分支条件；写了即为支线（默认折叠），不写为主干" },
+        "branch": { "$ref": "#/definitions/shortText", "description": "Branch condition; when present, this edge is a collapsed side path. Omit for the main flow." },
         "via": { "$ref": "#/definitions/sourceIds" },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
@@ -144,24 +144,24 @@
           "maxItems": 1000,
           "items": { "$ref": "#/definitions/id" }
         },
-        "sourceId": { "$ref": "#/definitions/id", "description": "这一步聚焦阅读的那段代码（sources 的 id）" },
-        "why": { "type": "string", "description": "为什么这样写" },
-        "watch": { "type": "string", "description": "值得注意、容易踩坑的地方" },
-        "skip": { "type": "string", "description": "这一步可以先跳过不看的部分" },
-        "example": { "type": "string", "description": "贯穿例子走到这一步时发生了什么" },
-        "aside": { "type": "boolean", "description": "岔路步骤：不在主线上，从主线某一步的 branches 内嵌展开" },
+        "sourceId": { "$ref": "#/definitions/id", "description": "Source ID focused by this walkthrough step." },
+        "why": { "type": "string", "description": "Why the code is written this way." },
+        "watch": { "type": "string", "description": "A detail or pitfall to watch for." },
+        "skip": { "type": "string", "description": "Details that may be skipped on the first read." },
+        "example": { "type": "string", "description": "What happens to the running example at this step." },
+        "aside": { "type": "boolean", "description": "A side-path step, opened inline from a main step through branches." },
         "branches": {
           "type": "array",
           "uniqueItems": true,
           "maxItems": 10,
           "items": { "$ref": "#/definitions/id" },
-          "description": "从这一步可以岔出去看的 aside 步骤 id"
+          "description": "IDs of aside steps reachable from this step."
         },
         "notes": {
           "type": "array",
           "maxItems": 50,
           "items": { "$ref": "#/definitions/noteItem" },
-          "description": "用户追问后沉淀在本步的补充笔记"
+          "description": "Notes saved from questions about this step."
         }
       }
     },
@@ -169,9 +169,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "example": { "type": "string", "description": "贯穿全程的具体例子，例如“用户 alice 输错密码三次后再登录”" },
-        "recap": { "type": "string", "description": "看完后的总结" },
-        "exercise": { "type": "string", "description": "一个动手验证理解的小练习" }
+        "example": { "type": "string", "description": "A running example, such as a user signing in after three failed attempts." },
+        "recap": { "type": "string", "description": "A recap after completing the walkthrough." },
+        "exercise": { "type": "string", "description": "A short exercise to check understanding." }
       }
     }
   }

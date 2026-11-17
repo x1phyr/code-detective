@@ -1,4 +1,4 @@
-import { getLocale } from '../../shared/i18n';
+import { getLocale, t } from '../../shared/i18n';
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 
@@ -29,7 +29,7 @@ export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): 
 <html lang="${getLocale()}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="${attribute(csp)}">
-<title>代码侦探 · Code Detective</title>
+<title>${attribute(t('webview.appTitle'))}</title>
 <link rel="stylesheet" href="${attribute(styleUri.toString())}">
 </head><body><div id="app"></div>
 <script nonce="${nonce}" type="module" src="${attribute(scriptUri.toString())}"></script>

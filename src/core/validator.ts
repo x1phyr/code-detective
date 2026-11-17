@@ -67,6 +67,22 @@ function rejectDuplicateKeys(root: Node, text: string): void {
 function describeSchemaError(error: ErrorObject): string {
   const path = error.instancePath || '/';
   switch (error.keyword) {
+    case 'type':
+      return t('core.schemaType', { path, type: error.params.type });
+    case 'minLength':
+      return t('core.schemaMinLength', { path, limit: error.params.limit });
+    case 'maxLength':
+      return t('core.schemaMaxLength', { path, limit: error.params.limit });
+    case 'minItems':
+      return t('core.schemaMinItems', { path, limit: error.params.limit });
+    case 'minProperties':
+      return t('core.schemaMinProperties', { path, limit: error.params.limit });
+    case 'minimum':
+      return t('core.schemaMinimum', { path, limit: error.params.limit });
+    case 'maximum':
+      return t('core.schemaMaximum', { path, limit: error.params.limit });
+    case 'pattern':
+      return t('core.schemaPattern', { path, pattern: error.params.pattern });
     case 'additionalProperties':
       return t('core.schemaUnknownField', { path, field: JSON.stringify(error.params.additionalProperty) });
     case 'required':
@@ -82,7 +98,7 @@ function describeSchemaError(error: ErrorObject): string {
     case 'enum':
       return t('core.schemaEnum', { path, values: error.params.allowedValues.join(t('core.listSeparator')) });
     default:
-      return `${path}：${error.message ?? error.keyword}`;
+      return t('core.schemaConstraint', { path, constraint: error.keyword });
   }
 }
 

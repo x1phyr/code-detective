@@ -2,6 +2,15 @@ import type { Message } from '../index';
 
 /** webview 区域的文案。key 统一以 `webview.` 开头。 */
 export const webview = {
+  'webview.appTitle': { 'zh-CN': '代码侦探 · Code Detective AI', en: 'Code Detective AI' },
+  'webview.previewAnswer': {
+    'zh-CN': '在「{title}」这一步里，核心逻辑落在 {cite}。\n\n你可以点击上面的源码坐标直接跳过去对照阅读；也可以把这条回答存成当前步骤的**笔记**或**新岔路**。',
+    en: 'In the step "{title}", the key logic is at {cite}.\n\nClick the source reference to read the code, or save this answer as a **note** or a **side path** for this step.',
+  },
+  'webview.previewAnswerFallback': {
+    'zh-CN': '这个问题关联到 {cite}，建议结合当前步骤主线对照阅读。',
+    en: 'This question relates to {cite}. Read it alongside the current walkthrough step.',
+  },
   // 节点 / 连线类型
   'webview.nodeKindStep': { 'zh-CN': '步骤', en: 'Step' },
   'webview.nodeKindFunction': { 'zh-CN': '函数', en: 'Function' },

@@ -117,7 +117,7 @@ test('提问提示词带上地图、步骤、代码位置、贯穿例子和之�
   assert.match(prompt, /用户的问题：为什么要这样？/);
   assert.doesNotMatch(prompt, /岔路一/, '大纲只列主线');
   setLocale('en');
-  assert.match(questionPrompt({ map: m, step: m.walkthrough![0]!, index: 1, total: 3, history: [], question: 'q' }), /Current step \(1\/3\)/);
+  assert.match(questionPrompt({ map: m, step: m.walkthrough![0]!, index: 1, total: 3, history: [], question: 'Explain this step' }), /Current step \(1\/3\)/);
   setLocale('zh-CN');
 });
 
@@ -158,4 +158,22 @@ test('stepsForNode 返回节点关联的主线步号与首步 ID', () => {
   const m = map();
   assert.deepEqual(stepsForNode(m, 'n1'), { numbers: [1], firstStepId: 's1' });
   assert.deepEqual(stepsForNode(m, 'n3'), { numbers: [3], firstStepId: 's3' });
+});
+
+test('只有代码符号的追问优先跟随讲义语言，明确提问语言优先于讲义', () => {
+  const previous = getLocale();
+  const m = map();
+  const prompt = (question: string) => questionPrompt({ map: m, step: m.walkthrough[0]!, index: 1, total: 3, history: [], question });
+  try {
+    setLocale('zh-CN');
+    m.title = 'Inventory loading walkthrough';
+    assert.match(prompt('readItems'), /User question: readItems/);
+    assert.match(prompt('为什么先读取数据？'), /用户的问题：/);
+    setLocale('en');
+    m.title = '背包加载流程';
+    assert.match(prompt('readItems'), /用户的问题：readItems/);
+    assert.match(prompt('Why read the data first?'), /User question:/);
+  } finally {
+    setLocale(previous);
+  }
 });

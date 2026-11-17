@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { parseMap, MAP_LIMITS } from '../src/core/validator';
 import type { CodeMap } from '../shared/types';
+import { getLocale, setLocale } from '../shared/i18n';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const examplePath = path.join(here, '..', 'examples', 'bag-demo', '.code-detective', 'maps', 'bag-demo.json');
@@ -27,6 +28,30 @@ function codeOf(run: () => unknown): string {
   }
   assert.fail('expected parseMap to throw');
 }
+
+test('schema 类型、长度、数量、数值与格式错误均使用当前界面语言', () => {
+  const cases: [((map: CodeMap) => void), RegExp, RegExp][] = [
+    [map => { (map as unknown as Record<string, unknown>).title = 42; }, /必须为 string 类型/, /must be of type string/],
+    [map => { map.title = ''; }, /至少需要 1 个字符/, /minimum length is 1/],
+    [map => { map.title = 'a'.repeat(201); }, /不能超过 200 个字符/, /maximum length is 200/],
+    [map => { map.nodes = []; }, /至少需要 1 项/, /minimum item count is 1/],
+    [map => { Object.values(map.sources)[0]!.startLine = 0; }, /不能小于 1/, /must be at least 1/],
+    [map => { map.id = 'invalid id'; }, /必须匹配格式/, /must match pattern/],
+  ];
+  const previous = getLocale();
+  try {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      setLocale(locale);
+      for (const [mutate, zh, en] of cases) {
+        const message = codeOf(() => parseMap(withChange(mutate)));
+        assert.match(message, locale === 'en' ? en : zh);
+        if (locale === 'en') assert.doesNotMatch(message, /\p{Script=Han}/u);
+      }
+    }
+  } finally {
+    setLocale(previous);
+  }
+});
 
 test('示例地图通过完整校验', () => {
   const map = example();

@@ -29,11 +29,11 @@ import { MentorQaService } from './mentorQa';
 import { registerChatIntegration } from './chat';
 import { webviewHtml, webviewRoot } from './webview';
 import { asideOrigin, mainline, stepSource } from '../core/tour';
-import { t } from '../../shared/i18n';
+import { getLocale, t } from '../../shared/i18n';
 
 const VIEW_TYPE = 'codeDetective.mapView';
 const MAP_PANEL_TYPE = 'codeDetective.mapPanel';
-const HELP_URL = 'https://github.com/x1phyr/code-detective#讲义-json-格式schema-v1';
+const HELP_ROOT = 'https://github.com/x1phyr/code-detective/blob/main/';
 
 function isAccepted(record: MapRecord | undefined): record is AcceptedMap {
   return record !== undefined && record.map !== undefined && record.revision !== undefined;
@@ -915,14 +915,15 @@ export class DetectiveController implements vscode.Disposable {
   }
 
   private async openHelp(): Promise<void> {
+    const readme = getLocale() === 'en' ? 'README.en.md' : 'README.md';
     try {
       const entries = await vscode.workspace.fs.readDirectory(this.context.extensionUri);
-      const name = entries.find(([entry]) => entry.toLowerCase() === 'readme.md')?.[0];
+      const name = entries.find(([entry]) => entry.toLowerCase() === readme.toLowerCase())?.[0];
       if (!name) throw new Error('README not found');
       const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(this.context.extensionUri, name));
       await vscode.window.showTextDocument(document, { viewColumn: targetColumn(document.uri), preview: false });
     } catch {
-      void vscode.env.openExternal(vscode.Uri.parse(HELP_URL));
+      void vscode.env.openExternal(vscode.Uri.parse(`${HELP_ROOT}${readme}`));
     }
   }
 }

@@ -28,6 +28,13 @@ exports.run = async function run() {
   assert.ok(extension, '扩展应已加载');
   await extension.activate();
 
+  const schemaUrl = extension.packageJSON?.contributes?.jsonValidation?.[0]?.url;
+  const expectedSchema = /^zh(?:-|$)/i.test(vscode.env.language)
+    ? './schemas/code-map-v1.zh-cn.schema.json'
+    : './schemas/code-map-v1.schema.json';
+  assert.equal(schemaUrl, expectedSchema, 'JSON schema 提示应使用编辑器显示语言，不能残留未解析的翻译 key');
+  await vscode.workspace.fs.stat(vscode.Uri.joinPath(extension.extensionUri, schemaUrl));
+
   const registered = new Set(await vscode.commands.getCommands(true));
   for (const command of COMMANDS) {
     assert.ok(registered.has(command), `命令未注册：${command}`);

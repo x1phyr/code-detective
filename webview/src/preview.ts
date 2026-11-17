@@ -13,7 +13,7 @@ import type {
   ViewState,
 } from '../../shared/types';
 import { DEFAULT_VIEW_STATE } from '../../shared/types';
-import { t } from '../../shared/i18n';
+import { detectPromptLocale, t } from '../../shared/i18n';
 import {
   activeFocusSelection,
   matchCursorToMap,
@@ -220,8 +220,8 @@ export function createPreviewHost(): HostBridge {
           }
         : undefined,
       answer: ref
-        ? `在「${step?.title ?? bundle.map.title}」这一步里，核心逻辑落在 ${cite}。\n\n你可以点击上面的源码坐标直接跳过去对照阅读；也可以把这条回答存成当前步骤的**笔记**或**新岔路**。`
-        : `这个问题关联到 ${cite}，建议结合当前步骤主线对照阅读。`,
+        ? t('webview.previewAnswer', { title: step?.title ?? bundle.map.title, cite }, detectPromptLocale(question))
+        : t('webview.previewAnswerFallback', { cite }, detectPromptLocale(question)),
       status: 'done',
     };
     const list = [...(qaByKey.get(activeKey) ?? []), exchange];

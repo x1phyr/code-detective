@@ -37,7 +37,7 @@ const TEXT = {
       '- 提到具体源码位置时，务必写成反引号包裹的 `路径/文件.ts:行号` 或 `路径/文件.ts:起始行-结束行`（UI 会自动渲染成可点击跳转按钮），且只引用你实际读到的真实行号。',
       '- 如果问题和贯穿例子有关，顺着这个例子演示具体数据怎么走。',
       '- 如果后面的主线步骤会展开细讲，先简要回答并提示“后面第 N 步会细看”。',
-      '- 输出精炼的 Markdown，不要输出 JSON。请使用与「用户的问题」相同的语言作答（若问题仅包含代码标识符或文件路径，则使用当前讲义的语言或中文）。',
+      '- 输出精炼的 Markdown，不要输出 JSON。请使用与「用户的问题」相同的语言作答（若问题仅包含代码标识符或文件路径，则使用当前讲义的语言；无法判断时跟随界面语言）。',
     ],
   },
   en: {
@@ -57,13 +57,13 @@ const TEXT = {
       '- Format every code reference in backticks as `path/file.ts:line` or `path/file.ts:start-end` (the UI turns these into clickable jump links), and cite only lines you actually read.',
       '- Connect your explanation to the running example whenever helpful.',
       '- If a later step covers the topic in depth, answer briefly and mention "step N covers this in detail".',
-      '- Reply in concise Markdown, not JSON. Reply in the same language as the user\'s question (if the question contains only code identifiers or file paths, use the guide\'s language or English).',
+      '- Reply in concise Markdown, not JSON. Reply in the same language as the user\'s question (if the question contains only code identifiers or file paths, use the guide\'s language, falling back to the UI language).',
     ],
   },
 } as const;
 
 export function questionPrompt(context: QuestionContext): string {
-  const p = TEXT[detectPromptLocale(context.question)];
+  const p = TEXT[detectPromptLocale(context.question, detectPromptLocale(context.map.title))];
   const lines: string[] = [p.role, '', p.map(context.map.title)];
   if (context.map.tour?.example) lines.push(p.example(context.map.tour.example));
   lines.push(p.step(context.index, context.total, context.step.title));
