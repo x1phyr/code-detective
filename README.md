@@ -99,3 +99,7 @@ npm run package      # 打包 artifacts/code-detective-0.2.0.vsix
 | `src/host/` | 侧栏与独立页签控制器、克制高亮、光标跟踪、流式答疑沉淀、Copilot 引擎与 Chat 集成 |
 | `webview/src/` | Vue 3 导师面板（`WalkthroughView`、`ComposerPanel`、`QaDrawer`、ELK 复合脉络图与安全 Markdown 引用渲染） |
 | `tests/` | 单元测试与 Extension Host 集成测试 |
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。第三方组件保留各自许可证，详见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。

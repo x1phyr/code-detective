@@ -3,9 +3,9 @@
   "displayName": "%displayName%",
   "description": "%description%",
   "version": "0.2.0",
-  "publisher": "code-detective-dev",
+  "publisher": "x1phyr",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/x1phyr/code-detective.git"
@@ -61,7 +61,7 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "test:integration": "npm run build && node tests/integration/run.cjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "package": "vsce package --no-dependencies --githubBranch main --skip-license --out artifacts/",
+    "package": "vsce package --no-dependencies --githubBranch main --out artifacts/",
     "vscode:prepublish": "npm run build"
   },
   "contributes": {
