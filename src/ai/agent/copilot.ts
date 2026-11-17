@@ -81,9 +81,8 @@ export class CopilotCli implements AgentCli {
   args(): string[] {
     return [
       this.command,
-      '-p',
-      'Follow the instructions provided on stdin.',
       '-s',
+      '--no-ask-user',
       '--allow-all-tools',
       '--deny-tool',
       'write',

@@ -70,7 +70,7 @@
   "languageModelTools.2.tour.exercise.description": "A small hands-on exercise to check understanding",
   "configuration.0.title": "Code Detective",
   "config.ai.agent.enum.copilot": "GitHub Copilot (prefers local copilot CLI; falls back to VS Code Language Model API inside VS Code)",
-  "config.ai.agent.enum.agy": "Antigravity CLI (agy -p --output-format stream-json, supports --conversation resume)",
+  "config.ai.agent.enum.agy": "Antigravity CLI (agy --output-format stream-json via stdin, supports --conversation resume)",
   "config.ai.agent.enum.codex": "Codex CLI (codex exec, read-only sandbox)",
   "config.ai.agent.enum.claude": "Claude Code CLI (claude -p, read-only workspace tools)",
   "config.ai.agent.markdownDescription": "Which AI engine generates guides and answers step questions (`copilot`, `agy`, `codex`, `claude`, or a custom CLI id from `codeDetective.ai.cli.agents`). When unset, auto-detects the first available engine in priority order.",

@@ -70,7 +70,7 @@ export async function generateMap(
   request.onPhase?.('running', t('ai.agentReading'));
   let reply = await session.send({
     ...base,
-    prompt: `${explorePrompt(contextOf(request))}\n\n${outputContract()}`,
+    prompt: `${explorePrompt(contextOf(request))}\n\n${outputContract(request.topic)}`,
   });
   let attempts = 1;
   let lastIssues: string[] = [];
@@ -90,8 +90,8 @@ export async function generateMap(
       request.onPhase?.('retry', lastIssues[0]);
       const hasSession = Boolean(reply.sessionId ?? session.sessionId);
       const nextPrompt = hasSession
-        ? retryPrompt(lastIssues)
-        : `${explorePrompt(contextOf(request))}\n\n${outputContract()}\n\n${retryPrompt(lastIssues)}`;
+        ? retryPrompt(lastIssues, request.topic)
+        : `${explorePrompt(contextOf(request))}\n\n${outputContract(request.topic)}\n\n${retryPrompt(lastIssues, request.topic)}`;
       reply = await session.send({ ...base, prompt: nextPrompt });
     }
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allMessages, getLocale, resolveLocale, setLocale, t, type MessageKey } from '../shared/i18n';
+import { allMessages, detectPromptLocale, getLocale, resolveLocale, setLocale, t, type MessageKey } from '../shared/i18n';
 
 const placeholders = (text: string): string[] => [...text.matchAll(/\{(\w+)\}/g)].map(match => match[1]!).sort();
 
@@ -26,13 +26,46 @@ test('英文文案里不残留中文', () => {
   }
 });
 
-test('t() 按当前语言插值', () => {
+test('t() 按当前语言插值，且可选 locale 覆盖不污染全局语言', () => {
   const keys = Object.keys(allMessages()) as MessageKey[];
   if (keys.length === 0) return;
   const previous = getLocale();
   try {
     setLocale('en');
     assert.equal(typeof t(keys[0]!), 'string');
+    assert.equal(t('chat.unknownReason', undefined, 'zh-CN'), '未知原因');
+    assert.equal(getLocale(), 'en');
+  } finally {
+    setLocale(previous);
+  }
+});
+
+test('detectPromptLocale 根据用户发起的对话文本识别语言，纯代码符号回退到界面语言', () => {
+  const previous = getLocale();
+  try {
+    setLocale('en');
+    assert.equal(detectPromptLocale('背包打开流程'), 'zh-CN');
+    assert.equal(detectPromptLocale('`closeBagPanel` 怎么销毁面板'), 'zh-CN');
+    assert.equal(detectPromptLocale('closeBagPanel'), 'en');
+    assert.equal(detectPromptLocale('openBagPanel (bag-panel.ts:6)'), 'en');
+    assert.equal(detectPromptLocale('src/bag-panel.ts:18-19'), 'en');
+    assert.equal(detectPromptLocale('q'), 'en');
+    assert.equal(detectPromptLocale(''), 'en');
+    assert.equal(detectPromptLocale(undefined), 'en');
+
+    setLocale('zh-CN');
+    assert.equal(detectPromptLocale('bag opening flow'), 'en');
+    assert.equal(detectPromptLocale('Explain closeBagPanel'), 'en');
+    assert.equal(detectPromptLocale('Why does `refreshList` check `!panel`?'), 'en');
+    assert.equal(detectPromptLocale('Why?'), 'en');
+    assert.equal(detectPromptLocale('バッグパネルを閉じる流れ'), 'en');
+    assert.equal(detectPromptLocale('가방 패널 닫기 흐름'), 'en');
+    assert.equal(detectPromptLocale('closeBagPanel'), 'zh-CN');
+    assert.equal(detectPromptLocale('openBagPanel (bag-panel.ts:6)'), 'zh-CN');
+    assert.equal(detectPromptLocale('src/bag-panel.ts:18-19'), 'zh-CN');
+    assert.equal(detectPromptLocale('q'), 'zh-CN');
+    assert.equal(detectPromptLocale(''), 'zh-CN');
+    assert.equal(detectPromptLocale(undefined), 'zh-CN');
   } finally {
     setLocale(previous);
   }

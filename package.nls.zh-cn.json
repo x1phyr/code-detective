@@ -70,7 +70,7 @@
   "languageModelTools.2.tour.exercise.description": "一个动手验证理解的小练习",
   "configuration.0.title": "代码侦探",
   "config.ai.agent.enum.copilot": "GitHub Copilot（优先调用本机 copilot CLI，VS Code 内无 CLI 时自动回退到 vscode.lm 语言模型 API）",
-  "config.ai.agent.enum.agy": "Antigravity CLI（agy -p --output-format stream-json，支持 --conversation 续接会话）",
+  "config.ai.agent.enum.agy": "Antigravity CLI（agy --output-format stream-json，stdin 传入提示词并支持 --conversation 续接会话）",
   "config.ai.agent.enum.codex": "Codex CLI（codex exec，只读沙箱）",
   "config.ai.agent.enum.claude": "Claude Code CLI（claude -p，工作区只读探索）",
   "config.ai.agent.markdownDescription": "使用哪个 AI 引擎生成带读讲义与回答追问（`copilot`、`agy`、`codex`、`claude`，或在 `codeDetective.ai.cli.agents` 中配置的自定义 CLI）。未显式固定时按顺位自动探测首个可用引擎。",

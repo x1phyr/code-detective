@@ -11,7 +11,7 @@ import { MAP_DIR, writeMapFile, type WrittenMap } from './mapWriter';
 import { checkedSourceUri } from './paths';
 import { readWorkspaceText } from './workspaceText';
 import { MAX_QUERY_LENGTH, unsafeRegex } from './regexGuard';
-import { t } from '../../shared/i18n';
+import { detectPromptLocale, t, type Locale } from '../../shared/i18n';
 
 export const PARTICIPANT_ID = 'code-detective.detective';
 
@@ -46,31 +46,31 @@ export interface CreateMapOutcome {
   adjustments: string[];
 }
 
-/** Built lazily so descriptions follow the locale set at activation. */
-function searchSchema() {
+/** Built lazily so descriptions follow the prompt's detected language. */
+function searchSchema(locale?: Locale) {
   return {
     type: 'object',
     additionalProperties: false,
     required: ['query'],
     properties: {
-      query: { type: 'string', description: t('chat.schemaQuery') },
-      regex: { type: 'boolean', description: t('chat.schemaRegex') },
-      caseSensitive: { type: 'boolean', description: t('chat.schemaCaseSensitive') },
-      glob: { type: 'string', description: t('chat.schemaGlob') },
-      maxResults: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: t('chat.schemaMaxResults') },
+      query: { type: 'string', description: t('chat.schemaQuery', undefined, locale) },
+      regex: { type: 'boolean', description: t('chat.schemaRegex', undefined, locale) },
+      caseSensitive: { type: 'boolean', description: t('chat.schemaCaseSensitive', undefined, locale) },
+      glob: { type: 'string', description: t('chat.schemaGlob', undefined, locale) },
+      maxResults: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: t('chat.schemaMaxResults', undefined, locale) },
     },
   } as const;
 }
 
-function readSchema() {
+function readSchema(locale?: Locale) {
   return {
     type: 'object',
     additionalProperties: false,
     required: ['file'],
     properties: {
-      file: { type: 'string', description: t('chat.schemaFile') },
-      startLine: { type: 'integer', minimum: 1, description: t('chat.schemaStartLine') },
-      endLine: { type: 'integer', minimum: 1, description: t('chat.schemaEndLine') },
+      file: { type: 'string', description: t('chat.schemaFile', undefined, locale) },
+      startLine: { type: 'integer', minimum: 1, description: t('chat.schemaStartLine', undefined, locale) },
+      endLine: { type: 'integer', minimum: 1, description: t('chat.schemaEndLine', undefined, locale) },
     },
   } as const;
 }
@@ -318,20 +318,20 @@ function createMapResultText(outcome: CreateMapOutcome): string {
   return summary.join('\n');
 }
 
-function explorePrompt(topic: string, rootName: string): string {
+function explorePrompt(topic: string, rootName: string, locale: Locale): string {
   return [
-    t('chat.exploreRole', { root: rootName }),
-    t('chat.exploreTopic', { topic }),
+    t('chat.exploreRole', { root: rootName }, locale),
+    t('chat.exploreTopic', { topic }, locale),
     '',
-    t('chat.exploreTrace'),
-    t('chat.exploreTools', { search: TOOL_SEARCH, read: TOOL_READ }),
-    t('chat.exploreEvidence'),
-    t('chat.exploreRounds'),
+    t('chat.exploreTrace', undefined, locale),
+    t('chat.exploreTools', { search: TOOL_SEARCH, read: TOOL_READ }, locale),
+    t('chat.exploreEvidence', undefined, locale),
+    t('chat.exploreRounds', undefined, locale),
   ].join('\n');
 }
 
-function planInstruction(): string {
-  return t('chat.planIntro');
+function planInstruction(locale: Locale): string {
+  return t('chat.planIntro', undefined, locale);
 }
 
 function textPart(value: string): vscode.LanguageModelTextPart {
@@ -365,18 +365,19 @@ async function explore(
   token: vscode.CancellationToken,
   request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
+  locale: Locale,
 ): Promise<ExploreResult> {
   const tools: vscode.LanguageModelChatTool[] = [
-    { name: TOOL_SEARCH, description: t('chat.toolSearchDesc'), inputSchema: searchSchema() },
-    { name: TOOL_READ, description: t('chat.toolReadDesc'), inputSchema: readSchema() },
+    { name: TOOL_SEARCH, description: t('chat.toolSearchDesc', undefined, locale), inputSchema: searchSchema(locale) },
+    { name: TOOL_READ, description: t('chat.toolReadDesc', undefined, locale), inputSchema: readSchema(locale) },
   ];
   const messages: vscode.LanguageModelChatMessage[] = [
-    vscode.LanguageModelChatMessage.User(explorePrompt(topic, root.name)),
+    vscode.LanguageModelChatMessage.User(explorePrompt(topic, root.name, locale)),
   ];
   let readSources = false;
   for (;;) {
     if (token.isCancellationRequested) return { messages, readSources };
-    const response = await model.sendRequest(messages, { tools, justification: t('chat.justifyExplore') }, token);
+    const response = await model.sendRequest(messages, { tools, justification: t('chat.justifyExplore', undefined, locale) }, token);
     const calls: vscode.LanguageModelToolCallPart[] = [];
     let text = '';
     for await (const part of response.stream) {
@@ -465,21 +466,23 @@ async function handleMapRequest(
     stream.markdown(t('chat.noWorkspaceAnalyze'));
     return {};
   }
-  const topic = request.prompt.trim() || t('chat.defaultTopic');
+  const rawPrompt = request.prompt.trim();
+  const locale = detectPromptLocale(rawPrompt);
+  const topic = rawPrompt || t('chat.defaultTopic', undefined, locale);
   try {
-    const explored = await explore(request.model, topic, root, token, request, stream);
+    const explored = await explore(request.model, topic, root, token, request, stream, locale);
     if (token.isCancellationRequested) return { metadata: { phase: 'cancelled' } };
     if (!explored.readSources) {
       stream.markdown(t('chat.noSourcesRead'));
     }
 
-    const planPrompt = `${planInstruction()}\n\n${outputContract()}`;
+    const planPrompt = `${planInstruction(locale)}\n\n${outputContract(rawPrompt)}`;
     let conversation = explored.messages;
     let outcome: CreateMapOutcome | undefined;
     let lastError: string | undefined;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const instruction = attempt === 0 ? planPrompt : retryPrompt([lastError ?? t('chat.unknownReason')]);
+      const instruction = attempt === 0 ? planPrompt : retryPrompt([lastError ?? t('chat.unknownReason', undefined, locale)], rawPrompt);
       const planned = await plan(request.model, conversation, instruction, token, stream);
       if (token.isCancellationRequested) return { metadata: { phase: 'cancelled' } };
 

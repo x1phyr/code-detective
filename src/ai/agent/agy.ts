@@ -6,18 +6,23 @@ interface AgyEnvelope {
   event?: unknown;
   type?: unknown;
   status?: unknown;
+  state?: unknown;
   is_error?: unknown;
   error?: unknown;
   message?: unknown;
   conversation_id?: unknown;
   session_id?: unknown;
+  init?: unknown;
+  step_update?: unknown;
   response?: unknown;
   text?: unknown;
   delta?: unknown;
   text_delta?: unknown;
   thinking?: unknown;
+  thinking_delta?: unknown;
   thought?: unknown;
   structured_output?: unknown;
+  tool_name?: unknown;
   tool_info?: unknown;
   tool?: unknown;
   result?: unknown;
@@ -40,6 +45,15 @@ function parseToolArgs(raw: unknown): unknown {
   }
 }
 
+function extractStepDelta(step: AgyEnvelope, obj: AgyEnvelope): string | undefined {
+  return asString(step.delta)
+    ?? asString(step.text_delta)
+    ?? asString(step.text)
+    ?? asString(obj.delta)
+    ?? asString(obj.text_delta)
+    ?? asString(obj.text);
+}
+
 function extractResultText(obj: Record<string, unknown>): string | undefined {
   if (typeof obj.response === 'string') return obj.response;
   if (typeof obj.text === 'string') return obj.text;
@@ -54,7 +68,8 @@ function extractResultText(obj: Record<string, unknown>): string | undefined {
 
 /**
  * Google Antigravity CLI (`agy`) in headless streaming JSONL mode
- * (`agy -p --output-format stream-json`), supporting `--conversation` resume.
+ * (`agy --output-format stream-json` reading prompt from `stdin`),
+ * supporting `--conversation` resume.
  */
 export class AgyCli implements AgentCli {
   readonly id = 'agy';
@@ -68,7 +83,6 @@ export class AgyCli implements AgentCli {
   args(): string[] {
     return [
       this.command,
-      '-p',
       '--output-format',
       'stream-json',
       ...this.extraArgs,
@@ -90,25 +104,36 @@ export class AgyCli implements AgentCli {
     }
 
     if (obj.event === 'step_update' || obj.type === 'step_update') {
-      const toolObj = isRecord(obj.tool_info)
-        ? obj.tool_info
-        : isRecord(obj.tool)
-          ? obj.tool
-          : undefined;
-      if (toolObj) {
-        const name = asString(toolObj.name) ?? asString(toolObj.tool_name) ?? asString(toolObj.tool);
-        if (name) {
-          const input = parseToolArgs(toolObj.input ?? toolObj.arguments ?? toolObj.parameters) ?? toolObj;
-          emitToolActivity(name, input, callbacks);
-        }
+      const step = isRecord(obj.step_update) ? obj.step_update : obj;
+      const toolObj = isRecord(step.tool_info)
+        ? step.tool_info
+        : isRecord(step.tool)
+          ? step.tool
+          : isRecord(obj.tool_info)
+            ? obj.tool_info
+            : isRecord(obj.tool)
+              ? obj.tool
+              : undefined;
+      const toolName = (toolObj
+        ? (asString(toolObj.name) ?? asString(toolObj.tool_name) ?? asString(toolObj.tool))
+        : undefined)
+        ?? asString(step.tool_name);
+      if (toolName && step.state !== 'DONE') {
+        const rawArgs = toolObj ? (toolObj.input ?? toolObj.arguments ?? toolObj.parameters) : undefined;
+        const input = (rawArgs !== undefined ? parseToolArgs(rawArgs) : undefined) ?? toolObj;
+        emitToolActivity(toolName, input, callbacks);
       }
 
-      const delta = asString(obj.delta) ?? asString(obj.text_delta) ?? asString(obj.text);
+      const delta = extractStepDelta(step, obj);
       if (delta) {
         callbacks.onDelta?.(delta);
       }
 
-      const thought = asString(obj.thinking) ?? asString(obj.thought);
+      const thought = asString(step.thinking)
+        ?? asString(step.thinking_delta)
+        ?? asString(step.thought)
+        ?? asString(obj.thinking)
+        ?? asString(obj.thought);
       if (thought) {
         callbacks.onActivity?.({ kind: 'think', text: thought.slice(0, 100) });
       }
@@ -157,12 +182,21 @@ export class AgyCli implements AgentCli {
         const obj = JSON.parse(line) as AgyEnvelope;
         const sid = asString(obj.conversation_id) ?? asString(obj.session_id);
         if (sid) sessionId = sid;
+        if (isRecord(obj.init)) {
+          const initSid = asString(obj.init.conversation_id) ?? asString(obj.init.session_id);
+          if (initSid) sessionId = initSid;
+        }
+        if (isRecord(obj.step_update)) {
+          const stepSid = asString(obj.step_update.conversation_id) ?? asString(obj.step_update.session_id);
+          if (stepSid) sessionId = stepSid;
+        }
         if (isRecord(obj.result)) {
           const innerSid = asString(obj.result.conversation_id) ?? asString(obj.result.session_id);
           if (innerSid) sessionId = innerSid;
         }
         if (obj.event === 'step_update' || obj.type === 'step_update') {
-          const delta = asString(obj.delta) ?? asString(obj.text_delta) ?? asString(obj.text);
+          const step = isRecord(obj.step_update) ? obj.step_update : obj;
+          const delta = extractStepDelta(step, obj);
           if (delta) streamedDelta += delta;
         }
       } catch {

@@ -46,12 +46,12 @@ export const chat = {
     en: 'All file paths and line numbers must come from real source files you actually read; never guess.',
   },
   'chat.exploreRounds': {
-    'zh-CN': '读够上下文后停止调用工具，简要总结你梳理出的核心机制。',
-    en: 'Once you have enough context, stop calling tools and briefly summarize what you found.',
+    'zh-CN': '读够上下文后停止调用工具，使用与用户主题相同的语言简要总结你梳理出的核心机制。',
+    en: 'Once you have enough context, stop calling tools and briefly summarize what you found in the same language as the user\'s topic.',
   },
   'chat.planIntro': {
-    'zh-CN': '现在把刚才的探索结果整理成带读讲义与脉络图 JSON，按下面的输出格式直接输出一个合法 JSON 对象。',
-    en: 'Now turn your exploration results into a guided walkthrough and call-graph JSON object matching the schema below.',
+    'zh-CN': '现在把刚才的探索结果整理成带读讲义与脉络图 JSON（所有文案语言与用户发起的主题保持一致），按下面的输出格式直接输出一个合法 JSON 对象。',
+    en: 'Now turn your exploration results into a guided walkthrough and call-graph JSON object matching the schema below, keeping all text in the same language as the user\'s topic.',
   },
 
   // 工具描述 / justification

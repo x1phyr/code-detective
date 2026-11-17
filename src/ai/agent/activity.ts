@@ -59,5 +59,23 @@ export function emitToolActivity(
     return;
   }
 
+  if (name === 'run_command' || name === 'Bash') {
+    const cmd = typeof input.CommandLine === 'string'
+      ? input.CommandLine.trim()
+      : typeof input.command === 'string'
+        ? input.command.trim()
+        : '';
+    const summary = typeof input.toolSummary === 'string'
+      ? input.toolSummary.trim()
+      : typeof input.description === 'string'
+        ? input.description.trim()
+        : '';
+    if (cmd || summary) {
+      const isSearch = /\b(rg|grep|find|fd)\b/.test(cmd);
+      callbacks.onActivity?.({ kind: isSearch ? 'search' : 'read', text: (summary || cmd).slice(0, 80) });
+      return;
+    }
+  }
+
   callbacks.onActivity?.({ kind: 'status', text: name });
 }

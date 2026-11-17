@@ -88,17 +88,65 @@ test('prompt 让 agent 自由探索源码并仅约束 JSON 输出格式', () => 
   assert.match(prompt, /src\/a\.ts/);
   assert.match(outputContract(), /不要加 Markdown 代码块围栏/);
   assert.match(outputContract(), /不要写 anchorText/);
+  assert.match(outputContract(), /edge\.via/);
+  assert.match(outputContract(), /variants/);
   assert.doesNotMatch(outputContract(), /禁止把整个函数/);
   const previous = getLocale();
   try {
     setLocale('en');
     assert.match(outputContract(), /JSON schema contract only/);
+    assert.match(outputContract(), /edge\.via/);
+    assert.match(outputContract(), /variants/);
     assert.doesNotMatch(outputContract(), /NEVER wrap an entire function/);
   } finally {
     setLocale(previous);
   }
   assert.match(retryPrompt(['/nodes/0/sourceIds：引用不存在']), /没能通过格式校验/);
   assert.match(retryPrompt(['/nodes/0/sourceIds：引用不存在']), /sourceIds/);
+});
+
+test('提示词与生成语言跟随用户发起的 topic，不再被界面语言或英文硬编码锁死', async () => {
+  const previous = getLocale();
+  try {
+    setLocale('en');
+    const zhTopic = '背包打开到关闭的完整流程';
+    const zhExplore = explorePrompt({ rootName: 'bag-demo', topic: zhTopic, priorityFiles: [] });
+    const zhContract = outputContract(zhTopic);
+    assert.match(zhExplore, /你是代码侦探/);
+    assert.match(zhContract, /相同的语言撰写/);
+    assert.doesNotMatch(zhContract, /in English/);
+
+    const capturedPrompts: string[] = [];
+    const session = {
+      id: 'fake',
+      label: 'Fake',
+      send: async (req: { prompt: string }) => {
+        capturedPrompts.push(req.prompt);
+        return { text: exampleJson() };
+      },
+    };
+    await generateMap(session as never, {
+      topic: zhTopic,
+      rootName: 'bag-demo',
+      priorityFiles: [],
+      cwd: '/',
+      timeoutMs: 5_000,
+      cancel: never,
+    });
+    assert.match(capturedPrompts[0]!, /你是代码侦探/);
+    assert.match(capturedPrompts[0]!, /相同的语言撰写/);
+    assert.doesNotMatch(capturedPrompts[0]!, /in English/);
+
+    setLocale('zh-CN');
+    const enTopic = 'Explain how closeBagPanel works';
+    const enExplore = explorePrompt({ rootName: 'bag-demo', topic: enTopic, priorityFiles: [] });
+    const enContract = outputContract(enTopic);
+    assert.match(enExplore, /You are Code Detective/);
+    assert.match(enContract, /same language as the user's topic/);
+    assert.doesNotMatch(enContract, /text in English\./);
+  } finally {
+    setLocale(previous);
+  }
 });
 
 test('Claude CLI 解析 json 信封并取出 session_id', () => {
@@ -162,8 +210,9 @@ test('CopilotCli 只读限制、ANSI 清理、流式增量与多格式解析', (
   const cli = new CopilotCli('copilot', ['--model', 'gpt-5']);
   const args = cli.args();
   assert.equal(args[0], 'copilot');
-  assert.ok(args.includes('-p'));
+  assert.ok(!args.includes('-p') && !args.includes('--prompt'), '带 -p 时 copilot CLI 会忽略 stdin 管道输入');
   assert.ok(args.includes('-s'));
+  assert.ok(args.includes('--no-ask-user'));
   assert.ok(args.includes('--allow-all-tools'));
   assert.ok(args.includes('write'));
   assert.ok(args.includes('shell'));
@@ -187,10 +236,8 @@ test('CopilotCli 只读限制、ANSI 清理、流式增量与多格式解析', (
 test('AgyCli 参数、流式 step_update 解析与 --conversation 续接', () => {
   const cli = new AgyCli('agy', ['--effort', 'high']);
   const args = cli.args();
-  assert.equal(args[0], 'agy');
-  assert.ok(args.includes('-p'));
-  assert.ok(args.includes('--output-format'));
-  assert.ok(args.includes('stream-json'));
+  assert.ok(!args.includes('-p') && !args.includes('--print'), 'agy 中 -p 只接收命令行字符串，传 stdin 需省略 -p');
+  assert.deepEqual(args.slice(0, 3), ['agy', '--output-format', 'stream-json']);
   assert.ok(!args.includes('--disable-slash-commands'), '保留工作区 skills 与探索能力');
   assert.ok(!args.includes('--sandbox'), '不嵌套 sandbox 避免 IDE 内沙箱冲突');
   assert.deepEqual(args.slice(-2), ['--effort', 'high']);
@@ -199,8 +246,70 @@ test('AgyCli 参数、流式 step_update 解析与 --conversation 续接', () =>
   const activities: string[] = [];
   const deltas: string[] = [];
   cli.onStreamLine(
-    JSON.stringify({ event: 'step_update', tool_info: { name: 'read_file', arguments: { file_path: '/ws/src/app.ts' } } }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        conversation_id: 'conv-42',
+        step_index: 2,
+        state: 'ACTIVE',
+        step_type: 'tool',
+        tool_name: 'read_file',
+        tool_info: {
+          name: 'read_file',
+          parameters: { Path: '/ws/src/ExampleService.ts', StartLine: 12, EndLine: 12 },
+        },
+      },
+    }),
     { onActivity: act => activities.push(`${act.kind}:${act.text}`), onDelta: d => deltas.push(d) },
+  );
+  cli.onStreamLine(
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        conversation_id: 'conv-42',
+        step_index: 2,
+        state: 'DONE',
+        step_type: 'tool',
+        tool_name: 'read_file',
+        tool_info: {
+          name: 'read_file',
+          parameters: { Path: '/ws/src/ExampleService.ts', StartLine: 12, EndLine: 12 },
+          output: '12: loadRecord()',
+        },
+      },
+    }),
+    { onActivity: act => activities.push(`${act.kind}:${act.text}`), onDelta: d => deltas.push(d) },
+  );
+  cli.onStreamLine(
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        conversation_id: 'conv-42',
+        step_index: 3,
+        state: 'ACTIVE',
+        step_type: 'tool',
+        tool_name: 'run_command',
+        tool_info: {
+          name: 'run_command',
+          parameters: { CommandLine: 'rg -n foo src', toolSummary: 'Search callers' },
+        },
+      },
+    }),
+    { onActivity: act => activities.push(`${act.kind}:${act.text}`) },
+  );
+  cli.onStreamLine(
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { state: 'ACTIVE', step_type: 'agent_response', text_delta: '第一段' },
+    }),
+    { onDelta: d => deltas.push(d) },
+  );
+  cli.onStreamLine(
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { state: 'DONE', step_type: 'agent_response', text_delta: '结尾' },
+    }),
+    { onDelta: d => deltas.push(d) },
   );
   cli.onStreamLine(
     JSON.stringify({ event: 'step_update', tool_info: { name: 'grep_search', input: { query: 'loginHandler' } } }),
@@ -210,8 +319,19 @@ test('AgyCli 参数、流式 step_update 解析与 --conversation 续接', () =>
     JSON.stringify({ event: 'step_update', delta: '流式片段', thinking: '分析入口调用链' }),
     { onActivity: act => activities.push(`${act.kind}:${act.text}`), onDelta: d => deltas.push(d) },
   );
-  assert.deepEqual(activities, ['read:src/app.ts', 'search:loginHandler', 'think:分析入口调用链']);
-  assert.deepEqual(deltas, ['流式片段']);
+  assert.deepEqual(activities, [
+    'read:src/ExampleService.ts',
+    'search:Search callers',
+    'search:loginHandler',
+    'think:分析入口调用链',
+  ]);
+  assert.deepEqual(deltas, ['第一段', '结尾', '流式片段']);
+
+  const nestedOnly = [
+    JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'conv-step', state: 'ACTIVE', step_type: 'agent_response', text_delta: '你好' } }),
+    JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'conv-step', state: 'DONE', step_type: 'agent_response', text_delta: '世界' } }),
+  ].join('\n');
+  assert.deepEqual(cli.parse(nestedOnly, ''), { text: '你好世界', sessionId: 'conv-step' });
 
   const ndjson = [
     JSON.stringify({ event: 'init', conversation_id: 'conv-42' }),

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { asideOrigin, mainline, moveTo, stepBy, stepSource, stepsForNode, tourView } from '../src/core/tour';
 import { questionPrompt } from '../src/ai/question';
-import { setLocale } from '../shared/i18n';
+import { getLocale, setLocale } from '../shared/i18n';
 import type { CodeMap } from '../shared/types';
 
 function map(): CodeMap {
@@ -119,6 +119,39 @@ test('提问提示词带上地图、步骤、代码位置、贯穿例子和之�
   setLocale('en');
   assert.match(questionPrompt({ map: m, step: m.walkthrough![0]!, index: 1, total: 3, history: [], question: 'q' }), /Current step \(1\/3\)/);
   setLocale('zh-CN');
+});
+
+test('追问提示词的语言跟随用户提问，不硬编码 Write in English', () => {
+  const previous = getLocale();
+  const m = map();
+  try {
+    setLocale('en');
+    const zhPrompt = questionPrompt({
+      map: m,
+      step: m.walkthrough![0]!,
+      index: 1,
+      total: 3,
+      history: [],
+      question: '这里为什么要先判断 panel？',
+    });
+    assert.match(zhPrompt, /用户的问题：这里为什么要先判断 panel？/);
+    assert.match(zhPrompt, /与「用户的问题」相同的语言作答/);
+
+    setLocale('zh-CN');
+    const enPrompt = questionPrompt({
+      map: m,
+      step: m.walkthrough![0]!,
+      index: 1,
+      total: 3,
+      history: [],
+      question: 'Why check !panel after await?',
+    });
+    assert.match(enPrompt, /User question: Why check !panel after await\?/);
+    assert.match(enPrompt, /same language as the user's question/);
+    assert.doesNotMatch(enPrompt, /Write in English\./);
+  } finally {
+    setLocale(previous);
+  }
 });
 
 test('stepsForNode 返回节点关联的主线步号与首步 ID', () => {
