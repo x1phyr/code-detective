@@ -28,7 +28,7 @@
 
 ## 快速上手
 
-1. 安装构建产物 `artifacts/code-detective-0.2.0.vsix`（`Extensions: Install from VSIX...`），或按 `F5` 启动调试宿主窗口。
+1. 安装构建产物 `artifacts/code-detective-guide-0.2.0.vsix`（`Extensions: Install from VSIX...`），或按 `F5` 启动调试宿主窗口。
 2. 打开示例工作区 `examples/login-demo` 或 `examples/bag-demo`。
 3. 点击左侧活动栏的 **代码侦探** 图标打开导师带读面板：
    - 顶部书架下拉框可切换已有带读讲义，支持 `+ 新建`、`↻ 重生成`（原位覆盖更新）与 `🗑 删除`。
@@ -88,7 +88,7 @@ AI 生成功能会把主题、提问和相关源码上下文交给所选 AI 引�
 npm ci
 npm run check        # 类型检查 + 单元测试 + 生产构建
 npm run dev          # 浏览器内交互预览（默认 login-demo，加 ?map=bag 切换背包示例）
-npm run package      # 打包 artifacts/code-detective-0.2.0.vsix
+npm run package      # 打包 artifacts/code-detective-guide-0.2.0.vsix
 ```
 
 | 目录 | 职责 |

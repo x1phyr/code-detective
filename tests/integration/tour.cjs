@@ -18,7 +18,7 @@ const activeLine = () => (vscode.window.activeTextEditor?.selection.active.line 
 
 /** 在 login-demo 工作区里验证侧栏带读与编辑器联动：主线启动、前进、后退，编辑器保持干净定位。 */
 exports.run = async function run() {
-  const extension = vscode.extensions.getExtension('x1phyr.code-detective');
+  const extension = vscode.extensions.getExtension('x1phyr.code-detective-guide');
   assert.ok(extension, '扩展应已加载');
   await extension.activate();
   const folder = vscode.workspace.workspaceFolders?.[0];
