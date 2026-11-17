@@ -2,7 +2,7 @@
   <img src="media/icon.png" alt="Code Detective Logo" width="112" height="112">
 </p>
 
-# Code Detective · 代码侦探
+# Code Detective AI · 代码侦探
 
 **从一个函数出发，读懂整条调用链。**
 
@@ -47,7 +47,7 @@ Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了�
 
 ### 1. 安装并打开项目
 
-扩展安装标识为 **`x1phyr.code-detective-ai`**，显示名称仍为 **Code Detective · 代码侦探**。
+扩展安装标识为 **`x1phyr.code-detective-ai`**，英文显示名称为 **Code Detective AI**，中文名为 **代码侦探**。
 
 可安装构建产物 `artifacts/code-detective-ai-0.2.0.vsix`：在 VS Code 命令面板运行 **Extensions: Install from VSIX...**，选择安装包。
 
