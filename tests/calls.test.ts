@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractCallCandidates, maskCodeLines, planFocusHighlight } from '../src/core/calls';
+import {
+  extractCallCandidates,
+  extractSnippetSymbol,
+  inferEnclosingSymbol,
+  maskCodeLines,
+  planFocusHighlight,
+} from '../src/core/calls';
 import type { CodeMap } from '../shared/types';
 
 test('extractCallCandidates 识别普通调用、成员/可选链调用和 TS 泛型调用', () => {
@@ -156,4 +162,32 @@ test('planFocusHighlight 对纯守卫/状态语句保持原行范围且不误标
   assert.equal(plan.scopeLines, undefined);
   assert.deepEqual(plan.callTokens, []);
   assert.equal(plan.noteLine, 19);
+});
+
+test('inferEnclosingSymbol 与 extractSnippetSymbol 准确识别类方法与独立函数名', () => {
+  const fileLines = [
+    'export default class ExampleSession extends BaseSession {',
+    '  onConnect(url: string, params?: { [key: string]: any }): Promise<boolean> {',
+    '    return this.connectToRoom(url, params);',
+    '  }',
+    '  onReconnect(url: string): Promise<boolean> {',
+    '    const token = this.reconnectToken;',
+    '    return this.reconnectWith(url, token);',
+    '  }',
+    '}',
+    'export const helperFlow = async (id: string) => {',
+    '  return id;',
+    '};',
+  ];
+
+  assert.equal(inferEnclosingSymbol(fileLines, 2, 4), 'ExampleSession.onConnect');
+  assert.equal(inferEnclosingSymbol(fileLines, 5, 8), 'ExampleSession.onReconnect');
+  assert.equal(inferEnclosingSymbol(fileLines, 6, 7), 'ExampleSession.onReconnect');
+  assert.equal(inferEnclosingSymbol(fileLines, 10, 12), 'helperFlow');
+
+  assert.equal(
+    extractSnippetSymbol('  onReconnect(url: string): Promise<boolean> {\n    return true;\n  }'),
+    'onReconnect',
+  );
+  assert.equal(extractSnippetSymbol('  const cached = cache.get("bag");\n  if (cached) return cached;'), undefined);
 });

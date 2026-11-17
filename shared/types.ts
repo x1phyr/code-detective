@@ -5,9 +5,15 @@ export interface SourceRef {
   startLine: number;
   endLine: number;
   anchorText?: string;
+  /** Enclosing function or Class.method symbol name for this slice. */
+  symbol?: string;
+  /** Short branch/variant tag when this source is one of a node's parallel implementations. */
+  variantLabel?: string;
   /** One-line explanation shown beside the highlighted code (≤ 200 chars). */
   note?: string;
 }
+
+export type NodeSourceMode = 'slices' | 'variants';
 
 export interface MapNode {
   id: string;
@@ -20,6 +26,8 @@ export interface MapNode {
    * 有子节点的节点在脉络图上可原地展开为分组框（Compound Node），上下游保持同屏可见。
    */
   parent?: string;
+  /** Semantic role when a leaf node links multiple source slices. */
+  sourceMode?: NodeSourceMode;
   sourceIds: string[];
 }
 
@@ -29,12 +37,14 @@ export interface MapEdge {
   to: string;
   label?: string;
   description?: string;
-  kind?: 'call' | 'flow' | 'event' | 'related';
+  kind?: 'call' | 'delegated' | 'dispatch' | 'event' | 'flow' | 'related';
   /**
    * 分支条件，例如“未命中缓存”“校验失败”。写了 branch 的边是支线（异常、提前返回、重试等），
    * 默认折叠；不写的边是主干（正常路径），竖直排在中轴。
    */
   branch?: string;
+  /** Ordered intermediate pass-through source hops between `from` and `to`. */
+  via?: string[];
   sourceIds: string[];
 }
 

@@ -321,7 +321,13 @@ test('起始行恰好是最后一行时只裁剪 endLine', () => {
   const input = draft();
   input.sources.s2 = { file: 'src/bag-panel.ts', startLine: 4, endLine: 9 };
   const filled = fillAnchors(input, readDemo);
-  assert.deepEqual(filled.map.sources.s2, { file: 'src/bag-panel.ts', startLine: 4, endLine: 4, anchorText: 'export function renderBag() {}' });
+  assert.deepEqual(filled.map.sources.s2, {
+    file: 'src/bag-panel.ts',
+    startLine: 4,
+    endLine: 4,
+    anchorText: 'export function renderBag() {}',
+    symbol: 'renderBag',
+  });
   assert.deepEqual(filled.clamped, ['s2: 4-9 → 4-4']);
 });
 
@@ -492,4 +498,23 @@ test('全部节点都不可用时，错误里带上源码被丢掉的原因', as
     walkthrough: [{ id: 'w1', title: '一', nodeIds: ['n1'], edgeIds: [] }],
   });
   assert.throws(() => fillAnchors(draft, () => undefined), /s1: .*missing\.ts/);
+});
+
+test('fillAnchors 自动补全 symbol、保留 variantLabel/sourceMode，并校验过滤 edge.via', () => {
+  const input = draft();
+  input.sources.s1 = { file: 'src/bag-button.ts', startLine: 2, endLine: 2, variantLabel: '按钮触发' };
+  input.sources.hopBad = { file: 'src/missing.ts', startLine: 1, endLine: 1 };
+  input.nodes[0]!.sourceMode = 'variants';
+  input.edges[0]!.via = ['s2', 'hopBad'];
+  delete input.edges[0]!.kind;
+
+  const filled = fillAnchors(normalizeDraft(input), readDemo);
+  assert.equal(filled.map.sources.s1?.symbol, 'onBagClick');
+  assert.equal(filled.map.sources.s1?.variantLabel, '按钮触发');
+  assert.equal(filled.map.sources.s2?.symbol, 'openBag');
+  assert.equal(filled.map.nodes[0]!.sourceMode, 'variants');
+  assert.deepEqual(filled.map.edges[0]!.via, ['s2']);
+  assert.equal(filled.map.edges[0]!.kind, 'delegated');
+  assert.equal(filled.filteredRefs.some(r => r.includes('e1.via') && r.includes('hopBad')), true);
+  assert.doesNotThrow(() => parseMap(JSON.stringify(filled.map)));
 });

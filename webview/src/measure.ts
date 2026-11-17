@@ -2,6 +2,7 @@
  * 节点与连线标签的尺寸估算。
  */
 import type { MapNode } from '../../shared/types';
+import type { EffectiveSourceMode } from '../../src/core/selection';
 import { NODE_WIDTH, type Size } from './layout';
 
 /** 与 styles.css 中 .cd-node 的尺寸保持一致。 */
@@ -18,12 +19,15 @@ export const NODE_METRICS = {
   descLine: 16,
   descLines: 2,
   descGap: 3,
+  anchorFont: 11,
+  anchorLine: 15,
+  anchorGap: 3,
   footer: 20,
   footerGap: 6,
   edgeLabelFont: 11,
   edgeLabelLine: 16,
   edgeLabelPadding: 5,
-  edgeLabelMax: 160,
+  edgeLabelMax: 210,
 } as const;
 
 let context: CanvasRenderingContext2D | null | undefined;
@@ -66,17 +70,33 @@ export function lineCount(text: string, width: number, size: number, weight = 40
 export interface NodeShape {
   hasIcon: boolean;
   hasBadge: boolean;
+  hasAnchor: boolean;
   footer: boolean;
 }
 
 export function nodeShape(
   node: MapNode,
-  extras: { children: number; hidden: number; expanded: boolean; sources: number; warn: boolean; stepBadge?: string },
+  extras: {
+    children: number;
+    hidden: number;
+    expanded: boolean;
+    sources: number;
+    sourceMode: EffectiveSourceMode;
+    codeAnchor?: string;
+    warn: boolean;
+    stepBadge?: string;
+  },
 ): NodeShape {
   return {
     hasIcon: node.kind === 'event' || node.kind === 'condition' || node.kind === 'exit',
     hasBadge: Boolean(extras.stepBadge),
-    footer: extras.children > 0 || extras.hidden > 0 || extras.expanded || extras.sources > 1 || extras.warn,
+    hasAnchor: Boolean(extras.codeAnchor),
+    footer: extras.children > 0
+      || extras.hidden > 0
+      || extras.expanded
+      || extras.sourceMode === 'variants'
+      || (extras.sourceMode === 'chain' && extras.sources > 1)
+      || extras.warn,
   };
 }
 
@@ -89,13 +109,15 @@ export function nodeSize(node: MapNode, shape: NodeShape): Size {
   const height = 2 * (m.paddingY + m.border)
     + labelLines * m.labelLine
     + (descLines ? m.descGap + descLines * m.descLine : 0)
+    + (shape.hasAnchor ? m.anchorGap + m.anchorLine : 0)
     + (shape.footer ? m.footerGap + m.footer : 0);
   return { width: NODE_WIDTH, height: Math.ceil(height) };
 }
 
-export function edgeLabelSize(text: string | undefined): Size | undefined {
+export function edgeLabelSize(text: string | undefined, interactive = false): Size | undefined {
   if (!text) return undefined;
   const m = NODE_METRICS;
-  const width = Math.min(m.edgeLabelMax, Math.ceil(measure(text, m.edgeLabelFont)) + 2 * m.edgeLabelPadding);
-  return { width, height: m.edgeLabelLine };
+  const extra = interactive ? 20 : 0;
+  const width = Math.min(m.edgeLabelMax, Math.ceil(measure(text, m.edgeLabelFont)) + 2 * m.edgeLabelPadding + extra);
+  return { width, height: interactive ? 20 : m.edgeLabelLine };
 }

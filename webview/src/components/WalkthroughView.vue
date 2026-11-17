@@ -9,7 +9,7 @@ import type {
 } from '../../../shared/types';
 import { mainline, stepSource } from '../../../src/core/tour';
 import { extractCitationClick, renderMentorMarkdown } from '../markdown';
-import { statusTone } from '../model';
+import { formatSourceRange, sourceSymbol, statusTone } from '../model';
 import { t } from '../../../shared/i18n';
 
 const props = defineProps<{
@@ -44,6 +44,7 @@ function stepSourceInfo(step: WalkthroughStep): {
   shortFile: string;
   startLine: number;
   endLine: number;
+  symbol?: string;
   note?: string;
   tone: 'ok' | 'warn' | 'error' | 'idle';
 } | undefined {
@@ -61,6 +62,7 @@ function stepSourceInfo(step: WalkthroughStep): {
     shortFile: file.split('/').pop() ?? file,
     startLine,
     endLine,
+    symbol: sourceSymbol(ref),
     note: ref.note,
     tone: statusTone(status?.state),
   };
@@ -68,14 +70,14 @@ function stepSourceInfo(step: WalkthroughStep): {
 
 type StepSourceDisplay = NonNullable<ReturnType<typeof stepSourceInfo>>;
 
-function formatSourceLoc(info: StepSourceDisplay): string {
-  const range = info.endLine > info.startLine ? `${info.startLine}–${info.endLine}` : `${info.startLine}`;
-  return `${info.file}:${range}`;
+function formatSourceLoc(info: StepSourceDisplay, short = false): string {
+  return formatSourceRange(short ? info.shortFile : info.file, info.startLine, info.endLine, short);
 }
 
 function sourceBarTitle(info: StepSourceDisplay): string {
   const loc = formatSourceLoc(info);
-  return info.note ? `${loc} · ${info.note}\n${t('webview.jumpToCode')}` : `${loc}\n${t('webview.jumpToCode')}`;
+  const head = info.symbol ? `${info.symbol} · ${loc}` : loc;
+  return info.note ? `${head} · ${info.note}\n${t('webview.jumpToCode')}` : `${head}\n${t('webview.jumpToCode')}`;
 }
 
 function asidesFor(step: WalkthroughStep): WalkthroughStep[] {
@@ -171,7 +173,7 @@ watch(activeId, async id => {
                 class="cd-tl-loc"
                 :title="formatSourceLoc(stepSourceInfo(step)!)"
               >
-                {{ stepSourceInfo(step)!.shortFile }}:{{ stepSourceInfo(step)!.startLine }}
+                {{ formatSourceLoc(stepSourceInfo(step)!, true) }}
               </span>
             </span>
           </button>
@@ -187,10 +189,11 @@ watch(activeId, async id => {
               @click="emit('revealStepSource', { stepId: step.id, sourceId: stepSourceInfo(step)!.id })"
             >
               <span class="cd-dot" :class="stepSourceInfo(step)!.tone"></span>
-              <span class="cd-source-path">
+              <code v-if="stepSourceInfo(step)!.symbol" class="cd-source-sym" :title="stepSourceInfo(step)!.symbol">{{ stepSourceInfo(step)!.symbol }}</code>
+              <span class="cd-source-path" :title="formatSourceLoc(stepSourceInfo(step)!)">
                 <bdi>{{ formatSourceLoc(stepSourceInfo(step)!) }}</bdi>
               </span>
-              <span v-if="stepSourceInfo(step)!.note" class="cd-source-note">{{ stepSourceInfo(step)!.note }}</span>
+              <span v-if="stepSourceInfo(step)!.note" class="cd-source-note" :title="stepSourceInfo(step)!.note">{{ stepSourceInfo(step)!.note }}</span>
               <span class="codicon codicon-go-to-file cd-source-jump" aria-hidden="true"></span>
             </button>
 
@@ -263,10 +266,11 @@ watch(activeId, async id => {
                   @click="emit('revealStepSource', { stepId: openAsideFor(step)!.id, sourceId: stepSourceInfo(openAsideFor(step)!)!.id })"
                 >
                   <span class="cd-dot" :class="stepSourceInfo(openAsideFor(step)!)!.tone"></span>
-                  <span class="cd-source-path">
+                  <code v-if="stepSourceInfo(openAsideFor(step)!)!.symbol" class="cd-source-sym" :title="stepSourceInfo(openAsideFor(step)!)!.symbol">{{ stepSourceInfo(openAsideFor(step)!)!.symbol }}</code>
+                  <span class="cd-source-path" :title="formatSourceLoc(stepSourceInfo(openAsideFor(step)!)!)">
                     <bdi>{{ formatSourceLoc(stepSourceInfo(openAsideFor(step)!)!) }}</bdi>
                   </span>
-                  <span v-if="stepSourceInfo(openAsideFor(step)!)!.note" class="cd-source-note">{{ stepSourceInfo(openAsideFor(step)!)!.note }}</span>
+                  <span v-if="stepSourceInfo(openAsideFor(step)!)!.note" class="cd-source-note" :title="stepSourceInfo(openAsideFor(step)!)!.note">{{ stepSourceInfo(openAsideFor(step)!)!.note }}</span>
                   <span class="codicon codicon-go-to-file cd-source-jump" aria-hidden="true"></span>
                 </button>
                 <div v-if="openAsideFor(step)!.description" class="cd-mentor-prose" v-html="renderMentorMarkdown(openAsideFor(step)!.description)"></div>

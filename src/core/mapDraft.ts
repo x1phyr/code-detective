@@ -1,6 +1,7 @@
 import type { CodeMap, MapEdge, MapNode, SourceRef, StepNote, TourInfo, WalkthroughStep } from '../../shared/types';
 import { t } from '../../shared/i18n';
 import { sanitizeMapId } from '../ai/mapNaming';
+import { inferEnclosingSymbol } from './calls';
 import { isCanonicalRelativePath } from './paths';
 import { splitLines } from './text';
 import { MAP_LIMITS } from './validator';
@@ -11,7 +12,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
 const NODE_KINDS = new Set(['step', 'function', 'condition', 'event', 'exit']);
-const EDGE_KINDS = new Set(['call', 'flow', 'event', 'related']);
+const SOURCE_MODES = new Set(['slices', 'variants']);
+const EDGE_KINDS = new Set(['call', 'delegated', 'dispatch', 'event', 'flow', 'related']);
 const MAX_SHORT_TEXT = 200;
 const DECIMAL = /^\d+$/;
 
@@ -90,7 +92,13 @@ function sourceRef(raw: unknown, root?: string): Parsed<SourceRef> {
   if (startLine === undefined || endLine === undefined) return { reason: t('core.draftLinesNotPositive') };
   if (endLine < startLine) return { reason: t('core.draftEndBeforeStart') };
   const note = shortText(value.note);
-  return { item: note ? { file: value.file, startLine, endLine, note } : { file: value.file, startLine, endLine } };
+  const symbol = shortText(value.symbol);
+  const variantLabel = shortText(value.variantLabel);
+  const item: SourceRef = { file: value.file, startLine, endLine };
+  if (symbol) item.symbol = symbol;
+  if (variantLabel) item.variantLabel = variantLabel;
+  if (note) item.note = note;
+  return { item };
 }
 
 /** Keeps valid, unique ids; records the rest as filtered references. */
@@ -119,6 +127,9 @@ function node(value: unknown, report: NormalizeReport): Parsed<MapNode> {
   }
   const parent = validId(value.parent);
   if (parent && parent !== id) output.parent = parent;
+  if (typeof value.sourceMode === 'string' && SOURCE_MODES.has(value.sourceMode)) {
+    output.sourceMode = value.sourceMode as MapNode['sourceMode'];
+  }
   return { item: output };
 }
 
@@ -139,6 +150,11 @@ function edge(value: unknown, report: NormalizeReport): Parsed<MapEdge> {
   }
   const branch = shortText(value.branch);
   if (branch) output.branch = branch;
+  const via = idList(value.via, id, 'via', report);
+  if (via.length > 0) {
+    output.via = via;
+    if (!output.kind) output.kind = 'delegated';
+  }
   return { item: output };
 }
 
@@ -327,6 +343,8 @@ export const DRAFT_MAP_SCHEMA = {
           file: { type: 'string', description: '工作区相对路径，使用 / 分隔' },
           startLine: { type: 'integer', minimum: 1 },
           endLine: { type: 'integer', minimum: 1 },
+          symbol: { type: 'string', description: '所属函数或 类.方法 符号名（可选）' },
+          variantLabel: { type: 'string', description: '并列/多态实现的简短分支标签（可选）' },
           note: { type: 'string', description: '这段代码做了什么，一句话，不超过 200 字；会显示在代码首行行尾' },
         },
       },
@@ -344,6 +362,7 @@ export const DRAFT_MAP_SCHEMA = {
           description: { type: 'string' },
           kind: { enum: ['step', 'function', 'condition', 'event', 'exit'] },
           parent: { type: 'string', description: '所属顶层阶段分组（另一个顶层节点的 id，最多 1 层分组）' },
+          sourceMode: { enum: ['slices', 'variants'] },
           sourceIds: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -360,8 +379,9 @@ export const DRAFT_MAP_SCHEMA = {
           to: { type: 'string' },
           label: { type: 'string' },
           description: { type: 'string' },
-          kind: { enum: ['call', 'flow', 'event', 'related'] },
+          kind: { enum: ['call', 'delegated', 'dispatch', 'event', 'flow', 'related'] },
           branch: { type: 'string', description: '分支条件，例如“未命中缓存”；不写表示主干' },
+          via: { type: 'array', items: { type: 'string' }, description: '中间透传转发调用点的 sourceId 有序列表' },
           sourceIds: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -473,11 +493,14 @@ export function fillAnchors(
     if (to !== ref.endLine) {
       clamped.push(`${id}: ${ref.startLine}-${ref.endLine} → ${from}-${to}`);
     }
+    const symbol = ref.symbol ?? shortText(inferEnclosingSymbol(lines, from, to));
     sources.set(id, {
       file: ref.file,
       startLine: from,
       endLine: to,
       anchorText: lines.slice(from - 1, to).join('\n'),
+      ...(symbol ? { symbol } : {}),
+      ...(ref.variantLabel ? { variantLabel: ref.variantLabel } : {}),
       ...(ref.note ? { note: ref.note } : {}),
     });
   }
@@ -561,7 +584,15 @@ export function fillAnchors(
       continue;
     }
     edgeIds.add(edge.id);
-    edges.push({ ...edge, sourceIds: keep(edge.sourceIds, sources, edge.id, 'sourceIds', true) });
+    const via = edge.via ? keep(edge.via, sources, edge.id, 'via', true) : [];
+    const nextEdge: MapEdge = { ...edge, sourceIds: keep(edge.sourceIds, sources, edge.id, 'sourceIds', true) };
+    if (via.length > 0) {
+      nextEdge.via = via;
+      if (!nextEdge.kind) nextEdge.kind = 'delegated';
+    } else {
+      delete nextEdge.via;
+    }
+    edges.push(nextEdge);
   }
 
   if (nodes.length === 0) {

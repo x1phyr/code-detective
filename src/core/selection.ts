@@ -1,7 +1,24 @@
-import type { CodeMap, PeekTarget, Selection, SourceStatus, ViewState, ViewTab } from '../../shared/types';
+import type { CodeMap, MapNode, PeekTarget, Selection, SourceStatus, ViewState, ViewTab } from '../../shared/types';
+
+export type EffectiveSourceMode = 'none' | 'single' | 'slices' | 'variants' | 'chain';
 
 function uniqueSources(map: CodeMap, ids: readonly string[]): string[] {
   return [...new Set(ids)].filter(id => Object.hasOwn(map.sources, id));
+}
+
+/**
+ * Classifies how a leaf node's `sourceIds` relate to one another.
+ */
+export function classifyNodeSources(map: CodeMap, node: MapNode): EffectiveSourceMode {
+  const ownIds = uniqueSources(map, node.sourceIds);
+  if (ownIds.length === 0) return 'none';
+  if (node.sourceMode === 'variants' || ownIds.some(id => Boolean(map.sources[id]?.variantLabel))) {
+    return 'variants';
+  }
+  if (ownIds.length === 1) return 'single';
+  if (node.sourceMode === 'slices') return 'slices';
+  const files = new Set(ownIds.map(id => map.sources[id]?.file).filter(Boolean));
+  return files.size === 1 ? 'slices' : 'chain';
 }
 
 export function sourceIdsForSelection(map: CodeMap, selection?: Selection): string[] {
@@ -13,7 +30,9 @@ export function sourceIdsForSelection(map: CodeMap, selection?: Selection): stri
     return uniqueSources(map, [...node.sourceIds, ...childSources]);
   }
   if (selection.kind === 'edge') {
-    return uniqueSources(map, map.edges.find(edge => edge.id === selection.id)?.sourceIds ?? []);
+    const edge = map.edges.find(item => item.id === selection.id);
+    if (!edge) return [];
+    return uniqueSources(map, [...edge.sourceIds, ...(edge.via ?? [])]);
   }
   if (selection.kind === 'step') {
     const step = map.walkthrough?.find(item => item.id === selection.id);
@@ -23,7 +42,10 @@ export function sourceIdsForSelection(map: CodeMap, selection?: Selection): stri
     return uniqueSources(map, [
       ...(step.sourceId ? [step.sourceId] : []),
       ...step.nodeIds.flatMap(id => nodes.get(id)?.sourceIds ?? []),
-      ...step.edgeIds.flatMap(id => edges.get(id)?.sourceIds ?? []),
+      ...step.edgeIds.flatMap(id => {
+        const edge = edges.get(id);
+        return edge ? [...edge.sourceIds, ...(edge.via ?? [])] : [];
+      }),
     ]);
   }
   return [];
@@ -57,6 +79,18 @@ export function focusedSourceIds(map: CodeMap, ui?: ViewState): string[] {
   if (ui?.highlightEnabled === false) return [];
   const focus = activeFocusSelection(map, ui);
   if (!focus) return [];
+  if (focus.kind === 'node') {
+    const node = map.nodes.find(item => item.id === focus.id);
+    const hasChildren = node ? map.nodes.some(item => item.parent === node.id) : false;
+    if (node && !hasChildren && classifyNodeSources(map, node) === 'slices') {
+      const ownIds = uniqueSources(map, node.sourceIds);
+      const primary = ui?.sourceId && ownIds.includes(ui.sourceId) ? ui.sourceId : ownIds[0];
+      const primaryFile = primary ? map.sources[primary]?.file : undefined;
+      if (primary) {
+        return [primary, ...ownIds.filter(id => id !== primary && map.sources[id]?.file === primaryFile)];
+      }
+    }
+  }
   const candidates = sourceIdsForSelection(map, focus);
   if (ui?.sourceId && candidates.includes(ui.sourceId)) return [ui.sourceId];
   if (focus.kind === 'step') {

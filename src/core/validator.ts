@@ -182,6 +182,7 @@ export function parseMap(text: string): CodeMap {
     if (!nodeIds.has(edge.from)) fail(`/edges/${index}/from`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.from) }));
     if (!nodeIds.has(edge.to)) fail(`/edges/${index}/to`, t('core.edgeNodeNotFound', { id: JSON.stringify(edge.to) }));
     checkReferences(edge.sourceIds, sourceIds, `/edges/${index}/sourceIds`);
+    if (edge.via) checkReferences(edge.via, sourceIds, `/edges/${index}/via`);
   });
 
   if (!value.walkthrough.some(step => !step.aside)) {

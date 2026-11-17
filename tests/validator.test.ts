@@ -209,3 +209,29 @@ test('带读步骤必填且至少包含一条主线，parent 最多一层，支�
   }));
   assert.equal(withNotes.walkthrough[0]!.notes?.[0]?.id, 'n.1');
 });
+
+test('支持 symbol、variantLabel、sourceMode 与 edge.via 语义字段并校验悬空 via', () => {
+  const ok = parseMap(withChange(map => {
+    const firstKey = Object.keys(map.sources)[0]!;
+    map.sources[firstKey]!.symbol = 'bindBagButton';
+    map.sources[firstKey]!.variantLabel = '默认实现';
+    map.nodes[0]!.sourceMode = 'variants';
+    map.edges[0]!.kind = 'delegated';
+    map.edges[0]!.via = [firstKey];
+  }));
+  const firstKey = Object.keys(ok.sources)[0]!;
+  assert.equal(ok.sources[firstKey]!.symbol, 'bindBagButton');
+  assert.equal(ok.sources[firstKey]!.variantLabel, '默认实现');
+  assert.equal(ok.nodes[0]!.sourceMode, 'variants');
+  assert.equal(ok.edges[0]!.kind, 'delegated');
+  assert.deepEqual(ok.edges[0]!.via, [firstKey]);
+
+  assert.match(
+    codeOf(() => parseMap(withChange(map => { map.edges[0]!.via = ['missing-hop']; }))),
+    /missing-hop/,
+  );
+  assert.match(
+    codeOf(() => parseMap(withChange(map => { (map.nodes[0] as unknown as Record<string, unknown>).sourceMode = 'chain'; }))),
+    /slices|variants/,
+  );
+});

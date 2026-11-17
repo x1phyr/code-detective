@@ -9,6 +9,7 @@
       "file": "src/bag-button.ts",
       "startLine": 5,
       "endLine": 5,
+      "symbol": "bindBagButton",
       "anchorText": "    void openBagPanel();",
       "note": "点击回调调用 openBagPanel() 打开背包面板"
     },
@@ -16,6 +17,7 @@
       "file": "src/bag-panel.ts",
       "startLine": 10,
       "endLine": 10,
+      "symbol": "openBagPanel",
       "anchorText": "  await refreshList();",
       "note": "建好面板并加载资源后，调用 refreshList() 拉数渲染"
     },
@@ -23,6 +25,7 @@
       "file": "src/bag-panel.ts",
       "startLine": 24,
       "endLine": 26,
+      "symbol": "readItems",
       "anchorText": "  const items = await loadBag();\n  if (items.length > 0) return items;\n  return loadFallback();",
       "note": "调用 loadBag() 读取物品，空列表时回退 loadFallback()"
     },
@@ -30,6 +33,7 @@
       "file": "src/bag-repository.ts",
       "startLine": 6,
       "endLine": 8,
+      "symbol": "loadBag",
       "anchorText": "  const cached = cache.get('bag');\n  if (cached) return cached;\n  const response = await fetch('/api/bag');",
       "note": "先调 cache.get('bag') 查缓存，未命中则 fetch('/api/bag')"
     },
@@ -37,6 +41,7 @@
       "file": "src/bag-repository.ts",
       "startLine": 15,
       "endLine": 15,
+      "symbol": "loadFallback",
       "anchorText": "  return [];",
       "note": "接口返回空列表时的兜底空数据源"
     },
@@ -44,6 +49,7 @@
       "file": "src/bag-panel.ts",
       "startLine": 18,
       "endLine": 18,
+      "symbol": "refreshList",
       "anchorText": "  const items = await readItems();",
       "note": "先调用 readItems() 异步获取背包物品列表"
     },
@@ -51,6 +57,7 @@
       "file": "src/bag-panel.ts",
       "startLine": 30,
       "endLine": 31,
+      "symbol": "renderItem",
       "anchorText": "  const element = document.createElement('span');\n  element.textContent = `${item.id} × ${item.count}`;",
       "note": "创建 <span> 并写入 id × count 文本"
     },
@@ -58,6 +65,7 @@
       "file": "src/bag-panel.ts",
       "startLine": 19,
       "endLine": 20,
+      "symbol": "refreshList",
       "anchorText": "  if (!panel) return;\n  panel.replaceChildren(...items.map(item => renderItem(item)));",
       "note": "确认面板仍在后，对每个物品调用 renderItem() 批量替换子节点"
     }
@@ -86,6 +94,7 @@
       "label": "刷新列表 (refreshList)",
       "kind": "function",
       "description": "读数据，确认面板还在，再渲染。",
+      "sourceMode": "slices",
       "sourceIds": [
         "panel.refresh",
         "panel.guard"

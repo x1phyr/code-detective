@@ -200,7 +200,7 @@ function findCallClosing(
   maskedLines: readonly string[],
   lineIdx: number,
   openCol: number,
-): { endLineIdx: number; afterCloseText: string } | undefined {
+): { endLineIdx: number; closeCol: number; afterCloseText: string } | undefined {
   let depth = 0;
   for (let l = lineIdx; l < maskedLines.length; l += 1) {
     const line = maskedLines[l]!;
@@ -215,12 +215,240 @@ function findCallClosing(
           for (let k = l + 1; k < Math.min(maskedLines.length, l + 3); k += 1) {
             restParts.push(maskedLines[k]!);
           }
-          return { endLineIdx: l, afterCloseText: restParts.join('\n') };
+          return { endLineIdx: l, closeCol: c, afterCloseText: restParts.join('\n') };
         }
       }
     }
   }
   return undefined;
+}
+
+interface ScopeEntry {
+  name: string;
+  kind: 'class' | 'fn';
+  declLine: number;
+  depth: number;
+  opened: boolean;
+  /** Minimum `(lineIdx, col)` where the opening `{` of the scope body may appear. */
+  braceAfterLine: number;
+  braceAfterCol: number;
+}
+
+interface IndentScopeEntry {
+  name: string;
+  kind: 'class' | 'fn';
+  declLine: number;
+  indent: number;
+}
+
+const CLASS_DECL_RE = /^(?:export\s+)?(?:default\s+)?(?:(?:abstract|final|public|private|protected|internal|open|data|sealed)\s+)*(?:class|struct)\s+([A-Za-z_$][\w$]*)/;
+const IMPL_DECL_RE = /^(?:pub(?:\([^)]*\))?\s+)?impl(?:\s*<[^>]*>)?\s+(?:[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*\s+for\s+)?([A-Za-z_]\w*)/;
+const FN_DECL_RE = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\(/;
+const RUST_GO_FN_RE = /^(?:(?:pub(?:\([^)]*\))?|async|unsafe|extern(?:\s+"[^"]*")?)\s+)*(?:fn|func)\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*(?:<[^>]*>|\[[^\]]*\])?\s*\(/;
+const ARROW_FN_RE = /^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>\s*\{/;
+const METHOD_DECL_RE = /^(?:(?:public|private|protected|readonly|static|abstract|override|async|get|set)\s+)*([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\(/;
+const PY_CLASS_RE = /^class\s+([A-Za-z_]\w*)(?:\s*\([^)]*\))?\s*:\s*$/;
+const PY_DEF_RE = /^(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/;
+
+function findOpeningBracePosition(
+  maskedLines: readonly string[],
+  startLineIdx: number,
+  startCol: number,
+): { lineIdx: number; col: number } | undefined {
+  const limit = Math.min(maskedLines.length, startLineIdx + 3);
+  let angleDepth = 0;
+  for (let l = startLineIdx; l < limit; l += 1) {
+    const line = maskedLines[l]!;
+    const from = l === startLineIdx ? startCol : 0;
+    for (let c = from; c < line.length; c += 1) {
+      const ch = line[c]!;
+      if (ch === '<') angleDepth += 1;
+      else if (ch === '>' && angleDepth > 0) angleDepth -= 1;
+      else if (ch === '{') return { lineIdx: l, col: c };
+      else if ((ch === ';' || ch === '=') && angleDepth === 0) return undefined;
+    }
+  }
+  return undefined;
+}
+
+function detectBraceDecl(
+  maskedLines: readonly string[],
+  lineIdx: number,
+  hasActiveFn: boolean,
+): { name: string; kind: 'class' | 'fn'; braceLine: number; braceCol: number } | undefined {
+  const line = maskedLines[lineIdx]!;
+  const lead = line.length - line.trimStart().length;
+  const trimmed = line.slice(lead).trimEnd();
+  if (!trimmed) return undefined;
+
+  const classMatch = CLASS_DECL_RE.exec(trimmed) ?? IMPL_DECL_RE.exec(trimmed);
+  if (classMatch && !trimmed.endsWith(':')) {
+    const brace = findOpeningBracePosition(maskedLines, lineIdx, lead + classMatch[0].length);
+    if (brace) {
+      return { name: classMatch[1]!, kind: 'class', braceLine: brace.lineIdx, braceCol: brace.col };
+    }
+  }
+
+  const arrowMatch = ARROW_FN_RE.exec(trimmed);
+  if (arrowMatch) {
+    const braceOffset = line.indexOf('{', lead + arrowMatch[0].length - 1);
+    return { name: arrowMatch[1]!, kind: 'fn', braceLine: lineIdx, braceCol: Math.max(lead, braceOffset) };
+  }
+
+  const explicitFn = FN_DECL_RE.exec(trimmed) ?? RUST_GO_FN_RE.exec(trimmed);
+  if (explicitFn) {
+    const openCol = lead + explicitFn[0].length - 1;
+    const closed = findCallClosing(maskedLines, lineIdx, openCol);
+    if (closed) {
+      const brace = findOpeningBracePosition(maskedLines, closed.endLineIdx, closed.closeCol + 1);
+      if (brace) {
+        return { name: explicitFn[1]!, kind: 'fn', braceLine: brace.lineIdx, braceCol: brace.col };
+      }
+    }
+  }
+
+  if (!hasActiveFn) {
+    const methodMatch = METHOD_DECL_RE.exec(trimmed);
+    if (methodMatch) {
+      const name = methodMatch[1]!;
+      if (!NON_CALL_KEYWORDS.has(name) || name === 'constructor') {
+        const openCol = lead + methodMatch[0].length - 1;
+        const closed = findCallClosing(maskedLines, lineIdx, openCol);
+        if (closed) {
+          const brace = findOpeningBracePosition(maskedLines, closed.endLineIdx, closed.closeCol + 1);
+          if (brace) {
+            return { name, kind: 'fn', braceLine: brace.lineIdx, braceCol: brace.col };
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function formatQualifiedSymbol(scopes: readonly { name: string; kind: 'class' | 'fn' }[]): string | undefined {
+  let cls: string | undefined;
+  let fn: string | undefined;
+  for (const s of scopes) {
+    if (s.kind === 'class') cls = s.name;
+    else fn = s.name;
+  }
+  if (cls && fn) return `${cls}.${fn}`;
+  return fn ?? cls;
+}
+
+/**
+ * Infers the enclosing function or `Class.method` symbol covering `[startLine, endLine]` (1-based).
+ */
+export function inferEnclosingSymbol(
+  fileLines: readonly string[],
+  startLine: number,
+  endLine: number,
+): string | undefined {
+  if (fileLines.length === 0 || startLine < 1 || endLine < startLine) return undefined;
+  const maskedLines = maskCodeLines(fileLines);
+  const limit = Math.min(maskedLines.length, endLine);
+
+  let braceDepth = 0;
+  const scopes: ScopeEntry[] = [];
+  const indentScopes: IndentScopeEntry[] = [];
+  let pending: ScopeEntry | undefined;
+
+  let activeAtStart: string | undefined;
+  let firstDeclaredInRange: string | undefined;
+  let firstClassInRange: string | undefined;
+
+  for (let lineIdx = 0; lineIdx < limit; lineIdx += 1) {
+    const docLine = lineIdx + 1;
+    const masked = maskedLines[lineIdx]!;
+    const trimmed = masked.trim();
+
+    if (trimmed.length > 0) {
+      const indent = masked.length - masked.trimStart().length;
+      while (indentScopes.length > 0 && indent <= indentScopes.at(-1)!.indent) {
+        indentScopes.pop();
+      }
+    }
+
+    const activeScopesBefore = [...indentScopes, ...scopes];
+    const hasActiveFn = activeScopesBefore.some(s => s.kind === 'fn');
+
+    const pyClass = PY_CLASS_RE.exec(trimmed);
+    if (pyClass) {
+      const indent = masked.length - masked.trimStart().length;
+      indentScopes.push({ name: pyClass[1]!, kind: 'class', declLine: docLine, indent });
+      if (docLine >= startLine && docLine <= endLine && !firstClassInRange) {
+        firstClassInRange = formatQualifiedSymbol([...indentScopes, ...scopes]);
+      }
+    } else {
+      const pyDef = PY_DEF_RE.exec(trimmed);
+      if (pyDef && /:\s*$/.test(trimmed)) {
+        const indent = masked.length - masked.trimStart().length;
+        indentScopes.push({ name: pyDef[1]!, kind: 'fn', declLine: docLine, indent });
+        if (docLine >= startLine && docLine <= endLine && !firstDeclaredInRange) {
+          firstDeclaredInRange = formatQualifiedSymbol([...indentScopes, ...scopes]);
+        }
+      }
+    }
+
+    if (!pending) {
+      const decl = detectBraceDecl(maskedLines, lineIdx, hasActiveFn);
+      if (decl) {
+        pending = {
+          name: decl.name,
+          kind: decl.kind,
+          declLine: docLine,
+          depth: braceDepth + 1,
+          opened: false,
+          braceAfterLine: decl.braceLine,
+          braceAfterCol: decl.braceCol,
+        };
+        const candidateScopes = [...indentScopes, ...scopes, pending];
+        if (docLine >= startLine && docLine <= endLine) {
+          if (decl.kind === 'fn' && !firstDeclaredInRange) {
+            firstDeclaredInRange = formatQualifiedSymbol(candidateScopes);
+          } else if (decl.kind === 'class' && !firstClassInRange) {
+            firstClassInRange = formatQualifiedSymbol(candidateScopes);
+          }
+        }
+      }
+    }
+
+    if (docLine === startLine) {
+      const current = pending ? [...indentScopes, ...scopes, pending] : [...indentScopes, ...scopes];
+      activeAtStart = formatQualifiedSymbol(current);
+    }
+
+    for (let c = 0; c < masked.length; c += 1) {
+      const ch = masked[c]!;
+      if (ch === '{') {
+        braceDepth += 1;
+        if (pending && !pending.opened && (lineIdx > pending.braceAfterLine || (lineIdx === pending.braceAfterLine && c >= pending.braceAfterCol))) {
+          pending.depth = braceDepth;
+          pending.opened = true;
+          scopes.push(pending);
+          pending = undefined;
+        }
+      } else if (ch === '}') {
+        braceDepth = Math.max(0, braceDepth - 1);
+        while (scopes.length > 0 && scopes.at(-1)!.opened && braceDepth < scopes.at(-1)!.depth) {
+          scopes.pop();
+        }
+      }
+    }
+  }
+
+  return firstDeclaredInRange ?? activeAtStart ?? firstClassInRange;
+}
+
+/**
+ * Fallback symbol extraction from a source snippet's `anchorText` when `symbol` was not recorded.
+ */
+export function extractSnippetSymbol(anchorText: string | undefined): string | undefined {
+  if (!anchorText) return undefined;
+  const lines = anchorText.replace(/\r\n|\r|\n/g, '\n').split('\n');
+  return inferEnclosingSymbol(lines, 1, lines.length);
 }
 
 function isDeclarationAt(

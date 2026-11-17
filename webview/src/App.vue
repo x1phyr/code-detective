@@ -19,7 +19,7 @@ import type {
   ViewTab,
 } from '../../shared/types';
 import { DEFAULT_VIEW_STATE, sourceStateLabel } from '../../shared/types';
-import { activeFocusSelection, sourceIdsForSelection } from '../../src/core/selection';
+import { activeFocusSelection, classifyNodeSources, sourceIdsForSelection } from '../../src/core/selection';
 import { mainline, stepSource, stepsForNode } from '../../src/core/tour';
 import { projectCompoundGraph, visibleRepresentative, type LevelEdge } from '../../src/core/hierarchy';
 import { t } from '../../shared/i18n';
@@ -32,7 +32,19 @@ import ComposerPanel from './components/ComposerPanel.vue';
 import QaDrawer from './components/QaDrawer.vue';
 import { computeLayout, type LayoutResult } from './layout';
 import { edgeLabelSize, nodeShape, nodeSize } from './measure';
-import { edgeText, formatStepBadge, relatedSelection, statusTone } from './model';
+import {
+  buildCallTrace,
+  buildVariantItems,
+  edgeBadge,
+  formatNodeAnchor,
+  formatSourceRange,
+  formatStepBadge,
+  relatedSelection,
+  sourceSymbol,
+  statusTone,
+  type CallTraceItem,
+  type VariantItem,
+} from './model';
 
 const props = defineProps<{ host: HostBridge }>();
 
@@ -61,10 +73,15 @@ const qaExchanges = ref<QaExchange[]>([]);
 const composeDraft = ref<ComposeDraftPayload>({ open: false });
 const standaloneMap = ref(false);
 
+type GraphPopover =
+  | { mode: 'callTrace'; levelEdgeId: string; edgeId: string; x: number; y: number }
+  | { mode: 'variants'; nodeId: string; x: number; y: number }
+  | { mode: 'sources'; kind: 'node' | 'edge'; id: string; x: number; y: number };
+
 const notice = ref<{ message: string; severity: string }>();
 const layout = shallowRef<LayoutResult>({ nodes: {}, groups: {}, edges: {} });
 const layoutMap = shallowRef<CodeMap>();
-const sourceMenu = ref<{ kind: 'node' | 'edge'; id: string; x: number; y: number }>();
+const popover = ref<GraphPopover>();
 const ready = ref(false);
 const canvasEl = ref<HTMLElement | null>(null);
 const flow = useVueFlow('code-detective-map');
@@ -152,11 +169,14 @@ function badgeForNode(current: CodeMap, nodeId: string, includeChildren: boolean
 
 function nodeExtras(current: CodeMap, node: CodeMap['nodes'][number], proj: NonNullable<typeof projection.value>) {
   const children = proj.groupChildCounts.get(node.id) ?? 0;
+  const mode = classifyNodeSources(current, node);
   return {
     children,
     hidden: proj.hiddenBranches.get(node.id) ?? 0,
     expanded: expandedBranches.value.has(node.id),
     sources: node.sourceIds.length,
+    sourceMode: mode,
+    codeAnchor: formatNodeAnchor(current, node, statuses.value, children > 0, mode),
     warn: node.sourceIds.some(id => {
       const state = statuses.value[id]?.state;
       return state !== undefined && state !== 'pending' && state !== 'matched';
@@ -218,27 +238,34 @@ const flowNodes = computed<Node[]>(() => {
 });
 
 const flowEdges = computed<Edge[]>(() => {
+  const current = layoutMap.value;
   const proj = projection.value;
-  if (!proj) return [];
+  if (!current || !proj) return [];
   const chosen = focusSel.value;
-  return proj.edges.map((edge: LevelEdge) => ({
-    id: edge.id,
-    source: edge.from,
-    target: edge.to,
-    type: 'detective',
-    zIndex: 1,
-    markerEnd: 'url(#cd-arrow)',
-    data: {
-      edge: edge.edge,
-      merged: edge.edgeIds.length,
-      branch: edge.branch,
-      label: edgeText(edge),
-      route: layout.value.edges[edge.id],
-      active: chosen?.kind === 'edge' && edge.edgeIds.includes(chosen.id),
-      related: related.value.edges.has(edge.id),
-      dimmed: Boolean(chosen) && !related.value.edges.has(edge.id),
-    },
-  }));
+  return proj.edges.map((edge: LevelEdge) => {
+    const badge = edgeBadge(current, edge);
+    return {
+      id: edge.id,
+      source: edge.from,
+      target: edge.to,
+      type: 'detective',
+      zIndex: 1,
+      markerEnd: 'url(#cd-arrow)',
+      data: {
+        edge: edge.edge,
+        merged: edge.edgeIds.length,
+        bridgeHops: badge.bridgeHops,
+        kind: badge.kind,
+        branch: edge.branch,
+        interactive: badge.interactive,
+        label: badge.text,
+        route: layout.value.edges[edge.id],
+        active: chosen?.kind === 'edge' && edge.edgeIds.includes(chosen.id),
+        related: related.value.edges.has(edge.id),
+        dimmed: Boolean(chosen) && !related.value.edges.has(edge.id),
+      },
+    };
+  });
 });
 
 /** Info for the non-destructive Peek Banner on the call graph. */
@@ -284,7 +311,7 @@ function showNotice(message: string, severity = 'info'): void {
 
 function switchTab(tab: ViewTab): void {
   composeDraft.value = { open: false };
-  sourceMenu.value = undefined;
+  popover.value = undefined;
   if (tab === 'walkthrough') {
     post('ui.patch', { activeTab: 'walkthrough', peek: null });
   } else {
@@ -335,7 +362,7 @@ function onComposerSubmit(payload: {
 }
 
 function gotoStep(stepId: string): void {
-  sourceMenu.value = undefined;
+  popover.value = undefined;
   composeDraft.value = { open: false };
   post('tour.goto', { stepId });
 }
@@ -383,39 +410,102 @@ function pointer(event: MouseEvent | TouchEvent): { x: number; y: number } {
   return { x: (point?.clientX ?? 0) - (box?.left ?? 0), y: (point?.clientY ?? 0) - (box?.top ?? 0) };
 }
 
-function peekAndReveal(kind: 'node' | 'edge', id: string, at?: { x: number; y: number }): void {
-  post('ui.patch', { peek: { kind, id } });
-  sourceMenu.value = undefined;
+function inspectNode(nodeId: string, at?: { x: number; y: number }, forceVariants = false): void {
   const current = map.value;
-  const ids = current ? sourceIdsForSelection(current, { kind, id }) : [];
+  if (!current) return;
+  const node = current.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  post('ui.patch', { peek: { kind: 'node', id: nodeId } });
+
+  const hasChildren = (projection.value?.groupChildCounts.get(nodeId) ?? 0) > 0;
+  const mode = classifyNodeSources(current, node);
+  const ids = sourceIdsForSelection(current, { kind: 'node', id: nodeId });
+
+  if (!hasChildren && (forceVariants || mode === 'variants') && ids.length > 0) {
+    popover.value = at ? { mode: 'variants', nodeId, ...at } : undefined;
+    const preferred = ui.value.sourceId && node.sourceIds.includes(ui.value.sourceId)
+      ? ui.value.sourceId
+      : node.sourceIds[0] ?? ids[0]!;
+    post('source.reveal', { targetKind: 'node', targetId: nodeId, sourceId: preferred });
+    return;
+  }
+
+  if (!hasChildren && (mode === 'single' || mode === 'slices') && ids.length > 0) {
+    popover.value = undefined;
+    post('source.reveal', { targetKind: 'node', targetId: nodeId, sourceId: ids[0]! });
+    return;
+  }
+
   if (ids.length === 1) {
-    post('source.reveal', { targetKind: kind, targetId: id, sourceId: ids[0]! });
+    popover.value = undefined;
+    post('source.reveal', { targetKind: 'node', targetId: nodeId, sourceId: ids[0]! });
   } else if (ids.length > 1 && at) {
-    sourceMenu.value = { kind, id, ...at };
+    popover.value = { mode: 'sources', kind: 'node', id: nodeId, ...at };
   } else if (ids.length > 1) {
-    post('source.reveal', { targetKind: kind, targetId: id, sourceId: ids[0]! });
+    popover.value = undefined;
+    post('source.reveal', { targetKind: 'node', targetId: nodeId, sourceId: ids[0]! });
+  } else {
+    popover.value = undefined;
+  }
+}
+
+function inspectEdge(levelEdgeId: string, at?: { x: number; y: number }): void {
+  const current = map.value;
+  const projEdge = projection.value?.edges.find(item => item.id === levelEdgeId);
+  const edgeId = projEdge?.edgeIds[0] ?? levelEdgeId;
+  post('ui.patch', { peek: { kind: 'edge', id: edgeId } });
+  if (!current) return;
+
+  const rawEdge = projEdge?.edge ?? current.edges.find(item => item.id === edgeId);
+  const viaCount = rawEdge?.via?.filter(id => Object.hasOwn(current.sources, id)).length ?? 0;
+  const isMerged = (projEdge?.edgeIds.length ?? 0) > 1;
+  const isBridge = isMerged || viaCount > 0 || rawEdge?.kind === 'delegated';
+
+  if (isBridge && at) {
+    popover.value = { mode: 'callTrace', levelEdgeId, edgeId, ...at };
+    const firstHop = rawEdge?.via?.find(id => Object.hasOwn(current.sources, id)) ?? rawEdge?.sourceIds[0];
+    if (firstHop) {
+      post('source.reveal', { targetKind: 'edge', targetId: edgeId, sourceId: firstHop });
+    }
+    return;
+  }
+
+  const ids = sourceIdsForSelection(current, { kind: 'edge', id: edgeId });
+  if (ids.length === 1) {
+    popover.value = undefined;
+    post('source.reveal', { targetKind: 'edge', targetId: edgeId, sourceId: ids[0]! });
+  } else if (ids.length > 1 && at) {
+    popover.value = { mode: 'sources', kind: 'edge', id: edgeId, ...at };
+  } else if (ids.length > 1) {
+    popover.value = undefined;
+    post('source.reveal', { targetKind: 'edge', targetId: edgeId, sourceId: ids[0]! });
+  } else {
+    popover.value = undefined;
   }
 }
 
 function onNodeClick(event: { node: { id: string; type?: string }; event: MouseEvent | TouchEvent }): void {
   if (event.node.type === 'group' || event.node.id.startsWith('group:')) return;
-  peekAndReveal('node', event.node.id, pointer(event.event));
+  inspectNode(event.node.id, pointer(event.event));
 }
 
 function onEdgeClick(event: { edge: { id: string }; event: MouseEvent | TouchEvent }): void {
-  const edge = projection.value?.edges.find(item => item.id === event.edge.id);
-  peekAndReveal('edge', edge?.edgeIds[0] ?? event.edge.id, pointer(event.event));
+  inspectEdge(event.edge.id, pointer(event.event));
+}
+
+function onEdgeInspect(payload: { id: string; event: MouseEvent }): void {
+  inspectEdge(payload.id, pointer(payload.event));
 }
 
 function onPaneClick(): void {
-  sourceMenu.value = undefined;
+  popover.value = undefined;
   if (ui.value.peek) {
     post('ui.patch', { peek: null });
   }
 }
 
 function clearPeek(): void {
-  sourceMenu.value = undefined;
+  popover.value = undefined;
   post('ui.patch', { peek: null });
 }
 
@@ -433,9 +523,10 @@ function toggleBranches(id: string): void {
   post('ui.patch', { expandedBranchIds: [...next] });
 }
 
-function onNodeAction(action: { type: 'expandGroup' | 'branches'; id: string }): void {
+function onNodeAction(action: { type: 'expandGroup' | 'branches' | 'variants'; id: string; event?: MouseEvent }): void {
   if (action.type === 'expandGroup') toggleGroup(action.id);
-  else toggleBranches(action.id);
+  else if (action.type === 'branches') toggleBranches(action.id);
+  else inspectNode(action.id, action.event ? pointer(action.event) : undefined, true);
 }
 
 // Viewport management
@@ -534,36 +625,82 @@ watch(canvasEl, element => {
 });
 
 const menuStyle = computed(() => {
-  const menu = sourceMenu.value;
-  if (!menu) return {};
+  const pop = popover.value;
+  if (!pop) return {};
   const { width, height } = canvasSize.value;
-  const menuWidth = Math.min(280, Math.max(180, width - 16));
-  const left = Math.max(8, Math.min(menu.x, width - menuWidth - 8));
-  const below = menu.y + 8 < height * 0.6;
+  const menuWidth = Math.min(336, Math.max(180, width - 16));
+  const left = Math.max(8, Math.min(pop.x, width - menuWidth - 8));
+  const below = pop.y + 8 < height * 0.58;
   return below
-    ? { left: `${left}px`, top: `${menu.y + 8}px` }
-    : { left: `${left}px`, bottom: `${Math.max(8, height - menu.y + 8)}px` };
+    ? { left: `${left}px`, top: `${pop.y + 8}px` }
+    : { left: `${left}px`, bottom: `${Math.max(8, height - pop.y + 8)}px` };
 });
 
 function sourceLocation(id: string): string {
   const ref = map.value?.sources[id];
   const file = statuses.value[id]?.file ?? ref?.file ?? id;
-  const line = statuses.value[id]?.startLine ?? ref?.startLine;
-  return line ? `${file.split('/').pop()}:${line}` : file;
+  const start = statuses.value[id]?.startLine ?? ref?.startLine;
+  const end = statuses.value[id]?.endLine ?? ref?.endLine;
+  return formatSourceRange(file, start, end, true);
 }
 
-const menuSources = computed(() => {
-  const menu = sourceMenu.value;
+const callTraceView = computed<{ title: string; items: CallTraceItem[] } | undefined>(() => {
+  const pop = popover.value;
   const current = map.value;
-  if (!menu || !current) return [];
-  return sourceIdsForSelection(current, { kind: menu.kind, id: menu.id });
+  if (!pop || pop.mode !== 'callTrace' || !current) return undefined;
+  const projEdge = projection.value?.edges.find(item => item.id === pop.levelEdgeId);
+  const fallbackEdge = current.edges.find(item => item.id === pop.edgeId);
+  const levelEdge = projEdge ?? (fallbackEdge
+    ? { id: fallbackEdge.id, from: fallbackEdge.from, to: fallbackEdge.to, edgeIds: [fallbackEdge.id], edge: fallbackEdge, branch: Boolean(fallbackEdge.branch) }
+    : undefined);
+  if (!levelEdge) return undefined;
+  const items = buildCallTrace(current, statuses.value, levelEdge);
+  if (items.length === 0) return undefined;
+  const hopCount = items.filter(item => item.role === 'hop').length;
+  const title = levelEdge.edgeIds.length > 1
+    ? t('webview.callTraceMergedTitle', { count: levelEdge.edgeIds.length })
+    : t('webview.callTraceTitle', { count: Math.max(hopCount, levelEdge.edge.via?.length ?? 0) });
+  return { title, items };
 });
 
+const variantsView = computed<{ nodeId: string; title: string; items: VariantItem[] } | undefined>(() => {
+  const pop = popover.value;
+  const current = map.value;
+  if (!pop || pop.mode !== 'variants' || !current) return undefined;
+  const node = current.nodes.find(n => n.id === pop.nodeId);
+  if (!node) return undefined;
+  const items = buildVariantItems(current, statuses.value, node);
+  if (items.length === 0) return undefined;
+  return { nodeId: node.id, title: t('webview.variantsTitle'), items };
+});
+
+const menuSources = computed(() => {
+  const pop = popover.value;
+  const current = map.value;
+  if (!pop || pop.mode !== 'sources' || !current) return [];
+  return sourceIdsForSelection(current, { kind: pop.kind, id: pop.id });
+});
+
+function openCallTraceItem(item: CallTraceItem): void {
+  const currentPeek = ui.value.peek;
+  if (!currentPeek || currentPeek.kind !== item.targetKind || currentPeek.id !== item.targetId) {
+    post('ui.patch', { peek: { kind: item.targetKind, id: item.targetId } });
+  }
+  post('source.reveal', { targetKind: item.targetKind, targetId: item.targetId, sourceId: item.sourceId });
+}
+
+function openVariantItem(nodeId: string, sourceId: string): void {
+  const currentPeek = ui.value.peek;
+  if (!currentPeek || currentPeek.kind !== 'node' || currentPeek.id !== nodeId) {
+    post('ui.patch', { peek: { kind: 'node', id: nodeId } });
+  }
+  post('source.reveal', { targetKind: 'node', targetId: nodeId, sourceId });
+}
+
 function openSourceFromMenu(sourceId: string): void {
-  const menu = sourceMenu.value;
-  sourceMenu.value = undefined;
-  if (menu) {
-    post('source.reveal', { targetKind: menu.kind, targetId: menu.id, sourceId });
+  const pop = popover.value;
+  if (pop && pop.mode === 'sources') {
+    post('source.reveal', { targetKind: pop.kind, targetId: pop.id, sourceId });
   }
 }
 
@@ -581,13 +718,16 @@ async function prepareLayout(current: CodeMap): Promise<void> {
       id: g.node.id,
       childIds: g.childIds,
     })),
-    edges: proj.edges.map(edge => ({
-      id: edge.id,
-      from: edge.from,
-      to: edge.to,
-      branch: edge.branch,
-      label: edgeLabelSize(edgeText(edge)),
-    })),
+    edges: proj.edges.map(edge => {
+      const badge = edgeBadge(current, edge);
+      return {
+        id: edge.id,
+        from: edge.from,
+        to: edge.to,
+        branch: edge.branch,
+        label: edgeLabelSize(badge.text, badge.interactive),
+      };
+    }),
   });
   if (generation !== layoutGeneration) return;
   layout.value = positions;
@@ -611,7 +751,7 @@ watch(
       cancelViewportPatch();
       ready.value = false;
       layoutMap.value = undefined;
-      sourceMenu.value = undefined;
+      popover.value = undefined;
       initialView = { key, viewport: current.ui.viewport };
       mountViewport = current.ui.viewport ?? { x: 0, y: 0, zoom: 1 };
       props.host.saveState({ mapKey: key });
@@ -891,6 +1031,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
               :target-position="edgeProps.targetPosition"
               :marker-end="edgeProps.markerEnd"
               :data="edgeProps.data"
+              @inspect="onEdgeInspect"
             />
           </template>
           <Background :gap="24" :size="1.2" color="var(--cd-canvas-dot)" />
@@ -902,21 +1043,109 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
           <p>{{ t('webview.preparingBody') }}</p>
         </div>
 
-        <!--Multi-source disambiguation popup-->
+        <!--Call Trace Popover for Delegated Call-Bridge & Merged Edges-->
+        <div
+          v-if="callTraceView"
+          class="cd-popup cd-popover call-trace"
+          role="dialog"
+          :aria-label="callTraceView.title"
+          :style="menuStyle"
+        >
+          <div class="cd-popover-head">
+            <span class="codicon codicon-call-outgoing" aria-hidden="true"></span>
+            <span class="cd-popover-title" :title="callTraceView.title">{{ callTraceView.title }}</span>
+            <button type="button" class="cd-icon-button cd-popover-close" :title="t('webview.popoverClose')" @click="popover = undefined">
+              <span class="codicon codicon-close" aria-hidden="true"></span>
+            </button>
+          </div>
+          <ol class="cd-trace-hops">
+            <li v-for="item in callTraceView.items" :key="item.key" class="cd-trace-hop" :class="[`role-${item.role}`, { chosen: ui.sourceId === item.sourceId }]">
+              <button type="button" class="cd-hop-btn" @click="openCallTraceItem(item)">
+                <span class="cd-hop-rail" aria-hidden="true">
+                  <span class="cd-dot" :class="item.tone"></span>
+                  <span class="cd-hop-line"></span>
+                </span>
+                <span class="cd-hop-body">
+                  <span class="cd-hop-meta">
+                    <span class="cd-hop-role" :class="`role-${item.role}`">{{ item.roleLabel }}</span>
+                    <code v-if="item.symbol" class="cd-hop-sym" :title="item.symbol">{{ item.symbol }}</code>
+                  </span>
+                  <strong v-if="item.note" class="cd-hop-note">{{ item.note }}</strong>
+                  <small :title="item.titleAttr"><bdi>{{ item.location }}</bdi></small>
+                </span>
+              </button>
+            </li>
+          </ol>
+        </div>
+
+        <!--Parallel / Polymorphic Implementations Switcher-->
+        <div
+          v-else-if="variantsView"
+          class="cd-popup cd-popover variants"
+          role="dialog"
+          :aria-label="variantsView.title"
+          :style="menuStyle"
+        >
+          <div class="cd-popover-head">
+            <span class="codicon codicon-type-hierarchy-sub" aria-hidden="true"></span>
+            <span class="cd-popover-title" :title="variantsView.title">{{ variantsView.title }}</span>
+            <button type="button" class="cd-icon-button cd-popover-close" :title="t('webview.popoverClose')" @click="popover = undefined">
+              <span class="codicon codicon-close" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="cd-variant-tabs" role="tablist">
+            <button
+              v-for="item in variantsView.items"
+              :key="item.sourceId"
+              type="button"
+              role="tab"
+              class="cd-variant-tab"
+              :class="{ chosen: ui.sourceId === item.sourceId }"
+              :aria-selected="ui.sourceId === item.sourceId"
+              @click="openVariantItem(variantsView.nodeId, item.sourceId)"
+            >
+              <span class="cd-dot" :class="item.tone"></span>
+              <span>{{ item.tag }}</span>
+            </button>
+          </div>
+          <ul class="cd-variant-list">
+            <li v-for="item in variantsView.items" :key="item.sourceId">
+              <button
+                type="button"
+                class="cd-source"
+                :class="{ chosen: ui.sourceId === item.sourceId }"
+                @click="openVariantItem(variantsView.nodeId, item.sourceId)"
+              >
+                <span class="cd-dot" :class="item.tone"></span>
+                <span class="cd-source-text">
+                  <span class="cd-hop-meta">
+                    <span class="cd-hop-role role-hop">{{ item.tag }}</span>
+                    <code v-if="item.symbol" class="cd-hop-sym" :title="item.symbol">{{ item.symbol }}</code>
+                  </span>
+                  <strong v-if="item.note">{{ item.note }}</strong>
+                  <small :title="item.titleAttr"><bdi>{{ item.location }}</bdi></small>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!--Multi-source fallback disambiguation popup-->
         <ul
-          v-if="sourceMenu && menuSources.length"
+          v-else-if="popover?.mode === 'sources' && menuSources.length"
           class="cd-popup"
           role="menu"
           :style="menuStyle"
         >
-          <li class="cd-popup-title" role="presentation">{{ t('webview.chooseSource') }}</li>
+          <li class="cd-popup-title" role="presentation">{{ t('webview.linkedSourcesTitle', { count: menuSources.length }) }}</li>
           <li v-for="id in menuSources" :key="id" role="none">
             <button role="menuitem" class="cd-source" :class="{ chosen: ui.sourceId === id }" @click="openSourceFromMenu(id)">
               <span class="cd-dot" :class="statusTone(statuses[id]?.state)"></span>
               <span class="cd-source-text">
+                <code v-if="sourceSymbol(map?.sources[id])" class="cd-hop-sym" :title="sourceSymbol(map?.sources[id])">{{ sourceSymbol(map?.sources[id]) }}</code>
                 <strong>{{ map?.sources[id]?.note || sourceLocation(id) }}</strong>
-                <small v-if="map?.sources[id]?.note" :title="`${statuses[id]?.file ?? map?.sources[id]?.file}:${statuses[id]?.startLine ?? map?.sources[id]?.startLine} · ${labelFor(statuses[id])}`">
-                  <bdi>{{ statuses[id]?.file ?? map?.sources[id]?.file }}:{{ statuses[id]?.startLine ?? map?.sources[id]?.startLine }}</bdi>
+                <small :title="`${statuses[id]?.file ?? map?.sources[id]?.file}:${statuses[id]?.startLine ?? map?.sources[id]?.startLine} · ${labelFor(statuses[id])}`">
+                  <bdi>{{ formatSourceRange(statuses[id]?.file ?? map?.sources[id]?.file ?? id, statuses[id]?.startLine ?? map?.sources[id]?.startLine, statuses[id]?.endLine ?? map?.sources[id]?.endLine) }}</bdi>
                 </small>
               </span>
             </button>

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type Position } from '@vue-flow/core';
 import type { EdgeData } from '../model';
 import { roundedPath } from '../layout';
+import { t } from '../../../shared/i18n';
 
 const props = defineProps<{
   id: string;
@@ -15,6 +16,10 @@ const props = defineProps<{
   data?: EdgeData;
   markerEnd?: string;
   selected?: boolean;
+}>();
+
+const emit = defineEmits<{
+  inspect: [{ id: string; event: MouseEvent }];
 }>();
 
 /**
@@ -49,7 +54,18 @@ const state = computed(() => ({
   related: props.data?.related,
   dimmed: props.data?.dimmed,
   branch: props.data?.branch,
+  delegated: (props.data?.bridgeHops ?? 0) > 0 || props.data?.kind === 'delegated',
+  dispatch: props.data?.kind === 'dispatch',
+  event: props.data?.kind === 'event',
 }));
+
+const labelTitle = computed(() => {
+  if (!props.data?.label) return undefined;
+  if ((props.data.bridgeHops ?? 0) > 0) {
+    return `${props.data.label}\n${t('webview.edgeBridgeTooltip', { count: props.data.bridgeHops })}`;
+  }
+  return props.data.label;
+});
 </script>
 
 <template>
@@ -61,7 +77,29 @@ const state = computed(() => ({
     :class="['cd-edge', state]"
   />
   <EdgeLabelRenderer v-if="data?.label">
+    <button
+      v-if="data.interactive"
+      type="button"
+      class="cd-edge-label interactive nodrag nopan"
+      :class="[state, { bridge: data.bridgeHops > 0 }]"
+      :title="labelTitle"
+      :style="{ transform: `translate(-50%, -50%) translate(${geometry.x}px, ${geometry.y}px)` }"
+      @click.stop="emit('inspect', { id, event: $event })"
+    >
+      <span
+        v-if="data.bridgeHops > 0 || data.kind === 'delegated'"
+        class="codicon codicon-call-outgoing"
+        aria-hidden="true"
+      ></span>
+      <span
+        v-else-if="data.merged > 1"
+        class="codicon codicon-git-merge"
+        aria-hidden="true"
+      ></span>
+      <span>{{ data.label }}</span>
+    </button>
     <div
+      v-else
       class="cd-edge-label"
       :class="state"
       :title="data.label"

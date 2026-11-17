@@ -9,6 +9,7 @@
       "file": "src/login-controller.ts",
       "startLine": 7,
       "endLine": 8,
+      "symbol": "onSubmit",
       "anchorText": "  const problem = validateForm(form);\n  if (problem) return showError(problem);",
       "note": "第 1 步调用 validateForm(form) 校验输入，失败提前返回"
     },
@@ -16,6 +17,7 @@
       "file": "src/login-controller.ts",
       "startLine": 10,
       "endLine": 11,
+      "symbol": "onSubmit",
       "anchorText": "  const result = await authenticate(form.username, form.password);\n  if (!result.ok) return showError(result.reason);",
       "note": "第 2 步调用 authenticate() 远程认证，失败转入 showError()"
     },
@@ -23,6 +25,7 @@
       "file": "src/login-controller.ts",
       "startLine": 13,
       "endLine": 13,
+      "symbol": "onSubmit",
       "anchorText": "  return routeAfterLogin(result.user);",
       "note": "第 3 步认证通过，调用 routeAfterLogin() 决定落地页"
     },
@@ -30,6 +33,7 @@
       "file": "src/login-controller.ts",
       "startLine": 17,
       "endLine": 18,
+      "symbol": "showError",
       "anchorText": "  console.warn(`[login] ${message}`);\n  return { error: message };",
       "note": "所有失败分支汇入此处打印告警并返回 { error }"
     },
@@ -37,6 +41,7 @@
       "file": "src/validate.ts",
       "startLine": 5,
       "endLine": 7,
+      "symbol": "validateForm",
       "anchorText": "  if (!form.username.trim()) return '请输入用户名';\n  if (form.password.length < 8) return '密码至少 8 位';\n  if (needsCaptcha(form.username) && !form.captcha) return '请输入验证码';",
       "note": "顺序检查必填项，并调用 needsCaptcha() 校验验证码门槛"
     },
@@ -44,6 +49,7 @@
       "file": "src/validate.ts",
       "startLine": 18,
       "endLine": 18,
+      "symbol": "recordFailure",
       "anchorText": "  failures.set(username, (failures.get(username) ?? 0) + 1);",
       "note": "认证失败时调用 failures.set() 累加错误次数"
     },
@@ -51,6 +57,7 @@
       "file": "src/auth-service.ts",
       "startLine": 11,
       "endLine": 13,
+      "symbol": "authenticate",
       "anchorText": "  const token = await requestToken(username, password);\n  if (typeof token !== 'string') {\n    recordFailure(username);",
       "note": "未命中缓存时调用 requestToken()，失败则调 recordFailure()"
     },
@@ -58,6 +65,7 @@
       "file": "src/auth-service.ts",
       "startLine": 8,
       "endLine": 9,
+      "symbol": "authenticate",
       "anchorText": "  const cached = tokenCache.get(username);\n  if (cached) return { ok: true, user: await loadProfile(cached) };",
       "note": "先调 tokenCache.get() 查缓存，命中直接调 loadProfile()"
     },
@@ -65,6 +73,7 @@
       "file": "src/auth-service.ts",
       "startLine": 22,
       "endLine": 26,
+      "symbol": "requestToken",
       "anchorText": "    const response = await fetch('/api/login', {\n      method: 'POST',\n      body: JSON.stringify({ username, password }),\n    });\n    if (response.ok) return ((await response.json()) as { token: string }).token;",
       "note": "调用 fetch('/api/login') 请求登录，成功即解析返回 token"
     },
@@ -72,6 +81,7 @@
       "file": "src/auth-service.ts",
       "startLine": 27,
       "endLine": 28,
+      "symbol": "requestToken",
       "anchorText": "    if (response.status === 401) return { reason: '用户名或密码错误' };\n    if (response.status === 423) return { reason: '账号已锁定，请联系管理员' };",
       "note": "401 / 423 属于确定性拒绝，立即终止不重试"
     },
@@ -79,6 +89,7 @@
       "file": "src/auth-service.ts",
       "startLine": 29,
       "endLine": 31,
+      "symbol": "requestToken",
       "anchorText": "    await delay(200 * 2 ** attempt);\n  }\n  return { reason: '服务暂时不可用，请稍后再试' };",
       "note": "网络或 5xx 错误按指数退避重试，3 次耗尽返回不可用"
     },
@@ -86,6 +97,7 @@
       "file": "src/auth-service.ts",
       "startLine": 16,
       "endLine": 17,
+      "symbol": "authenticate",
       "anchorText": "  tokenCache.set(username, token);\n  return { ok: true, user: await loadProfile(token) };",
       "note": "缓存新 Token 并调用 loadProfile() 拉取用户状态"
     },
@@ -93,6 +105,7 @@
       "file": "src/router.ts",
       "startLine": 4,
       "endLine": 6,
+      "symbol": "routeAfterLogin",
       "anchorText": "  if (user.mustChangePassword) return { page: '/account/password' };\n  if (user.firstLogin) return { page: '/onboarding' };\n  return { page: redirectTarget() ?? '/home' };",
       "note": "按改密 > 首次引导 > redirectTarget() 的优先级决定去向"
     }
@@ -103,6 +116,7 @@
       "label": "提交登录 (onSubmit)",
       "kind": "event",
       "description": "串起本地校验、远程认证、路由分发三阶段。",
+      "sourceMode": "slices",
       "sourceIds": ["ctl.submit", "ctl.auth", "ctl.route"]
     },
     {

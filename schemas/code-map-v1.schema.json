@@ -78,6 +78,8 @@
         "startLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "endLine": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "anchorText": { "type": "string" },
+        "symbol": { "$ref": "#/definitions/shortText" },
+        "variantLabel": { "$ref": "#/definitions/shortText" },
         "note": { "$ref": "#/definitions/shortText", "description": "这段代码做了什么，一句话；定位到该段代码时显示在首行行尾" }
       }
     },
@@ -91,6 +93,7 @@
         "description": { "type": "string" },
         "kind": { "enum": ["step", "function", "condition", "event", "exit"] },
         "parent": { "$ref": "#/definitions/id", "description": "所属顶层阶段分组（另一个顶层节点的 id，最多 1 层分组）" },
+        "sourceMode": { "enum": ["slices", "variants"] },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
     },
@@ -104,8 +107,9 @@
         "to": { "$ref": "#/definitions/id" },
         "label": { "$ref": "#/definitions/nonEmptyText" },
         "description": { "type": "string" },
-        "kind": { "enum": ["call", "flow", "event", "related"] },
+        "kind": { "enum": ["call", "delegated", "dispatch", "event", "flow", "related"] },
         "branch": { "$ref": "#/definitions/shortText", "description": "分支条件；写了即为支线（默认折叠），不写为主干" },
+        "via": { "$ref": "#/definitions/sourceIds" },
         "sourceIds": { "$ref": "#/definitions/sourceIds" }
       }
     },
