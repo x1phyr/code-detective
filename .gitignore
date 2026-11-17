@@ -4,3 +4,15 @@ artifacts/
 .vscode-test/
 .DS_Store
 *.log
+
+# Local credentials and generated maps from the developer's own workspace.
+.env
+.env.*
+!.env.example
+.npmrc
+.netrc
+*.pem
+*.key
+/.code-detective/
+/.vscode/settings.json
+*.code-workspace

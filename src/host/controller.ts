@@ -33,7 +33,7 @@ import { t } from '../../shared/i18n';
 
 const VIEW_TYPE = 'codeDetective.mapView';
 const MAP_PANEL_TYPE = 'codeDetective.mapPanel';
-const HELP_URL = 'https://github.com/x1phyr/code-detective#地图格式';
+const HELP_URL = 'https://github.com/x1phyr/code-detective#讲义-json-格式schema-v1';
 
 function isAccepted(record: MapRecord | undefined): record is AcceptedMap {
   return record !== undefined && record.map !== undefined && record.revision !== undefined;

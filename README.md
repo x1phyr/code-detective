@@ -36,28 +36,34 @@
 
 ## 多通道 AI 引擎与非 VS Code 兼容
 
-插件核心体验全部收敛在侧边栏导师面板与本地 Agent 体系中，在 **Cursor、Windsurf、Trae、Antigravity IDE、VSCodium** 等非官方 VS Code 分支中同样可完整使用。若宿主编辑器不支持 `@detective`（`vscode.chat`）或 `vscode.lm`，插件会自动跳过聊天参与者注册，并由侧边栏内嵌 Agent 驱动生成与追问。
+插件核心体验收敛在侧边栏导师面板与本地 Agent 体系中。**Cursor、Windsurf、Trae、Antigravity IDE、VSCodium** 等兼容编辑器可通过 VSIX 尝试安装；各分支的安装策略和 API 支持不同，需分别验证。若宿主编辑器不支持 `@detective`（`vscode.chat`）或 `vscode.lm`，插件会跳过聊天参与者注册，并由侧边栏内嵌 Agent 驱动生成与追问。
 
 内置引擎按 **`copilot` → `agy` → `codex` → `claude`** 顺位排序；未显式固定引擎时，自动探测 PATH（含 macOS/Linux 常见桌面安装目录如 `~/.local/bin`、`/opt/homebrew/bin`）并选中首个可用引擎：
 
 | 顺位 | 引擎 | `codeDetective.ai.agent` | 说明 |
 | --- | --- | --- | --- |
-| 1（默认） | GitHub Copilot | `copilot` | 优先调用本机 `copilot` CLI（`-p -s --allow-all-tools --deny-tool write --deny-tool shell`）；VS Code 内未装 CLI 时无缝回退到 `vscode.lm` 语言模型 API（VS Code 中亦支持 `@detective`） |
-| 2 | Antigravity (`agy`) | `agy` | `agy -p --output-format stream-json --disable-slash-commands`，支持实时工具足迹与 `--conversation` 会话续接 |
+| 1（默认） | GitHub Copilot | `copilot` | 优先调用本机 `copilot` CLI（`-s --no-ask-user --allow-all-tools --deny-tool write --deny-tool shell`，`stdin` 传入提示词）；VS Code 内未装 CLI 时无缝回退到 `vscode.lm` 语言模型 API（VS Code 中亦支持 `@detective`） |
+| 2 | Antigravity (`agy`) | `agy` | `agy --output-format stream-json`（`stdin` 传入提示词），支持实时工具足迹与 `--conversation` 会话续接 |
 | 3 | Codex CLI | `codex` | `codex exec --json --sandbox read-only --skip-git-repo-check`，只读沙箱探索与 `codex exec resume` 续接 |
 | 4 | Claude Code | `claude` | `claude -p --output-format stream-json --verbose --allowedTools Read,Grep,Glob,LS`，支持实时工具足迹与 `--resume` 同会话修正/追问 |
 | 扩展 | 自定义 CLI | `<custom-id>` | 在 `codeDetective.ai.cli.agents` 中声明 `{ id, label, command, args }` |
 
-所有 CLI 调用均通过 `stdin` 传递提示词且 `shell: false`，只开放只读工具，绝不修改工作区文件。
+所有 CLI 调用均通过 `stdin` 传递提示词且 `shell: false`。Copilot、Codex 和 Claude 的内置参数限制了写入或可用工具；Antigravity 与自定义 CLI 的权限取决于其自身配置。
+
+### 数据与隐私
+
+AI 生成功能会把主题、提问和相关源码上下文交给所选 AI 引擎，由该引擎按自身账户与服务规则处理；使用本机 CLI 不代表模型在本机离线运行。使用前请确认所选引擎适合处理当前工作区代码。插件自身未实现独立遥测上报。
+
+讲义、源码锚点与保存的问答笔记会写入工作区的 `.code-detective/maps/`，其中可能包含项目名称和源码片段。提交自己的业务项目或分享讲义前，请检查这些文件。
 
 ## 讲义 JSON 格式（Schema v1）
 
 讲义保存在 `.code-detective/maps/<id>.json`（Schema 见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）：
 
-- `sources`：`file`（工作区规范相对路径）、`startLine`、`endLine`，可选 `anchorText`（整行锚点文本，代码行号漂移时自动重定位）与 `note`（首行行尾批注）。
+- `sources`：`file`（工作区规范相对路径）、`startLine`、`endLine`，可选 `anchorText`（整行锚点文本，代码行号漂移时自动重定位）、`note`（首行行尾批注）、`symbol`（所属函数或类方法）、`variantLabel`（并列实现标签）。
 - `walkthrough`（必填，至少 1 条主线步骤）：每步包含 `id`、`title`、`nodeIds`、`edgeIds`，推荐填写 `sourceId`、`description`、`why`、`watch`、`skip`、`example`；`aside: true` 表示支线岔路（由主线步骤的 `branches` 引用）；`notes` 保存用户沉淀的问答笔记。
 - `tour`：可选的全局导读设定：`example`（贯穿案例）、`recap`（复盘总结）、`exercise`（课后小练习）。
-- `nodes` / `edges`：6–15 个函数/模块级粗粒度节点与调用连线；可选 `parent` 指向顶层阶段节点（最多允许 1 层阶段分组），可选 `branch` 标记异常/旁路分支（默认收起为 `+N`）。
+- `nodes` / `edges`：6–15 个函数/模块级粗粒度节点与调用连线；可选 `parent` 指向顶层阶段节点（最多允许 1 层阶段分组），可选 `branch` 标记异常/旁路分支（默认收起为 `+N`）。节点用 `sourceMode: "slices" | "variants"` 区分同函数切片与并列实现；连线可用 `kind: "delegated"` 和有序 `via` 来源列表表达中间转发层，点击后查看完整调用链。
 
 完整示例可参考 [login-demo.json](examples/login-demo/.code-detective/maps/login-demo.json) 与 [bag-demo.json](examples/bag-demo/.code-detective/maps/bag-demo.json)。
 
