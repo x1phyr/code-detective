@@ -1,71 +1,96 @@
-# 代码侦探 🕵️ Code Detective
+<p align="center">
+  <img src="media/icon.png" alt="Code Detective Logo" width="112" height="112">
+</p>
 
-像一位熟手同事坐在你旁边，手把手带你读懂一段代码：**叙事化带读讲义为主角、粗粒度全景脉络图为辅助、VS Code 源码编辑器保持干净通透。**
+# Code Detective · 代码侦探
 
-要求 VS Code **1.95 或以上**，支持桌面版本的本地工作区。
+**从一个函数出发，读懂整条调用链。**
 
-## 核心交互设计
+AI-powered code walkthroughs, call graphs, and contextual Q&A in VS Code.
 
-1. **📖 手风琴式带读主线（默认侧边栏视图）**
-   - 顶部提供**贯穿案例**（例如“alice 输错 3 次密码后再登录”），用一条真实业务数据串起整条调用链。
-   - 主线步骤垂直排布成手风琴时间轴：一次只展开当前精讲的一步，讲清**这段在做什么、为什么这样设计（Why）、容易踩的坑（Watch）、哪些细节可以先跳过（Skip）**。
-   - **🔀 内嵌岔路（Aside）**：异常分支、退避重试、缓存兜底等支线以胶囊按钮挂在主线步骤下，点开就地阅读，收起即回主线，绝不迷路。
-   - 走完最后一步给出**全局复盘与动手小练习**，检验是否真正读懂。
-2. **🧼 干净克制的源码编辑器 + 柔和双向跟随**
-   - 所有讲解、岔路、笔记与追问全部收敛在左侧导师面板中，**不在代码行间塞入评论框破坏代码排版**。
-   - 编辑器内**仅高亮当前步骤（或脉络图临时窥探）对应的唯一代码段**，并在首行末尾附上一句简短行内批注（`← ...`）。
-   - 当你在编辑器里自由翻看代码时，侧栏静默标出 `📍 光标在此` 并在底栏给出轻提示（可一键切到对应步骤或回到本步代码），绝不强抢你的阅读进度。
-3. **💬 流式向老手追问 + 沉淀为笔记或新岔路**
-   - 底部常驻追问框，在编辑器里框选一段代码后提问会自动附带选区上下文。
-   - AI 流式输出回答，实时展示正在检索/阅读的文件足迹；回答中的 `` `path/file.ts:line` `` 渲染为可点击按钮，一键跳到对应源码行。
-   - 有价值的解答可一键**存为本步笔记**或**存为新岔路**，直接持久化写回 `.code-detective/maps/<id>.json`。
-4. **🗺️ 粗粒度调用脉络图（原地展开分组 + 独立宽屏页签）**
-   - 聚焦函数/模块级粗粒度骨架（最多 1 层阶段分组 `parent`），分组框基于 ELK Compound Layout **原地展开/收起**，上下游始终同屏可见。
-   - 节点右上角标注关联的带读步号徽章（如 `#1`、`#3–4`）；点击节点或连线触发**非破坏性源码窥探（Peek）**，不会冲掉你当前的带读进度；点标题栏 `↗` 可在独立编辑器页签中宽屏查看全景脉络图。
-5. **✨ 就地发起带读与实时探索足迹**
-   - 在任意函数或代码行上右键选择 **代码侦探：从此处开始带读**，自动锚定当前文件、行号与函数符号，在侧栏内嵌发起框里补充一句想搞懂的问题即可生成。
-   - 生成过程中实时滚动展示 AI 搜索与阅读源码的足迹流。
+Code Detective 把源码组织成可逐步阅读的带读讲义：在侧栏了解当前步骤，点击跳转到真实源码，遇到不懂的地方直接追问，再用调用脉络图确认全局位置。
 
-## 快速上手
+[快速开始](#快速开始) · [AI 引擎](#ai-引擎) · [数据与隐私](#数据与隐私) · [开发与验证](#开发与验证)
 
-1. 安装构建产物 `artifacts/code-detective-0.2.0.vsix`（`Extensions: Install from VSIX...`），或按 `F5` 启动调试宿主窗口。
-2. 打开示例工作区 `examples/login-demo` 或 `examples/bag-demo`。
-3. 点击左侧活动栏的 **代码侦探** 图标打开导师带读面板：
-   - 顶部书架下拉框可切换已有带读讲义，支持 `+ 新建`、`↻ 重生成`（原位覆盖更新）与 `🗑 删除`。
-   - 快捷键 `⌥[` / `⌥]`（Windows / Linux 为 `Alt+[` / `Alt+]`）可快速切换上一步 / 下一步。
+![分步带读讲义与源码联动](media/screenshots/walkthrough.jpg)
 
-## 多通道 AI 引擎与非 VS Code 兼容
+*先读主线，再回到对应源码。截图来自仓库登录示例的浏览器预览，使用合成数据。*
 
-插件核心体验收敛在侧边栏导师面板与本地 Agent 体系中。**Cursor、Windsurf、Trae、Antigravity IDE、VSCodium** 等兼容编辑器可通过 VSIX 尝试安装；各分支的安装策略和 API 支持不同，需分别验证。若宿主编辑器不支持 `@detective`（`vscode.chat`）或 `vscode.lm`，插件会跳过聊天参与者注册，并由侧边栏内嵌 Agent 驱动生成与追问。
+## 它能帮你做什么
 
-内置引擎按 **`copilot` → `agy` → `codex` → `claude`** 顺位排序；未显式固定引擎时，自动探测 PATH（含 macOS/Linux 常见桌面安装目录如 `~/.local/bin`、`/opt/homebrew/bin`）并选中首个可用引擎：
+- **接手陌生模块**：从入口函数出发，理解后续调用、关键判断与异常分支。
+- **读懂复杂调用链**：结合步骤讲解与源码定位，查看中间转发层和并列实现。
+- **把理解留下来**：将追问中的解答保存为步骤笔记或岔路，方便之后重读。
 
-| 顺位 | 引擎 | `codeDetective.ai.agent` | 说明 |
-| --- | --- | --- | --- |
-| 1（默认） | GitHub Copilot | `copilot` | 优先调用本机 `copilot` CLI（`-s --no-ask-user --allow-all-tools --deny-tool write --deny-tool shell`，`stdin` 传入提示词）；VS Code 内未装 CLI 时无缝回退到 `vscode.lm` 语言模型 API（VS Code 中亦支持 `@detective`） |
-| 2 | Antigravity (`agy`) | `agy` | `agy --output-format stream-json`（`stdin` 传入提示词），支持实时工具足迹与 `--conversation` 会话续接 |
-| 3 | Codex CLI | `codex` | `codex exec --json --sandbox read-only --skip-git-repo-check`，只读沙箱探索与 `codex exec resume` 续接 |
-| 4 | Claude Code | `claude` | `claude -p --output-format stream-json --verbose --allowedTools Read,Grep,Glob,LS`，支持实时工具足迹与 `--resume` 同会话修正/追问 |
-| 扩展 | 自定义 CLI | `<custom-id>` | 在 `codeDetective.ai.cli.agents` 中声明 `{ id, label, command, args }` |
+| 阅读过程 | Code Detective 的支持 |
+| --- | --- |
+| 先弄清主线 | 分步带读讲义，说明这一步做什么、为什么这样设计、要留意什么 |
+| 回到真实代码 | 跳转并高亮对应源码；自由浏览时提示光标关联的步骤 |
+| 看懂全局关系 | 调用脉络图、可展开的阶段分组、跨层转发调用链与并列实现切换 |
+| 追问细节 | 流式问答可附带编辑器选区，回答中的源码引用可点击跳转 |
+| 验证理解 | 贯穿案例、主线外的岔路、全局复盘与动手小练习 |
 
-所有 CLI 调用均通过 `stdin` 传递提示词且 `shell: false`。Copilot、Codex 和 Claude 的内置参数限制了写入或可用工具；Antigravity 与自定义 CLI 的权限取决于其自身配置。
+界面支持中文和英文；生成讲义与追问回答的语言会跟随你的主题或问题。
 
-### 数据与隐私
+<details>
+<summary>查看浅色主题与内嵌岔路</summary>
 
-AI 生成功能会把主题、提问和相关源码上下文交给所选 AI 引擎，由该引擎按自身账户与服务规则处理；使用本机 CLI 不代表模型在本机离线运行。使用前请确认所选引擎适合处理当前工作区代码。插件自身未实现独立遥测上报。
+![浅色主题中的岔路讲解与对应源码](media/screenshots/aside-light.jpg)
 
-讲义、源码锚点与保存的问答笔记会写入工作区的 `.code-detective/maps/`，其中可能包含项目名称和源码片段。提交自己的业务项目或分享讲义前，请检查这些文件。
+岔路就在当前步骤内展开，源码同步定位；读完收起即可继续主线。此图同样来自仓库示例的浏览器预览。
 
-## 讲义 JSON 格式（Schema v1）
+</details>
 
-讲义保存在 `.code-detective/maps/<id>.json`（Schema 见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）：
+## 快速开始
 
-- `sources`：`file`（工作区规范相对路径）、`startLine`、`endLine`，可选 `anchorText`（整行锚点文本，代码行号漂移时自动重定位）、`note`（首行行尾批注）、`symbol`（所属函数或类方法）、`variantLabel`（并列实现标签）。
-- `walkthrough`（必填，至少 1 条主线步骤）：每步包含 `id`、`title`、`nodeIds`、`edgeIds`，推荐填写 `sourceId`、`description`、`why`、`watch`、`skip`、`example`；`aside: true` 表示支线岔路（由主线步骤的 `branches` 引用）；`notes` 保存用户沉淀的问答笔记。
-- `tour`：可选的全局导读设定：`example`（贯穿案例）、`recap`（复盘总结）、`exercise`（课后小练习）。
-- `nodes` / `edges`：6–15 个函数/模块级粗粒度节点与调用连线；可选 `parent` 指向顶层阶段节点（最多允许 1 层阶段分组），可选 `branch` 标记异常/旁路分支（默认收起为 `+N`）。节点用 `sourceMode: "slices" | "variants"` 区分同函数切片与并列实现；连线可用 `kind: "delegated"` 和有序 `via` 来源列表表达中间转发层，点击后查看完整调用链。
+需要 **VS Code 1.95+**、已信任的桌面本地工作区。阅读已有讲义不需要 AI；生成新讲义和追问需要配置下方任一 AI 引擎及其可用账户。
 
-完整示例可参考 [login-demo.json](examples/login-demo/.code-detective/maps/login-demo.json) 与 [bag-demo.json](examples/bag-demo/.code-detective/maps/bag-demo.json)。
+### 1. 安装并打开项目
+
+扩展安装标识为 **`x1phyr.code-detective-ai`**，显示名称仍为 **Code Detective · 代码侦探**。
+
+可安装构建产物 `artifacts/code-detective-ai-0.2.0.vsix`：在 VS Code 命令面板运行 **Extensions: Install from VSIX...**，选择安装包。
+
+想先体验示例，可以克隆本仓库后，用 VS Code 打开 `examples/login-demo` 或 `examples/bag-demo`，从左侧 **代码侦探** 面板选择已有讲义。
+
+### 2. 从你想读懂的地方发起
+
+在项目中的函数或代码行上右键，选择 **代码侦探：从此处开始带读**，补充一个具体问题，例如：
+
+> 从登录按钮点击开始，带我看表单校验、认证请求和页面跳转的完整流程。
+
+选择 AI 引擎并生成讲义；过程中可以看到检索与阅读源码的足迹。
+
+### 3. 跟着主线阅读，随时追问
+
+打开一个步骤，查看讲解和对应源码。需要全局视角时切到脉络图；遇到细节问题时，在底部追问框提问，或先选中代码再提问。
+
+- 用 `Alt+[` / `Alt+]` 切换上一步、下一步（macOS 为 `⌥[` / `⌥]`）。
+- 点开步骤下的岔路了解异常或旁路，阅读后返回主线。
+- 将有价值的解答保存为本步笔记或新岔路。
+- 从标题栏打开独立页签，宽屏查看调用脉络图。
+
+## AI 引擎
+
+在命令面板运行 **代码侦探：选择 AI 引擎**。本机 CLI 需事先安装、登录，且可被编辑器进程找到；插件不会代为安装 CLI。
+
+| 引擎 | 设置值 `codeDetective.ai.agent` | 使用方式 |
+| --- | --- | --- |
+| GitHub Copilot | `copilot` | 优先使用本机 Copilot CLI；VS Code 中无 CLI 时可回退到可用的 Copilot 语言模型 |
+| Antigravity | `agy` | 使用本机 `agy` CLI，支持流式足迹与会话续接 |
+| Codex | `codex` | 使用本机 Codex CLI，通过只读沙箱探索源码 |
+| Claude Code | `claude` | 使用本机 Claude Code CLI，限制为只读工作区工具 |
+
+未显式固定引擎时，按 `copilot → agy → codex → claude` 顺序探测可用引擎。也可以通过 `codeDetective.ai.cli.agents` 配置自定义 CLI。
+
+在支持 Copilot Chat 的 VS Code 中，还可使用 `@detective /map` 生成讲义。Cursor、Windsurf、Trae、Antigravity IDE、VSCodium 等兼容编辑器可尝试通过 VSIX 安装，具体安装策略和 API 支持需要分别验证。
+
+## 数据与隐私
+
+- AI 功能会将主题、问题及相关源码上下文交给所选引擎，按该引擎的账户与服务规则处理。**使用本机 CLI 不代表模型在本机离线运行。**
+- 插件自身未实现独立遥测上报。
+- 讲义、源码锚点和保存的问答写入工作区的 `.code-detective/maps/`。这些文件可能包含项目名称与源码片段，提交或分享前请检查内容。
+- 所有 CLI 通过 `stdin` 接收提示词，使用 `shell: false` 调用。Copilot、Codex 与 Claude 的内置参数限制了写入或可用工具；Antigravity 和自定义 CLI 的权限取决于其自身配置。
 
 ## 常用命令
 
@@ -80,7 +105,26 @@ AI 生成功能会把主题、提问和相关源码上下文交给所选 AI 引�
 | `代码侦探: 选择 AI 引擎` / `取消 AI 任务` | 切换 AI 引擎或中止进行中的任务 |
 | `代码侦探: 复制 AI 带读生成提示词` | 复制完整 Schema 提示词给任意外部 AI |
 
+## 讲义 JSON 格式（Schema v1）
+
+<details>
+<summary>手写讲义或接入其他工具时，查看协议与示例</summary>
+
+讲义保存在 `.code-detective/maps/<id>.json`（Schema 见 [schemas/code-map-v1.schema.json](schemas/code-map-v1.schema.json)）：
+
+- `sources`：`file`（工作区规范相对路径）、`startLine`、`endLine`，可选 `anchorText`（整行锚点文本，代码行号漂移时自动重定位）、`note`（首行行尾批注）、`symbol`（所属函数或类方法）、`variantLabel`（并列实现标签）。
+- `walkthrough`（必填，至少 1 条主线步骤）：每步包含 `id`、`title`、`nodeIds`、`edgeIds`，推荐填写 `sourceId`、`description`、`why`、`watch`、`skip`、`example`；`aside: true` 表示支线岔路（由主线步骤的 `branches` 引用）；`notes` 保存用户沉淀的问答笔记。
+- `tour`：可选的全局导读设定：`example`（贯穿案例）、`recap`（复盘总结）、`exercise`（课后小练习）。
+- `nodes` / `edges`：6–15 个函数/模块级粗粒度节点与调用连线；可选 `parent` 指向顶层阶段节点（最多允许 1 层阶段分组），可选 `branch` 标记异常/旁路分支（默认收起为 `+N`）。节点用 `sourceMode: "slices" | "variants"` 区分同函数切片与并列实现；连线可用 `kind: "delegated"` 和有序 `via` 来源列表表达中间转发层，点击后查看完整调用链。
+
+完整示例可参考 [login-demo.json](examples/login-demo/.code-detective/maps/login-demo.json) 与 [bag-demo.json](examples/bag-demo/.code-detective/maps/bag-demo.json)。
+
+</details>
+
 ## 开发与验证
+
+<details>
+<summary>本地构建、调试与目录结构</summary>
 
 需要 Node.js **22.12+** 与 npm：
 
@@ -88,7 +132,7 @@ AI 生成功能会把主题、提问和相关源码上下文交给所选 AI 引�
 npm ci
 npm run check        # 类型检查 + 单元测试 + 生产构建
 npm run dev          # 浏览器内交互预览（默认 login-demo，加 ?map=bag 切换背包示例）
-npm run package      # 打包 artifacts/code-detective-0.2.0.vsix
+npm run package      # 打包 artifacts/code-detective-ai-0.2.0.vsix
 ```
 
 | 目录 | 职责 |
@@ -99,6 +143,8 @@ npm run package      # 打包 artifacts/code-detective-0.2.0.vsix
 | `src/host/` | 侧栏与独立页签控制器、克制高亮、光标跟踪、流式答疑沉淀、Copilot 引擎与 Chat 集成 |
 | `webview/src/` | Vue 3 导师面板（`WalkthroughView`、`ComposerPanel`、`QaDrawer`、ELK 复合脉络图与安全 Markdown 引用渲染） |
 | `tests/` | 单元测试与 Extension Host 集成测试 |
+
+</details>
 
 ## 许可证
 

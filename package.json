@@ -1,9 +1,10 @@
 {
-  "name": "code-detective",
+  "name": "code-detective-ai",
   "displayName": "%displayName%",
   "description": "%description%",
   "version": "0.2.0",
   "publisher": "x1phyr",
+  "icon": "media/icon.png",
   "private": true,
   "license": "MIT",
   "repository": {
